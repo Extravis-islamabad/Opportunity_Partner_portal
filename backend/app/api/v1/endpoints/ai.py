@@ -7,7 +7,7 @@ fallback, summarize/rescore return 503 with a clear message.
 import hashlib
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user
 from app.core.exceptions import NotFoundException
+from app.core.rate_limit import limiter
 from app.core.redis import redis_client
 from app.models.kb_document import KBDocument
 from app.models.opportunity import Opportunity
@@ -96,7 +97,9 @@ async def _retrieve_kb_docs(db: AsyncSession, question: str, limit: int = 5) -> 
 
 
 @router.post("/kb-ask", response_model=KbAskResponse)
+@limiter.limit("10/minute")
 async def kb_ask(
+    request: Request,
     payload: KbAskRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -166,7 +169,9 @@ def _summary_cache_key(opp_id: int, updated_at) -> str:
 
 
 @router.post("/opportunities/{opp_id}/summarize", response_model=OpportunitySummaryResponse)
+@limiter.limit("20/minute")
 async def summarize_opportunity(
+    request: Request,
     opp_id: int,
     _admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -223,7 +228,9 @@ class RescoreResponse(BaseModel):
 
 
 @router.post("/opportunities/{opp_id}/rescore", response_model=RescoreResponse)
+@limiter.limit("20/minute")
 async def rescore_opportunity(
+    request: Request,
     opp_id: int,
     _admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
