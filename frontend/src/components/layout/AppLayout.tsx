@@ -119,24 +119,34 @@ const AppLayout: React.FC = () => {
     }
   };
 
-  // Theme-aware colors. Sider always stays dark (like an app shell) but the
-  // header + content follow the algorithm so the rest of the app is readable
-  // in both modes.
-  const siderBg = isDark ? '#0b0e14' : '#001529';
-  const siderBorder = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.1)';
+  // Theme-aware colors. Sider always uses brand nav-dark navy in both light and
+  // dark modes (rule 1: nav background is always #1c1c3a).
+  const siderBg = '#1c1c3a';
+  const siderBorder = 'rgba(255,255,255,0.08)';
+
+  const isCollapsedDesktop = collapsed && !isMobile;
 
   const sideMenu = (
     <>
       <div style={{
-        height: 64,
+        height: 72,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        padding: isCollapsedDesktop ? '8px' : '12px 16px',
         borderBottom: `1px solid ${siderBorder}`,
+        background: '#1c1c3a',
       }}>
-        <Text strong style={{ color: '#fff', fontSize: collapsed && !isMobile ? 14 : 18 }}>
-          {collapsed && !isMobile ? 'EP' : 'Extravis Portal'}
-        </Text>
+        <img
+          src={isCollapsedDesktop ? '/Circle Logo 1.png' : '/White Gradient@4x-8.png'}
+          alt="Extravis"
+          style={{
+            maxHeight: isCollapsedDesktop ? 40 : 48,
+            maxWidth: '100%',
+            objectFit: 'contain',
+            display: 'block',
+          }}
+        />
       </div>
       <Menu
         theme="dark"

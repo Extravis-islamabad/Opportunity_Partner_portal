@@ -71,7 +71,7 @@ const NotificationsPage: React.FC = () => {
             renderItem={(item: NotificationResponse) => (
               <List.Item
                 onClick={() => handleClick(item)}
-                style={{ cursor: 'pointer', background: item.read ? 'transparent' : '#f0f5ff', padding: '12px 16px', borderRadius: 8, marginBottom: 4 }}
+                style={{ cursor: 'pointer', background: item.read ? 'transparent' : '#e7e7f1', padding: '12px 16px', borderRadius: 8, marginBottom: 4 }}
               >
                 <List.Item.Meta
                   avatar={<Badge dot={!item.read}><BellOutlined style={{ fontSize: 20 }} /></Badge>}

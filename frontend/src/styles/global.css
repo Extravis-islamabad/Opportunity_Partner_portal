@@ -1,5 +1,41 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+/* =========================================================================
+   Extravis brand color tokens
+   - Royal Blue (primary): used for nav active state, CTAs, links, focus rings
+   - Violet Eggplant (accent): used for badges, tags, decorative elements only
+   Do NOT use Violet Eggplant on buttons or links.
+   ========================================================================= */
+:root {
+  /* Royal Blue */
+  --royal-blue-nav-dark: #1c1c3a;
+  --royal-blue-500: #3750ed;
+  --royal-blue-400: #4961f1;
+  --royal-blue-300: #6b7bfe;
+  --royal-blue-200: #8c93f1;
+  --royal-blue-100: #b4b6f7;
+  --royal-blue-50:  #e7e7f1;
+
+  /* Violet Eggplant */
+  --violet-eggplant-700: #5b1965;
+  --violet-eggplant-600: #7a2280;
+  --violet-eggplant-500: #a064f3;
+  --violet-eggplant-400: #b370fc;
+  --violet-eggplant-200: #d4b0f0;
+  --violet-eggplant-100: #f0e6ff;
+
+  /* Semantic aliases */
+  --brand-primary:        var(--royal-blue-500);
+  --brand-primary-hover:  var(--royal-blue-400);
+  --brand-primary-tint:   var(--royal-blue-50);
+  --brand-nav-bg:         var(--royal-blue-nav-dark);
+  --brand-nav-text:       var(--royal-blue-100);
+  --brand-nav-active-bg:  var(--royal-blue-500);
+  --brand-nav-active-fg:  #ffffff;
+  --brand-badge-bg:       var(--violet-eggplant-100);
+  --brand-badge-fg:       var(--violet-eggplant-700);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -44,7 +80,7 @@ html[data-theme='light'] body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+  background: var(--royal-blue-200);
 }
 
 /* Scrollbar — dark */
@@ -57,5 +93,243 @@ html[data-theme='dark'] ::-webkit-scrollbar-thumb {
 }
 
 html[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
-  background: #4d5665;
+  background: var(--royal-blue-300);
+}
+
+/* Antd menu override — active item uses Royal Blue 500 background, white text.
+   Antd's dark menu defaults paint active items with the primary color but with
+   reduced opacity, which doesn't read against our nav-dark navy. Force solid. */
+.ant-menu-dark .ant-menu-item-selected,
+.ant-menu-dark.ant-menu-inline .ant-menu-item-selected {
+  background-color: var(--brand-nav-active-bg) !important;
+  color: var(--brand-nav-active-fg) !important;
+}
+
+.ant-menu-dark .ant-menu-item-selected .anticon,
+.ant-menu-dark .ant-menu-item-selected a {
+  color: var(--brand-nav-active-fg) !important;
+}
+
+.ant-menu-dark .ant-menu-item:not(.ant-menu-item-selected) {
+  color: var(--brand-nav-text);
+}
+
+.ant-menu-dark .ant-menu-item:not(.ant-menu-item-selected):hover {
+  background-color: rgba(55, 80, 237, 0.18) !important;
+  color: #ffffff !important;
+}
+
+/* =========================================================================
+   Login page — two-column hero layout
+   Left: brand panel with gradient, logo, and feature highlights
+   Right: form panel on white card
+   Collapses to single column under 992px
+   ========================================================================= */
+.login-shell {
+  min-height: 100vh;
+  display: flex;
+  background-color: #f4f6fb;
+}
+
+.login-brand-panel {
+  position: relative;
+  flex: 1.1;
+  background: linear-gradient(135deg, #1c1c3a 0%, #2d2f6e 50%, #3750ed 100%);
+  padding: 64px 56px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  color: #ffffff;
+}
+
+/* Decorative orbs blurred behind the content */
+.login-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.login-blob-1 {
+  width: 360px;
+  height: 360px;
+  background: #6b7bfe;
+  top: -80px;
+  right: -80px;
+}
+.login-blob-2 {
+  width: 280px;
+  height: 280px;
+  background: #a064f3;
+  bottom: -60px;
+  left: 10%;
+  opacity: 0.35;
+}
+.login-blob-3 {
+  width: 220px;
+  height: 220px;
+  background: #4961f1;
+  top: 40%;
+  left: -60px;
+  opacity: 0.4;
+}
+
+.login-brand-inner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 520px;
+}
+
+.login-brand-logo {
+  max-width: 240px;
+  height: auto;
+  display: block;
+}
+
+.login-features {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-top: 8px;
+}
+
+.login-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.login-feature-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-size: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.login-feature-text {
+  flex: 1;
+}
+
+.login-feature-title {
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+
+.login-feature-desc {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-brand-footer {
+  position: absolute;
+  bottom: 32px;
+  left: 56px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 12px;
+}
+
+.login-form-panel {
+  flex: 0.9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 32px;
+  background-color: #ffffff;
+}
+
+.login-form-card {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-mobile-logo {
+  display: none;
+  text-align: center;
+  margin-bottom: 24px;
+}
+.login-mobile-logo img {
+  max-width: 200px;
+  height: auto;
+}
+
+.login-form-header {
+  margin-bottom: 28px;
+}
+
+.login-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: -8px;
+}
+
+.login-forgot-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: #3750ed;
+}
+
+.login-help {
+  text-align: center;
+  margin-top: 12px;
+  padding-top: 20px;
+  border-top: 1px solid #f0f0f0;
+}
+
+/* Inputs — softer focus ring matching the brand */
+.login-form-card .ant-input-affix-wrapper:hover,
+.login-form-card .ant-input-affix-wrapper-focused {
+  border-color: #3750ed !important;
+}
+.login-form-card .ant-input-affix-wrapper-focused {
+  box-shadow: 0 0 0 3px rgba(55, 80, 237, 0.12) !important;
+}
+
+/* Mobile breakpoint — hide brand panel, center form, show inline logo */
+@media (max-width: 992px) {
+  .login-brand-panel {
+    display: none;
+  }
+  .login-form-panel {
+    flex: 1;
+    background: linear-gradient(180deg, #f4f6fb 0%, #ffffff 100%);
+  }
+  .login-mobile-logo {
+    display: block;
+  }
+}
+
+@media (max-width: 480px) {
+  .login-form-panel {
+    padding: 24px 16px;
+  }
+}
+
+/* Dark mode — keep the form panel readable */
+html[data-theme='dark'] .login-shell {
+  background-color: #0e1116;
+}
+html[data-theme='dark'] .login-form-panel {
+  background-color: #14171f;
+}
+html[data-theme='dark'] .login-form-card .ant-typography {
+  color: #e7e7f1 !important;
+}
+html[data-theme='dark'] .login-form-card .ant-typography-secondary {
+  color: rgba(231, 231, 241, 0.65) !important;
+}
+html[data-theme='dark'] .login-help {
+  border-top-color: rgba(255, 255, 255, 0.08);
 }

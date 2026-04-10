@@ -32,6 +32,7 @@ import type {
   ScorecardRead,
   LeaderboardResponse,
   StatementPeriodSummary,
+  AdminAnalyticsResponse,
 } from '@/types';
 
 // ==================== Auth ====================
@@ -294,10 +295,14 @@ export const dashboardApi = {
     apiClient.get<OpportunityStatusBreakdown[]>('/dashboard/admin/opportunity-breakdown'),
   getMonthlyData: (months?: number) =>
     apiClient.get<MonthlyOpportunityData[]>('/dashboard/admin/monthly-data', { params: { months } }),
+  getAdminAnalytics: () =>
+    apiClient.get<AdminAnalyticsResponse>('/dashboard/admin/analytics'),
   getCompanyPerformance: (companyId: number) =>
     apiClient.get<CompanyPerformance>(`/dashboard/company/${companyId}/performance`),
   getPartnerStats: () =>
     apiClient.get<PartnerDashboard>('/dashboard/partner/stats'),
+  getPartnerTimeline: (months?: number) =>
+    apiClient.get<MonthlyOpportunityData[]>('/dashboard/partner/timeline', { params: { months } }),
   createDeal: (data: Record<string, unknown>) =>
     apiClient.post<DealRegistrationResponse>('/dashboard/deals', data),
   listDeals: (params: Record<string, string | number | undefined>) =>

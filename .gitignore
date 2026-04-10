@@ -1,5 +1,7 @@
 # Environment
 .env
+.env.prod
+.env.production
 *.env.local
 
 # Python

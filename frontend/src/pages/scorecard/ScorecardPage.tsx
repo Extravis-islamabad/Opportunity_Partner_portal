@@ -12,7 +12,7 @@ import { useAppTheme } from '@/contexts/ThemeContext';
 const tierColors: Record<string, string> = {
   silver: '#9e9e9e',
   gold: '#faad14',
-  platinum: '#1a237e',
+  platinum: '#3750ed',
 };
 
 const fmtUsd = (value: string | number) =>
@@ -37,7 +37,7 @@ const ScorecardPage: React.FC = () => {
   if (!data)
     return <EmptyState title="No scorecard data" description="Register deals to start tracking your progress." />;
 
-  const tierColor = tierColors[data.tier] ?? '#1a237e';
+  const tierColor = tierColors[data.tier] ?? '#3750ed';
 
   const chartConfig = {
     data: data.monthly_commission.map((p) => ({

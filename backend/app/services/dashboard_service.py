@@ -19,7 +19,15 @@ from app.schemas.dashboard import (
     TierProgress,
     ChannelManagerDashboardResponse,
     ChannelManagerCompanyBreakdown,
+    AnalyticsResponse,
+    RegionBreakdown,
+    TierDistribution,
+    IndustryBreakdown,
+    TopCompany,
+    FunnelStage,
+    RecentActivityItem,
 )
+from app.models.audit_log import AuditLog
 
 
 async def get_admin_dashboard_stats(db: AsyncSession) -> DashboardStatsResponse:
@@ -433,6 +441,241 @@ async def get_channel_manager_dashboard(
         total_approved_opportunities=total_approved_opps,
         total_pending_doc_requests=total_pending_docs,
         companies=companies,
+    )
+
+
+async def get_partner_timeline(
+    db: AsyncSession, partner_id: int, months: int = 6
+) -> list[MonthlyOpportunityData]:
+    """Per-partner monthly submitted/approved/rejected for the partner dashboard
+    area chart. Returns last `months` months of activity."""
+    today = date.today()
+    start_date = today.replace(day=1) - timedelta(days=30 * (months - 1))
+
+    month_col = func.to_char(Opportunity.created_at, 'YYYY-MM')
+    result = await db.execute(
+        select(
+            month_col.label('month'),
+            func.count(Opportunity.id).label('submitted'),
+            func.sum(case((Opportunity.status == OpportunityStatus.APPROVED, 1), else_=0)).label('approved'),
+            func.sum(case((Opportunity.status == OpportunityStatus.REJECTED, 1), else_=0)).label('rejected'),
+        )
+        .where(
+            Opportunity.submitted_by == partner_id,
+            Opportunity.deleted_at.is_(None),
+            Opportunity.created_at >= start_date,
+        )
+        .group_by(month_col)
+        .order_by(month_col)
+    )
+    rows = result.all()
+    return [
+        MonthlyOpportunityData(month=row[0], submitted=row[1] or 0, approved=row[2] or 0, rejected=row[3] or 0)
+        for row in rows
+    ]
+
+
+async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
+    """
+    Aggregations for the admin dashboard charts. One service call returns
+    everything the dashboard needs to draw region/tier/industry/funnel
+    breakdowns plus the top-companies leaderboard and recent activity feed.
+    """
+    # ---- Region breakdown ---------------------------------------------------
+    region_rows = (await db.execute(
+        select(
+            Company.region,
+            func.count(func.distinct(Company.id)).label("company_count"),
+            func.count(Opportunity.id).label("opp_count"),
+            func.coalesce(func.sum(Opportunity.worth), 0).label("total_worth"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (Opportunity.status == OpportunityStatus.APPROVED, Opportunity.worth),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("approved_worth"),
+        )
+        .select_from(Company)
+        .outerjoin(
+            Opportunity,
+            (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
+        )
+        .where(Company.deleted_at.is_(None))
+        .group_by(Company.region)
+        .order_by(func.coalesce(func.sum(Opportunity.worth), 0).desc())
+    )).all()
+    regions = [
+        RegionBreakdown(
+            region=row[0],
+            company_count=row[1],
+            opportunity_count=row[2] or 0,
+            total_worth=row[3],
+            approved_worth=row[4],
+        )
+        for row in region_rows
+    ]
+
+    # ---- Tier distribution --------------------------------------------------
+    tier_rows = (await db.execute(
+        select(
+            Company.tier,
+            func.count(func.distinct(Company.id)).label("company_count"),
+            func.coalesce(func.sum(Opportunity.worth), 0).label("total_worth"),
+        )
+        .select_from(Company)
+        .outerjoin(
+            Opportunity,
+            (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
+        )
+        .where(Company.deleted_at.is_(None))
+        .group_by(Company.tier)
+    )).all()
+    tiers = [
+        TierDistribution(
+            tier=row[0].value if hasattr(row[0], "value") else row[0],
+            company_count=row[1],
+            total_worth=row[2],
+        )
+        for row in tier_rows
+    ]
+
+    # ---- Industry breakdown -------------------------------------------------
+    industry_rows = (await db.execute(
+        select(
+            Company.industry,
+            func.count(func.distinct(Company.id)).label("company_count"),
+            func.count(Opportunity.id).label("opp_count"),
+        )
+        .select_from(Company)
+        .outerjoin(
+            Opportunity,
+            (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
+        )
+        .where(Company.deleted_at.is_(None))
+        .group_by(Company.industry)
+        .order_by(func.count(Opportunity.id).desc())
+        .limit(8)
+    )).all()
+    industries = [
+        IndustryBreakdown(
+            industry=row[0],
+            company_count=row[1],
+            opportunity_count=row[2] or 0,
+        )
+        for row in industry_rows
+    ]
+
+    # ---- Top 5 performing companies (by approved worth) --------------------
+    top_rows = (await db.execute(
+        select(
+            Company.id,
+            Company.name,
+            Company.tier,
+            Company.region,
+            func.count(
+                case((Opportunity.status == OpportunityStatus.APPROVED, 1))
+            ).label("won"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (Opportunity.status == OpportunityStatus.APPROVED, Opportunity.worth),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("approved_worth"),
+        )
+        .select_from(Company)
+        .outerjoin(
+            Opportunity,
+            (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
+        )
+        .where(Company.deleted_at.is_(None))
+        .group_by(Company.id, Company.name, Company.tier, Company.region)
+        .order_by(
+            func.coalesce(
+                func.sum(
+                    case(
+                        (Opportunity.status == OpportunityStatus.APPROVED, Opportunity.worth),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).desc()
+        )
+        .limit(6)
+    )).all()
+    top_companies = [
+        TopCompany(
+            company_id=row[0],
+            company_name=row[1],
+            tier=row[2].value if hasattr(row[2], "value") else row[2],
+            region=row[3],
+            opportunities_won=row[4] or 0,
+            approved_worth=row[5],
+        )
+        for row in top_rows
+    ]
+
+    # ---- Conversion funnel --------------------------------------------------
+    funnel_counts = {}
+    for status in [
+        OpportunityStatus.DRAFT,
+        OpportunityStatus.PENDING_REVIEW,
+        OpportunityStatus.UNDER_REVIEW,
+        OpportunityStatus.APPROVED,
+    ]:
+        c = (await db.execute(
+            select(func.count(Opportunity.id)).where(
+                Opportunity.status == status,
+                Opportunity.deleted_at.is_(None),
+            )
+        )).scalar() or 0
+        funnel_counts[status.value] = c
+
+    funnel = [
+        FunnelStage(stage="Draft", count=funnel_counts.get("draft", 0)),
+        FunnelStage(stage="Submitted", count=funnel_counts.get("pending_review", 0)),
+        FunnelStage(stage="In Review", count=funnel_counts.get("under_review", 0)),
+        FunnelStage(stage="Approved", count=funnel_counts.get("approved", 0)),
+    ]
+
+    # ---- Recent activity (last 10 audit log entries) -----------------------
+    activity_rows = (await db.execute(
+        select(
+            AuditLog.id,
+            User.full_name,
+            AuditLog.action,
+            AuditLog.entity_type,
+            AuditLog.entity_id,
+            AuditLog.timestamp,
+        )
+        .join(User, User.id == AuditLog.user_id)
+        .order_by(AuditLog.timestamp.desc())
+        .limit(10)
+    )).all()
+    recent_activity = [
+        RecentActivityItem(
+            id=row[0],
+            actor_name=row[1],
+            action=row[2],
+            entity_type=row[3],
+            entity_id=row[4],
+            timestamp=row[5].isoformat(),
+        )
+        for row in activity_rows
+    ]
+
+    return AnalyticsResponse(
+        regions=regions,
+        tiers=tiers,
+        industries=industries,
+        top_companies=top_companies,
+        funnel=funnel,
+        recent_activity=recent_activity,
     )
 
 

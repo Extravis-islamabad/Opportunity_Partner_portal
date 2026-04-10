@@ -31,7 +31,7 @@ const ActivateAccountPage: React.FC = () => {
 
   if (success) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #001529 0%, #003a70 100%)' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #1c1c3a 0%, #3750ed 100%)' }}>
         <Card style={{ width: 420, borderRadius: 12 }}>
           <Result status="success" title="Account Activated!" subTitle="Your account is now active. Please sign in."
             extra={<Link to="/login"><Button type="primary">Sign In</Button></Link>} />
@@ -41,7 +41,7 @@ const ActivateAccountPage: React.FC = () => {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #001529 0%, #003a70 100%)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #1c1c3a 0%, #3750ed 100%)' }}>
       <Card style={{ width: 420, borderRadius: 12 }}>
         <Space direction="vertical" size={24} style={{ width: '100%' }}>
           <div style={{ textAlign: 'center' }}>

@@ -17,6 +17,7 @@ from app.schemas.dashboard import (
     DealRegistrationResponse,
     DealApproveRequest,
     DealRejectRequest,
+    AnalyticsResponse,
 )
 from app.services import dashboard_service, deal_service
 
@@ -48,6 +49,16 @@ async def monthly_data(
     return await dashboard_service.get_monthly_opportunity_data(db, months)
 
 
+@router.get("/admin/analytics", response_model=AnalyticsResponse, status_code=200)
+async def admin_analytics(
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregations for charts: regions, tiers, industries, top companies,
+    funnel, and recent activity. One round-trip for all dashboard widgets."""
+    return await dashboard_service.get_admin_analytics(db)
+
+
 @router.get("/company/{company_id}/performance", response_model=CompanyPerformance, status_code=200)
 async def company_performance(
     company_id: int,
@@ -74,6 +85,15 @@ async def partner_stats(
     db: AsyncSession = Depends(get_db),
 ):
     return await dashboard_service.get_partner_dashboard(db, partner)
+
+
+@router.get("/partner/timeline", status_code=200)
+async def partner_timeline(
+    months: int = Query(6, ge=1, le=12),
+    partner: User = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    return await dashboard_service.get_partner_timeline(db, partner.id, months)
 
 
 # Deal Registration endpoints

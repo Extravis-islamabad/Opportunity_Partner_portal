@@ -1,0 +1,85 @@
+# Production override — apply ON TOP of docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env.prod up -d --build
+#
+# This file:
+#  - removes the dev source bind mounts so containers run their built code
+#  - drops --reload from uvicorn
+#  - replaces the dev Vite server with an nginx-served production bundle
+#  - removes the standalone nginx service (the frontend image now serves nginx)
+#  - binds only frontend (8088) and backend (8089) to the host; db/redis are
+#    internal-only — no host port mapping at all
+#  - parameterises secrets via .env.prod
+#  - uses unique container names so they can't collide with other apps on the VM
+#  - adds restart: always and basic resource limits
+
+services:
+  db:
+    container_name: epp_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # Drop the host port binding entirely — db is reachable only inside the
+    # compose network, never from the public internet.
+    ports: !reset []
+
+  redis:
+    container_name: epp_redis
+    restart: always
+    ports: !reset []
+
+  backend:
+    container_name: epp_backend
+    restart: always
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Override the dev source bind mount so the container runs the COPYed code.
+    # The uploads volume is kept so user uploads survive recreation.
+    volumes: !override
+      - epp_uploads:/app/uploads
+    environment:
+      - PYTHONPATH=/app
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - APP_ENV=production
+      - APP_DEBUG=false
+    ports:
+      - "127.0.0.1:8089:8000"
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m app.core.init_db &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+
+  frontend:
+    container_name: epp_frontend
+    restart: always
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_BASE_URL: /api/v1
+    # Drop the dev volume mount and node_modules anonymous volume — the
+    # production image is self-contained.
+    volumes: !override []
+    ports:
+      - "0.0.0.0:8088:80"
+    depends_on:
+      - backend
+
+  # The standalone nginx service from docker-compose.yml is unused in prod
+  # because the frontend image already runs nginx with /api -> backend.
+  # We disable it by giving it a noop command and not exposing any ports.
+  nginx:
+    profiles: ["disabled"]
+
+volumes:
+  postgres_data:
+    name: epp_postgres_data
+  redis_data:
+    name: epp_redis_data
+  upload_data:
+    name: epp_upload_data_legacy
+  epp_uploads:
+    name: epp_uploads

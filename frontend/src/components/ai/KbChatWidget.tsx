@@ -88,7 +88,7 @@ const KbChatWidget: React.FC = () => {
           }}
           title={
             <Space>
-              <RobotOutlined style={{ color: '#1a237e' }} />
+              <RobotOutlined style={{ color: '#3750ed' }} />
               <span>KB Assistant</span>
             </Space>
           }
@@ -122,7 +122,7 @@ const KbChatWidget: React.FC = () => {
                 <Avatar
                   size="small"
                   icon={turn.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                  style={{ backgroundColor: turn.role === 'user' ? '#1a237e' : '#52c41a', flexShrink: 0 }}
+                  style={{ backgroundColor: turn.role === 'user' ? '#3750ed' : '#a064f3', flexShrink: 0 }}
                 />
                 <div
                   style={{
@@ -130,7 +130,7 @@ const KbChatWidget: React.FC = () => {
                     padding: '8px 12px',
                     borderRadius: 8,
                     background: turn.role === 'user'
-                      ? (isDark ? '#1f2937' : '#e6f4ff')
+                      ? (isDark ? '#1f2937' : '#e7e7f1')
                       : (isDark ? '#2d3748' : '#f5f5f5'),
                   }}
                 >

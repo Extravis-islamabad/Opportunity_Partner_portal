@@ -1,0 +1,32 @@
+# --- Stage 1: build the React/Vite bundle -----------------------------------
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies first (better layer caching)
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# Copy source and build
+COPY . .
+
+# VITE_API_BASE_URL must be available at build time so it gets baked into
+# the bundle. Override at build time with --build-arg if needed.
+ARG VITE_API_BASE_URL=/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+RUN npm run build
+
+# --- Stage 2: serve the static bundle via nginx -----------------------------
+FROM nginx:alpine
+
+# Replace the default site with our SPA-aware config
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY nginx-spa.conf /etc/nginx/conf.d/default.conf
+
+# Copy the built dist into nginx's web root
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+# Run nginx in the foreground so Docker can supervise the process
+CMD ["nginx", "-g", "daemon off;"]

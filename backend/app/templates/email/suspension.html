@@ -1,11 +1,12 @@
 {% extends "base.html" %}
+{% block preheader %}Your {{ app_name }} account has been suspended.{% endblock %}
 {% block content %}
 <h2>Account Suspended</h2>
 <p>Dear {{ partner_name }},</p>
 <p>Your access to the <strong>{{ app_name }}</strong> has been suspended.</p>
 <div class="highlight">
-    <strong>Account:</strong> {{ partner_name }}<br>
-    <strong>Company:</strong> {{ company_name }}
+    <p><strong>Account:</strong> {{ partner_name }}<br>
+    <strong>Company:</strong> {{ company_name }}</p>
 </div>
 <p>If you believe this was done in error or have questions, please contact our support team at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
 <p>Regards,<br>The {{ app_name }} Team</p>

@@ -1,12 +1,14 @@
 {% extends "base.html" %}
+{% block preheader %}Activate your {{ app_name }} account for {{ company_name }}.{% endblock %}
 {% block content %}
-<h2>Welcome to {{ app_name }}!</h2>
+<h2>Welcome to {{ app_name }}</h2>
 <p>Hello {{ name }},</p>
-<p>Your partner account has been created for <strong>{{ company_name }}</strong>.</p>
-<p>To get started, please activate your account by clicking the button below and setting your password:</p>
-<div style="text-align: center;">
+<p>Your partner account has been created for <strong>{{ company_name }}</strong>. To get started, activate your account and set your password using the button below.</p>
+<div class="btn-wrap btn-mobile">
     <a href="{{ frontend_url }}/activate?token={{ activation_token }}" class="btn">Activate Your Account</a>
 </div>
-<p>This activation link will expire in {{ expire_hours }} hours.</p>
-<p>If you did not expect this email, please ignore it.</p>
+<div class="info-box">
+    <p>This activation link will expire in <strong>{{ expire_hours }} hours</strong>. If it expires, contact your administrator to receive a new one.</p>
+</div>
+<p style="font-size:13px; color:#6b7280;">If you did not expect this email, you can safely ignore it.</p>
 {% endblock %}

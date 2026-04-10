@@ -60,10 +60,44 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     () => ({
       algorithm: mode === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
       token: {
-        colorPrimary: '#1a237e',
+        // Royal Blue 500 — primary action color (CTAs, links, focus rings)
+        colorPrimary: '#3750ed',
+        colorLink: '#3750ed',
+        colorLinkHover: '#4961f1',
+        colorLinkActive: '#3750ed',
+        colorInfo: '#3750ed',
+        // Royal Blue 50 — subtle hover/selected backgrounds
+        controlItemBgHover: '#e7e7f1',
+        controlItemBgActive: '#e7e7f1',
+        controlOutline: 'rgba(55, 80, 237, 0.16)',
         borderRadius: 6,
         fontFamily:
           "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      },
+      components: {
+        Button: {
+          colorPrimary: '#3750ed',
+          colorPrimaryHover: '#4961f1',
+          colorPrimaryActive: '#3750ed',
+          primaryShadow: '0 2px 0 rgba(55, 80, 237, 0.12)',
+        },
+        Menu: {
+          // Dark sider menu — keep dark navy background, white active text
+          darkItemBg: '#1c1c3a',
+          darkItemSelectedBg: '#3750ed',
+          darkItemSelectedColor: '#ffffff',
+          darkItemColor: '#b4b6f7',
+          darkItemHoverBg: 'rgba(55, 80, 237, 0.18)',
+          darkItemHoverColor: '#ffffff',
+        },
+        Layout: {
+          siderBg: '#1c1c3a',
+          triggerBg: '#1c1c3a',
+        },
+        Tag: {
+          defaultBg: '#f0e6ff',
+          defaultColor: '#5b1965',
+        },
       },
     }),
     [mode],

@@ -33,7 +33,7 @@ const EmptyState: React.FC<EmptyStateProps> = ({
     <div style={{ padding: '48px 16px', textAlign: 'center' }}>
       <Empty
         image={
-          <div style={{ color: 'var(--ant-color-primary, #1a237e)', display: 'inline-flex' }}>
+          <div style={{ color: 'var(--ant-color-primary, #3750ed)', display: 'inline-flex' }}>
             {illustration ?? <DefaultIllustration />}
           </div>
         }

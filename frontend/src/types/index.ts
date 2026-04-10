@@ -400,6 +400,59 @@ export interface MonthlyOpportunityData {
   rejected: number;
 }
 
+// ==================== Admin Analytics ====================
+export interface RegionBreakdown {
+  region: string;
+  company_count: number;
+  opportunity_count: number;
+  total_worth: string;
+  approved_worth: string;
+}
+
+export interface TierDistribution {
+  tier: string;
+  company_count: number;
+  total_worth: string;
+}
+
+export interface IndustryBreakdown {
+  industry: string;
+  company_count: number;
+  opportunity_count: number;
+}
+
+export interface TopCompany {
+  company_id: number;
+  company_name: string;
+  tier: string;
+  region: string;
+  opportunities_won: number;
+  approved_worth: string;
+}
+
+export interface FunnelStage {
+  stage: string;
+  count: number;
+}
+
+export interface RecentActivityItem {
+  id: number;
+  actor_name: string;
+  action: string;
+  entity_type: string;
+  entity_id: number;
+  timestamp: string;
+}
+
+export interface AdminAnalyticsResponse {
+  regions: RegionBreakdown[];
+  tiers: TierDistribution[];
+  industries: IndustryBreakdown[];
+  top_companies: TopCompany[];
+  funnel: FunnelStage[];
+  recent_activity: RecentActivityItem[];
+}
+
 // ==================== Commissions & Scorecard ====================
 export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'void';
 

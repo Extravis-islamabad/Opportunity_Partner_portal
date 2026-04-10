@@ -51,6 +51,10 @@ services:
         condition: service_healthy
     environment:
       - PYTHONPATH=/app
+      # Override .env hostnames — inside the docker network the DB and Redis
+      # are reachable by service name, not localhost.
+      - DATABASE_URL=postgresql+asyncpg://extravis:extravis_secret@db:5432/partner_portal
+      - REDIS_URL=redis://redis:6379/0
     command: >
       sh -c "alembic upgrade head && python -m app.core.init_db && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 

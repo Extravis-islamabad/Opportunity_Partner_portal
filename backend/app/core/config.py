@@ -1,6 +1,7 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import json
+from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 from pydantic import field_validator
-from typing import List
+from typing import Annotated, List, Any
 
 
 class Settings(BaseSettings):
@@ -23,8 +24,10 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    # CORS — Annotated[..., NoDecode] tells pydantic-settings to skip its
+    # built-in JSON decoding so the field_validator below can accept either
+    # JSON arrays or comma-separated strings from env vars.
+    CORS_ORIGINS: Annotated[List[str], NoDecode] = ["http://localhost:3000", "http://localhost:5173"]
 
     # Email
     SMTP_HOST: str = "smtp.sendgrid.net"
@@ -38,7 +41,7 @@ class Settings(BaseSettings):
     # File Storage
     UPLOAD_DIR: str = "./uploads"
     MAX_FILE_SIZE_MB: int = 20
-    ALLOWED_FILE_TYPES: List[str] = [
+    ALLOWED_FILE_TYPES: Annotated[List[str], NoDecode] = [
         "application/pdf",
         "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -86,6 +89,26 @@ class Settings(BaseSettings):
     GROQ_MODEL_FAST: str = "llama-3.1-8b-instant"
     GROQ_TIMEOUT_SECONDS: float = 20.0
     AI_SCORE_CACHE_SECONDS: int = 86400  # 24h for summaries
+
+    # Allow CORS_ORIGINS and ALLOWED_FILE_TYPES to be specified as either a
+    # JSON array (CORS_ORIGINS=["a","b"]) or a comma-separated string
+    # (ALLOWED_FILE_TYPES=application/pdf,image/png) when sourced from env vars.
+    @field_validator("CORS_ORIGINS", "ALLOWED_FILE_TYPES", mode="before")
+    @classmethod
+    def _parse_list(cls, value: Any) -> Any:
+        if value is None or isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("["):
+                try:
+                    return json.loads(stripped)
+                except json.JSONDecodeError:
+                    pass
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return value
 
     @property
     def max_file_size_bytes(self) -> int:

@@ -75,6 +75,58 @@ class PartnerDashboardResponse(BaseModel):
     tier_progress: Optional[TierProgress] = None
 
 
+class RegionBreakdown(BaseModel):
+    region: str
+    company_count: int
+    opportunity_count: int
+    total_worth: Decimal
+    approved_worth: Decimal
+
+
+class TierDistribution(BaseModel):
+    tier: str
+    company_count: int
+    total_worth: Decimal
+
+
+class IndustryBreakdown(BaseModel):
+    industry: str
+    company_count: int
+    opportunity_count: int
+
+
+class TopCompany(BaseModel):
+    company_id: int
+    company_name: str
+    tier: str
+    region: str
+    opportunities_won: int
+    approved_worth: Decimal
+
+
+class FunnelStage(BaseModel):
+    stage: str
+    count: int
+
+
+class AnalyticsResponse(BaseModel):
+    regions: List[RegionBreakdown]
+    tiers: List[TierDistribution]
+    industries: List[IndustryBreakdown]
+    top_companies: List[TopCompany]
+    funnel: List[FunnelStage]
+    recent_activity: List["RecentActivityItem"]
+
+
+class RecentActivityItem(BaseModel):
+    id: int
+    actor_name: str
+    action: str
+    entity_type: str
+    entity_id: int
+    timestamp: str
+
+
 class ChannelManagerCompanyBreakdown(BaseModel):
     company_id: int
     company_name: str

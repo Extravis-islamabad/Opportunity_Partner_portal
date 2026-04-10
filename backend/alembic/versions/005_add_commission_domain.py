@@ -12,6 +12,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "005"
 down_revision: Union[str, None] = "004"
@@ -20,14 +21,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # commissionstatus enum is new. partnertier enum already exists — reuse it
-    # by passing create_type=False on the Enum column.
-    commission_status = sa.Enum(
-        "pending", "approved", "paid", "void", name="commissionstatus"
+    # Both enums need create_type=False on column definitions so that
+    # create_table doesn't try to re-emit CREATE TYPE in its before_create
+    # hook (the generic sa.Enum ignores create_type=False there). We create
+    # commissionstatus ourselves via an idempotent DO block; partnertier
+    # already exists from migration 001.
+    op.execute(
+        """
+        DO $$ BEGIN
+            CREATE TYPE commissionstatus AS ENUM ('pending', 'approved', 'paid', 'void');
+        EXCEPTION
+            WHEN duplicate_object THEN null;
+        END $$;
+        """
     )
-    commission_status.create(op.get_bind(), checkfirst=True)
 
-    partner_tier_existing = sa.Enum(
+    commission_status = postgresql.ENUM(
+        "pending", "approved", "paid", "void", name="commissionstatus", create_type=False
+    )
+    partner_tier_existing = postgresql.ENUM(
         "silver", "gold", "platinum", name="partnertier", create_type=False
     )
 
@@ -112,20 +124,15 @@ def upgrade() -> None:
         "ix_commission_statements_company_id", "commission_statements", ["company_id"]
     )
 
-    # Seed default tier rates
-    today = date.today().isoformat()
-    op.bulk_insert(
-        sa.table(
-            "tier_commission_rates",
-            sa.column("tier", sa.String()),
-            sa.column("percentage", sa.Numeric(5, 2)),
-            sa.column("effective_from", sa.Date()),
-        ),
-        [
-            {"tier": "silver", "percentage": 5.00, "effective_from": today},
-            {"tier": "gold", "percentage": 8.00, "effective_from": today},
-            {"tier": "platinum", "percentage": 12.00, "effective_from": today},
-        ],
+    # Seed default tier rates. Use raw SQL with explicit enum casts because
+    # bulk_insert binds VARCHAR which postgres won't auto-cast to partnertier.
+    op.execute(
+        """
+        INSERT INTO tier_commission_rates (tier, percentage, effective_from) VALUES
+            ('silver'::partnertier, 5.00, CURRENT_DATE),
+            ('gold'::partnertier, 8.00, CURRENT_DATE),
+            ('platinum'::partnertier, 12.00, CURRENT_DATE)
+        """
     )
 
 
@@ -142,4 +149,4 @@ def downgrade() -> None:
     op.drop_index("ix_tier_commission_rates_tier", table_name="tier_commission_rates")
     op.drop_table("tier_commission_rates")
 
-    sa.Enum(name="commissionstatus").drop(op.get_bind(), checkfirst=True)
+    op.execute("DROP TYPE IF EXISTS commissionstatus")

@@ -114,8 +114,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
                   style={{
                     cursor: 'pointer',
                     padding: '12px 16px',
-                    background: isActive ? 'var(--ant-color-primary-bg, #e6f4ff)' : 'transparent',
-                    borderLeft: isActive ? '3px solid var(--ant-color-primary, #1a237e)' : '3px solid transparent',
+                    background: isActive ? 'var(--ant-color-primary-bg, #e7e7f1)' : 'transparent',
+                    borderLeft: isActive ? '3px solid var(--ant-color-primary, #3750ed)' : '3px solid transparent',
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>

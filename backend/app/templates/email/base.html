@@ -1,33 +1,206 @@
-<!DOCTYPE html>
-<html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f6f8; }
-        .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
-        .header { background-color: #1a237e; padding: 24px; text-align: center; }
-        .header h1 { color: #ffffff; margin: 0; font-size: 22px; }
-        .body { padding: 32px 24px; color: #333333; line-height: 1.6; }
-        .footer { padding: 16px 24px; text-align: center; color: #999999; font-size: 12px; border-top: 1px solid #eeeeee; }
-        .btn { display: inline-block; padding: 12px 24px; background-color: #1a237e; color: #ffffff; text-decoration: none; border-radius: 4px; margin: 16px 0; }
-        .highlight { background-color: #f0f4ff; padding: 12px 16px; border-left: 4px solid #1a237e; margin: 16px 0; }
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <title>{{ app_name }}</title>
+    <!--[if mso]>
+    <style type="text/css">
+        body, table, td, p, a, span { font-family: Arial, sans-serif !important; }
+    </style>
+    <![endif]-->
+    <style type="text/css">
+        /* Reset */
+        body, table, td, p, a, span {
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        table, td {
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+            border-collapse: collapse;
+        }
+        img {
+            -ms-interpolation-mode: bicubic;
+            border: 0;
+            height: auto;
+            line-height: 100%;
+            outline: none;
+            text-decoration: none;
+            display: block;
+            max-width: 100%;
+        }
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            min-width: 100% !important;
+            background-color: #f4f6f8;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            color: #1f2937;
+        }
+        a {
+            color: #3750ed;
+            text-decoration: none;
+        }
+
+        /* Body content styles — applied via class selectors so child templates
+           don't need to inline every property. Gmail strips <style> in some
+           cases but most modern clients respect them; key visual properties
+           are also inlined on the wrapping cells. */
+        .email-body h2 {
+            color: #1c1c3a;
+            font-size: 21px;
+            line-height: 1.3;
+            margin: 0 0 16px 0;
+            font-weight: 700;
+        }
+        .email-body h3 {
+            color: #1c1c3a;
+            font-size: 17px;
+            line-height: 1.35;
+            margin: 22px 0 12px 0;
+            font-weight: 600;
+        }
+        .email-body p {
+            margin: 0 0 14px 0;
+            color: #374151;
+            font-size: 15px;
+            line-height: 1.65;
+        }
+        .email-body strong {
+            color: #1c1c3a;
+        }
+        .btn-wrap {
+            text-align: center;
+            margin: 24px 0;
+        }
+        .btn {
+            display: inline-block;
+            padding: 14px 32px;
+            background-color: #3750ed;
+            color: #ffffff !important;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 15px;
+            line-height: 1;
+            mso-padding-alt: 0;
+            box-shadow: 0 4px 12px rgba(55, 80, 237, 0.25);
+        }
+        .highlight {
+            background-color: #f0e6ff;
+            padding: 16px 20px;
+            border-left: 4px solid #5b1965;
+            color: #5b1965;
+            margin: 20px 0;
+            border-radius: 6px;
+            font-size: 14px;
+            line-height: 1.55;
+        }
+        .highlight p {
+            margin: 0;
+            color: #5b1965;
+        }
+        .info-box {
+            background-color: #e7e7f1;
+            padding: 16px 20px;
+            border-left: 4px solid #3750ed;
+            margin: 20px 0;
+            border-radius: 6px;
+            font-size: 14px;
+            line-height: 1.55;
+        }
+        .info-box p {
+            margin: 0;
+            color: #1c1c3a;
+        }
+
+        /* Mobile styles — flatten paddings, scale logo, full-width buttons */
+        @media screen and (max-width: 600px) {
+            .email-container {
+                width: 100% !important;
+                max-width: 100% !important;
+            }
+            .px-mobile {
+                padding-left: 20px !important;
+                padding-right: 20px !important;
+            }
+            .py-mobile-lg {
+                padding-top: 28px !important;
+                padding-bottom: 24px !important;
+            }
+            .header-cell {
+                padding: 24px 20px 18px !important;
+            }
+            .logo-img {
+                max-width: 180px !important;
+                width: 180px !important;
+            }
+            .h2-mobile {
+                font-size: 19px !important;
+                line-height: 1.3 !important;
+            }
+            .body-mobile {
+                font-size: 14px !important;
+                line-height: 1.6 !important;
+            }
+            .btn-mobile a {
+                display: block !important;
+                width: 100% !important;
+                box-sizing: border-box;
+                text-align: center !important;
+            }
+            .footer-cell {
+                padding: 18px 20px !important;
+                font-size: 11px !important;
+            }
+        }
     </style>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>{{ app_name }}</h1>
-        </div>
-        <div class="body">
-            {% block content %}
-            {{ content | safe }}
-            {% endblock %}
-        </div>
-        <div class="footer">
-            <p>&copy; {{ app_name }}. All rights reserved.</p>
-            <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
+<body style="margin:0; padding:0; background-color:#f4f6f8;">
+    <!-- Preheader (hidden preview text) -->
+    <div style="display:none; font-size:1px; color:#f4f6f8; line-height:1px; max-height:0px; max-width:0px; opacity:0; overflow:hidden;">
+        {% block preheader %}{{ app_name }}{% endblock %}
     </div>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f4f6f8;">
+        <tr>
+            <td align="center" style="padding: 24px 12px;">
+
+                <!-- Outer container — fluid up to 600px -->
+                <table role="presentation" class="email-container" cellpadding="0" cellspacing="0" border="0" width="600" style="width:100%; max-width:600px; background-color:#ffffff; border-radius:12px; overflow:hidden; box-shadow: 0 4px 12px rgba(28, 28, 58, 0.08);">
+
+                    <!-- Header — white background so the dark Extravis logo reads cleanly -->
+                    <tr>
+                        <td class="header-cell" align="center" style="background-color:#ffffff; padding: 32px 24px 22px; border-bottom: 3px solid #3750ed;">
+                            <img src="cid:extravis-logo" alt="{{ app_name }}" class="logo-img" width="220" style="display:inline-block; max-width:220px; width:220px; height:auto;" />
+                        </td>
+                    </tr>
+
+                    <!-- Body -->
+                    <tr>
+                        <td class="px-mobile py-mobile-lg body-mobile email-body" style="padding: 36px 36px 28px; color:#1f2937; font-size:15px; line-height:1.65; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;">
+                            {% block content %}
+                            {{ content | safe }}
+                            {% endblock %}
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td class="footer-cell" align="center" style="background-color:#1c1c3a; padding: 22px 24px; color:#b4b6f7; font-size:12px; line-height:1.6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;">
+                            <div style="margin-bottom:4px;">&copy; {{ app_name }}. All rights reserved.</div>
+                            <div>This is an automated message. Please do not reply to this email.</div>
+                        </td>
+                    </tr>
+                </table>
+                <!-- /container -->
+
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
