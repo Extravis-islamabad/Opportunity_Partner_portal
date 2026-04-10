@@ -14,6 +14,7 @@ import DashboardPage from '@/pages/dashboard/DashboardPage';
 import CompanyListPage from '@/pages/companies/CompanyListPage';
 import CompanyCreatePage from '@/pages/companies/CompanyCreatePage';
 import CompanyDetailPage from '@/pages/companies/CompanyDetailPage';
+import CompanyEditPage from '@/pages/companies/CompanyEditPage';
 import UserListPage from '@/pages/users/UserListPage';
 import OpportunityListPage from '@/pages/opportunities/OpportunityListPage';
 import OpportunityCreatePage from '@/pages/opportunities/OpportunityCreatePage';
@@ -64,6 +65,7 @@ const App: React.FC = () => {
                 {/* Admin only */}
                 <Route path="/companies" element={<ProtectedRoute requiredRole="admin"><CompanyListPage /></ProtectedRoute>} />
                 <Route path="/companies/create" element={<ProtectedRoute requiredRole="admin"><CompanyCreatePage /></ProtectedRoute>} />
+                <Route path="/companies/:id/edit" element={<ProtectedRoute requiredRole="admin"><CompanyEditPage /></ProtectedRoute>} />
                 <Route path="/companies/:id" element={<ProtectedRoute requiredRole="admin"><CompanyDetailPage /></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute requiredRole="admin"><UserListPage /></ProtectedRoute>} />
 

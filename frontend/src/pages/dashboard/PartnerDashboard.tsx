@@ -138,30 +138,22 @@ const PartnerDashboard: React.FC = () => {
     queryFn: async () => (await dashboardApi.getPartnerTimeline(6)).data,
   });
 
-  if (error) return <Alert type="error" message="Failed to load dashboard" showIcon />;
-  if (isLoading) {
-    return (
-      <>
-        <PageHeader title="Welcome back" subtitle="Loading your dashboard…" />
-        <Skeleton active paragraph={{ rows: 14 }} />
-      </>
-    );
-  }
-  if (!stats) return <Empty description="No dashboard data" />;
-
-  const winRate = stats.my_opportunities > 0
+  // ---- Derived values + chart data (computed every render so the hook
+  // ---- order is stable; React Rules of Hooks forbid early-returning
+  // ---- before useMemo). All memos handle undefined stats/timeline safely.
+  const winRate = stats && stats.my_opportunities > 0
     ? Math.round((stats.my_approved / stats.my_opportunities) * 100)
     : 0;
-  const lmsRate = stats.lms_courses_enrolled > 0
+  const lmsRate = stats && stats.lms_courses_enrolled > 0
     ? Math.round((stats.lms_courses_completed / stats.lms_courses_enrolled) * 100)
     : 0;
 
   // Pipeline target for liquid gauge (1M)
   const pipelineTarget = 1_000_000;
-  const liquidPercent = Math.min(100, Math.round((Number(stats.my_total_worth) / pipelineTarget) * 100));
+  const liquidPercent = stats
+    ? Math.min(100, Math.round((Number(stats.my_total_worth) / pipelineTarget) * 100))
+    : 0;
 
-  // ---- Chart data ---------------------------------------------------------
-  // Stacked bars data for partner pipeline (replaces Area chart)
   const stackedBarsData = useMemo(() => {
     if (!timeline || !Array.isArray(timeline)) return [];
     return (timeline as MonthlyOpportunityData[]).map((m) => ({
@@ -174,7 +166,6 @@ const PartnerDashboard: React.FC = () => {
     }));
   }, [timeline]);
 
-  // Timeline metric: monthly approvals with delta arrows
   const timelineData = useMemo(() => {
     if (!timeline || !Array.isArray(timeline)) return [];
     return (timeline as MonthlyOpportunityData[]).map((m) => ({
@@ -183,7 +174,6 @@ const PartnerDashboard: React.FC = () => {
     }));
   }, [timeline]);
 
-  // Spark cards: 4 per-partner KPI sparklines
   const sparkCardsData = useMemo(() => {
     if (!timeline || !Array.isArray(timeline) || timeline.length === 0) return [];
     const arr = timeline as MonthlyOpportunityData[];
@@ -215,8 +205,8 @@ const PartnerDashboard: React.FC = () => {
     ];
   }, [timeline]);
 
-  // Ring grid: partner KPIs
   const ringGridData = useMemo(() => {
+    if (!stats) return [];
     const total = stats.my_opportunities || 1;
     return [
       { label: 'Win Rate', percent: winRate },
@@ -225,6 +215,18 @@ const PartnerDashboard: React.FC = () => {
       { label: 'Training %', percent: lmsRate },
     ];
   }, [stats, winRate, lmsRate]);
+
+  // ---- Early returns happen AFTER all hooks have been called -------------
+  if (error) return <Alert type="error" message="Failed to load dashboard" showIcon />;
+  if (isLoading) {
+    return (
+      <>
+        <PageHeader title="Welcome back" subtitle="Loading your dashboard…" />
+        <Skeleton active paragraph={{ rows: 14 }} />
+      </>
+    );
+  }
+  if (!stats) return <Empty description="No dashboard data" />;
 
   // Status breakdown column chart
   const statusColumnData = [
