@@ -84,7 +84,9 @@ services:
       - GROQ_MODEL_FAST=${GROQ_MODEL_FAST:-llama-3.1-8b-instant}
       - GROQ_TIMEOUT_SECONDS=${GROQ_TIMEOUT_SECONDS:-20}
       - AI_SCORE_CACHE_SECONDS=${AI_SCORE_CACHE_SECONDS:-86400}
-    ports:
+    # !override replaces the dev compose's ports list entirely (otherwise
+    # compose MERGES list fields and dev port 8001 stays bound).
+    ports: !override
       - "127.0.0.1:8089:8000"
     command: >
       sh -c "alembic upgrade head &&
@@ -102,7 +104,8 @@ services:
     # Drop the dev volume mount and node_modules anonymous volume — the
     # production image is self-contained.
     volumes: !override []
-    ports:
+    # !override replaces the dev compose's "5173:5173" mapping
+    ports: !override
       - "0.0.0.0:8088:80"
     depends_on:
       - backend
