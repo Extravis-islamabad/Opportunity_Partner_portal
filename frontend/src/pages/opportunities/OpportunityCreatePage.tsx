@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { Form, Input, InputNumber, DatePicker, Button, Card, Alert, message, Upload } from 'antd';
-import { UploadOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, DatePicker, Button, Card, Alert, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { opportunitiesApi } from '@/api/endpoints';

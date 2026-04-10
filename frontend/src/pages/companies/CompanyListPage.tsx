@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Table, Button, Input, Tag, Space, Skeleton, Alert, Empty, Popconfirm, message } from 'antd';
+import { Table, Button, Input, Tag, Space, Alert, Popconfirm, message } from 'antd';
 import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { companiesApi } from '@/api/endpoints';
+import { companiesApi, exportsApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
+import EmptyState from '@/components/common/EmptyState';
+import TableSkeleton from '@/components/common/TableSkeleton';
+import ExportMenu from '@/components/common/ExportMenu';
 import type { CompanyResponse } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -53,12 +56,26 @@ const CompanyListPage: React.FC = () => {
 
   if (error) return <Alert type="error" message="Failed to load companies" showIcon />;
 
+  const exportParams: Record<string, string | number | undefined> = {};
+  if (search) exportParams['search'] = search;
+
   return (
     <>
       <PageHeader
         title="Partner Companies"
         subtitle={`${data?.total ?? 0} total companies`}
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>Add Company</Button>}
+        extra={
+          <Space>
+            <ExportMenu
+              filenamePrefix="companies"
+              pdf={() => exportsApi.companiesPdf(exportParams)}
+              xlsx={() => exportsApi.companiesXlsx(exportParams)}
+            />
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
+              Add Company
+            </Button>
+          </Space>
+        }
       />
       <Input.Search
         placeholder="Search companies..."
@@ -67,7 +84,7 @@ const CompanyListPage: React.FC = () => {
         onSearch={setSearch}
         style={{ marginBottom: 16, maxWidth: 400 }}
       />
-      {isLoading ? <Skeleton active /> : (
+      {isLoading ? <TableSkeleton /> : (
         data && data.items.length > 0 ? (
           <Table
             columns={columns}
@@ -75,7 +92,17 @@ const CompanyListPage: React.FC = () => {
             rowKey="id"
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage, showTotal: (t) => `Total ${t} companies` }}
           />
-        ) : <Empty description="No companies found" />
+        ) : (
+          <EmptyState
+            title="No companies found"
+            description="Add a partner company to start tracking opportunities and deals."
+            action={
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
+                Add Company
+              </Button>
+            }
+          />
+        )
       )}
     </>
   );

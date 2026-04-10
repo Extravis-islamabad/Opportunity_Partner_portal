@@ -39,3 +39,6 @@ class DealRegistration(Base):
     registered_by_user = relationship("User", foreign_keys=[registered_by])
     approver = relationship("User", foreign_keys=[approved_by])
     opportunity = relationship("Opportunity", foreign_keys=[opportunity_id])
+    commission = relationship(
+        "Commission", back_populates="deal", uselist=False, cascade="all, delete-orphan"
+    )

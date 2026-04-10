@@ -3,10 +3,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi import _rate_limit_exceeded_handler
 
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.error_handlers import register_error_handlers
+from app.core.rate_limit import limiter
 from app.api.v1.router import api_router
 
 
@@ -35,6 +39,10 @@ app = FastAPI(
     openapi_url="/api/openapi.json" if settings.APP_DEBUG else None,
     lifespan=lifespan,
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

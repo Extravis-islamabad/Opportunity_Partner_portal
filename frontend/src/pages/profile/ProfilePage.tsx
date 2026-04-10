@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Form, Input, Button, Descriptions, Tag, Divider, Alert, message, Row, Col } from 'antd';
+import { Card, Form, Input, Button, Descriptions, Tag, Alert, message, Row, Col } from 'antd';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMutation } from '@tanstack/react-query';
 import { usersApi, authApi } from '@/api/endpoints';

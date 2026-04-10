@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'claude/**']
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend-test:
+    name: Backend · Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pytest
+        env:
+          # Pytest discovers tests/ and runs pure unit tests that don't need
+          # Postgres or Redis; those dependencies are only imported, not
+          # actually connected to, by the unit tests in this slice.
+          DATABASE_URL: postgresql+asyncpg://fake:fake@localhost/fake
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: ci-test-secret-key-min-32-chars-aaaaaaa
+          SUPERADMIN_EMAIL: ci@example.com
+          SUPERADMIN_PASSWORD: ci-password
+          AI_ENABLED: 'false'
+          GROQ_API_KEY: ''
+        run: pytest -v
+
+  frontend-build:
+    name: Frontend · Lint, TypeCheck, Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Build
+        run: npm run build

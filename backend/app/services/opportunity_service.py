@@ -1,9 +1,11 @@
+import asyncio
 from datetime import datetime, timezone
 from decimal import Decimal
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from typing import Optional
+import structlog
 
 from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.opp_document import OppDocument
@@ -20,8 +22,64 @@ from app.schemas.opportunity import (
     OpportunityInternalNoteRequest,
 )
 from app.core.exceptions import NotFoundException, BadRequestException, ForbiddenException, ConflictException
+from app.core.config import settings
+from app.core.database import async_session_factory
 from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_all_admins, notify_user
+
+logger = structlog.get_logger()
+
+
+async def _ai_score_opportunity_bg(opp_id: int) -> None:
+    """
+    Fire-and-forget background task: opens its own AsyncSession (don't reuse
+    the request-scoped one), calls the AI service, persists the score.
+    Never raises — any failure is swallowed after logging.
+    """
+    if not settings.ai_is_configured:
+        return
+    try:
+        from app.services import ai_service
+
+        async with async_session_factory() as bg_session:
+            result = await bg_session.execute(
+                select(Opportunity)
+                .options(joinedload(Opportunity.company))
+                .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
+            )
+            opp = result.unique().scalar_one_or_none()
+            if opp is None:
+                return
+
+            # 1. Scoring
+            score_result = await ai_service.score_opportunity(opp)
+            if score_result is not None:
+                score, reasoning = score_result
+                opp.ai_score = score
+                opp.ai_reasoning = reasoning
+                opp.ai_scored_at = datetime.now(timezone.utc)
+
+            # 2. Duplicate detection across the same country (scoped for token budget)
+            cand_result = await bg_session.execute(
+                select(Opportunity)
+                .where(
+                    Opportunity.id != opp.id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.country == opp.country,
+                    Opportunity.status != OpportunityStatus.REMOVED,
+                )
+                .limit(20)
+            )
+            candidates = list(cand_result.scalars().all())
+            duplicates = await ai_service.detect_duplicates(opp, candidates)
+            if duplicates:
+                # Link to the highest-confidence duplicate
+                best = max(duplicates, key=lambda d: d["confidence"])
+                opp.ai_duplicate_of_id = best["opportunity_id"]
+
+            await bg_session.commit()
+    except Exception as exc:  # pragma: no cover
+        logger.warning("ai.background_score_failed", opp_id=opp_id, error=str(exc))
 
 
 def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
@@ -48,6 +106,10 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         reviewer_name=opp.reviewer.full_name if opp.reviewer else None,
         submitted_at=opp.submitted_at,
         reviewed_at=opp.reviewed_at,
+        ai_score=opp.ai_score,
+        ai_reasoning=opp.ai_reasoning,
+        ai_scored_at=opp.ai_scored_at,
+        ai_duplicate_of_id=opp.ai_duplicate_of_id,
         documents=[
             OppDocumentResponse(
                 id=d.id, file_name=d.file_name, file_url=d.file_url,
@@ -103,6 +165,11 @@ async def create_opportunity(
     })
 
     await db.refresh(opp, ["submitted_by_user", "company", "documents"])
+
+    # Fire-and-forget AI scoring for submitted opportunities
+    if opp.status == OpportunityStatus.PENDING_REVIEW and settings.ai_is_configured:
+        asyncio.create_task(_ai_score_opportunity_bg(opp.id))
+
     return _build_opportunity_response(opp)
 
 
@@ -211,6 +278,8 @@ async def get_opportunities(
             company_name=o.company.name if o.company else None,
             company_id=o.company_id,
             submitted_at=o.submitted_at,
+            ai_score=o.ai_score,
+            ai_reasoning=o.ai_reasoning,
             created_at=o.created_at,
         ))
 
@@ -325,6 +394,10 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
         "before": before_state,
         "after": {"status": "pending_review"},
     })
+
+    # Fire-and-forget AI scoring
+    if settings.ai_is_configured:
+        asyncio.create_task(_ai_score_opportunity_bg(opp.id))
 
     return _build_opportunity_response(opp)
 

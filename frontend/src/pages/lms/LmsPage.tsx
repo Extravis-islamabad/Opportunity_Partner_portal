@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { Card, Row, Col, Button, Tag, Skeleton, Alert, Empty, Modal, Form, Input, Select, InputNumber, Space, Table, Upload, message, Progress } from 'antd';
-import { ReadOutlined, PlusOutlined, PlayCircleOutlined, TrophyOutlined, UploadOutlined } from '@ant-design/icons';
+import { Card, Row, Col, Button, Tag, Skeleton, Alert, Empty, Modal, Form, Input, Select, InputNumber, Space, Table, Upload, message } from 'antd';
+import { PlusOutlined, PlayCircleOutlined, TrophyOutlined, UploadOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { lmsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import type { CourseResponse, EnrollmentResponse } from '@/types';
-import type { ColumnsType } from 'antd/es/table';
 
 const LmsPage: React.FC = () => {
   const { user } = useAuth();

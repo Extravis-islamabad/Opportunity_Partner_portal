@@ -4,6 +4,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from typing import Optional
+import structlog
 
 from app.models.deal_registration import DealRegistration, DealStatus
 from app.models.user import User
@@ -17,6 +18,8 @@ from app.schemas.dashboard import (
 from app.core.exceptions import NotFoundException, BadRequestException, ConflictException
 from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_all_admins, notify_user
+
+logger = structlog.get_logger()
 
 
 async def create_deal_registration(
@@ -175,6 +178,18 @@ async def approve_deal(
         f"Your deal registration for {deal.customer_name} has been approved with {data.exclusivity_days}-day exclusivity.",
         "deal_registration", deal.id,
     )
+
+    # Auto-calculate commission. Never block the approval if this fails.
+    try:
+        from app.services import commission_service
+
+        await commission_service.calculate_commission_for_deal(db, deal.id)
+    except Exception as exc:
+        logger.warning(
+            "deal.commission_calculation_failed",
+            deal_id=deal.id,
+            error=str(exc),
+        )
 
     return DealRegistrationResponse(
         id=deal.id,

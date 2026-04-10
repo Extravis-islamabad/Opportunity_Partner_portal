@@ -28,6 +28,10 @@ import type {
   MonthlyOpportunityData,
   PaginatedResponse,
   MessageResponse,
+  CommissionRead,
+  ScorecardRead,
+  LeaderboardResponse,
+  StatementPeriodSummary,
 } from '@/types';
 
 // ==================== Auth ====================
@@ -201,6 +205,85 @@ export const notificationsApi = {
     apiClient.post<MessageResponse>('/notifications/mark-read', { notification_ids }),
   markAllRead: () =>
     apiClient.post<MessageResponse>('/notifications/mark-all-read'),
+};
+
+// ==================== Exports ====================
+type ExportParams = Record<string, string | number | undefined>;
+
+const blobGet = (url: string, params?: ExportParams) =>
+  apiClient.get<Blob>(url, { params, responseType: 'blob' });
+
+export const exportsApi = {
+  opportunitiesPdf: (params?: ExportParams) => blobGet('/exports/opportunities.pdf', params),
+  opportunitiesXlsx: (params?: ExportParams) => blobGet('/exports/opportunities.xlsx', params),
+  dealsPdf: (params?: ExportParams) => blobGet('/exports/deals.pdf', params),
+  dealsXlsx: (params?: ExportParams) => blobGet('/exports/deals.xlsx', params),
+  companiesPdf: (params?: ExportParams) => blobGet('/exports/companies.pdf', params),
+  companiesXlsx: (params?: ExportParams) => blobGet('/exports/companies.xlsx', params),
+};
+
+// ==================== Commissions & Scorecard ====================
+export const commissionsApi = {
+  list: (params: Record<string, string | number | undefined>) =>
+    apiClient.get<PaginatedResponse<CommissionRead>>('/commissions', { params }),
+  get: (id: number) =>
+    apiClient.get<CommissionRead>(`/commissions/${id}`),
+  updateStatus: (id: number, status: string, notes?: string) =>
+    apiClient.patch<CommissionRead>(`/commissions/${id}/status`, { status, notes }),
+  listStatements: (params?: { company_id?: number }) =>
+    apiClient.get<StatementPeriodSummary[]>('/commissions/statements/list', { params }),
+  statementPdf: (companyId: number, period: string) =>
+    apiClient.get<Blob>(`/commissions/statements/${companyId}/${period}.pdf`, {
+      responseType: 'blob',
+    }),
+};
+
+export const scorecardApi = {
+  me: () => apiClient.get<ScorecardRead>('/scorecard/me'),
+  company: (companyId: number) =>
+    apiClient.get<ScorecardRead>(`/scorecard/${companyId}`),
+  leaderboard: (params?: { period?: string; limit?: number }) =>
+    apiClient.get<LeaderboardResponse>('/scorecard/leaderboard/top', { params }),
+};
+
+// ==================== AI ====================
+export interface AIConfigResponse {
+  enabled: boolean;
+  model_default: string;
+  model_fast: string;
+}
+
+export interface KbCitation {
+  id: number;
+  title: string;
+  category: string;
+}
+
+export interface KbAskResponse {
+  answer: string;
+  citations: KbCitation[];
+}
+
+export interface OpportunitySummaryResponse {
+  opportunity_id: number;
+  summary: string;
+  cached: boolean;
+}
+
+export interface RescoreResponse {
+  opportunity_id: number;
+  score: number | null;
+  reasoning: string | null;
+}
+
+export const aiApi = {
+  config: () => apiClient.get<AIConfigResponse>('/ai/config'),
+  kbAsk: (question: string) =>
+    apiClient.post<KbAskResponse>('/ai/kb-ask', { question }),
+  summarizeOpportunity: (id: number) =>
+    apiClient.post<OpportunitySummaryResponse>(`/ai/opportunities/${id}/summarize`),
+  rescoreOpportunity: (id: number) =>
+    apiClient.post<RescoreResponse>(`/ai/opportunities/${id}/rescore`),
 };
 
 // ==================== Dashboard ====================
