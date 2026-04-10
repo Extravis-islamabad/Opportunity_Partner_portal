@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Congratulations! 🎓</h2>
+<p>Hello {{ name }},</p>
+<p>Your certificate of completion for <strong>{{ course_name }}</strong> is attached to this email.</p>
+<div class="highlight">
+    <p>You can also download your certificate from your profile in the {{ app_name }}.</p>
+</div>
+<div style="text-align: center;">
+    <a href="{{ frontend_url }}/lms/certificates" class="btn">View My Certificates</a>
+</div>
+{% endblock %}

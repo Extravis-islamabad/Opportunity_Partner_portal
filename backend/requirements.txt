@@ -1,0 +1,43 @@
+# FastAPI & Server
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.1
+
+# Redis
+redis[hiredis]==5.2.1
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+
+# Validation & Settings
+pydantic==2.10.4
+pydantic-settings==2.7.1
+email-validator==2.2.0
+
+# Email
+aiosmtplib==3.0.2
+jinja2==3.1.5
+
+# File handling
+python-magic==0.4.27
+aiofiles==24.1.0
+
+# PDF generation
+reportlab>=4.0.0
+
+# Excel
+openpyxl>=3.1.0
+
+# Utilities
+python-dateutil==2.9.0
+httpx==0.28.1
+
+# Logging
+structlog==24.4.0

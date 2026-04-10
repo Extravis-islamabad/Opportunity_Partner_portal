@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f4f6f8; }
+        .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
+        .header { background-color: #1a237e; padding: 24px; text-align: center; }
+        .header h1 { color: #ffffff; margin: 0; font-size: 22px; }
+        .body { padding: 32px 24px; color: #333333; line-height: 1.6; }
+        .footer { padding: 16px 24px; text-align: center; color: #999999; font-size: 12px; border-top: 1px solid #eeeeee; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #1a237e; color: #ffffff; text-decoration: none; border-radius: 4px; margin: 16px 0; }
+        .highlight { background-color: #f0f4ff; padding: 12px 16px; border-left: 4px solid #1a237e; margin: 16px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ app_name }}</h1>
+        </div>
+        <div class="body">
+            {% block content %}
+            {{ content | safe }}
+            {% endblock %}
+        </div>
+        <div class="footer">
+            <p>&copy; {{ app_name }}. All rights reserved.</p>
+            <p>This is an automated message. Please do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>

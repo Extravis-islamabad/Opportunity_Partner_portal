@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Welcome to {{ app_name }}!</h2>
+<p>Hello {{ name }},</p>
+<p>Your partner account has been created for <strong>{{ company_name }}</strong>.</p>
+<p>To get started, please activate your account by clicking the button below and setting your password:</p>
+<div style="text-align: center;">
+    <a href="{{ frontend_url }}/activate?token={{ activation_token }}" class="btn">Activate Your Account</a>
+</div>
+<p>This activation link will expire in {{ expire_hours }} hours.</p>
+<p>If you did not expect this email, please ignore it.</p>
+{% endblock %}

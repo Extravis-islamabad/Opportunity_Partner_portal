@@ -1,0 +1,88 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: extravis_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: extravis
+      POSTGRES_PASSWORD: extravis_secret
+      POSTGRES_DB: partner_portal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U extravis -d partner_portal"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: extravis_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: extravis_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./backend:/app
+      - upload_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/app
+    command: >
+      sh -c "alembic upgrade head && python -m app.core.init_db && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: extravis_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_BASE_URL=http://localhost/api/v1
+
+  nginx:
+    image: nginx:alpine
+    container_name: extravis_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  postgres_data:
+  redis_data:
+  upload_data:
