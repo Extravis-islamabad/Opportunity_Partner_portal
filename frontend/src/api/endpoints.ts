@@ -203,6 +203,21 @@ export const notificationsApi = {
     apiClient.post<MessageResponse>('/notifications/mark-all-read'),
 };
 
+// ==================== Exports ====================
+type ExportParams = Record<string, string | number | undefined>;
+
+const blobGet = (url: string, params?: ExportParams) =>
+  apiClient.get<Blob>(url, { params, responseType: 'blob' });
+
+export const exportsApi = {
+  opportunitiesPdf: (params?: ExportParams) => blobGet('/exports/opportunities.pdf', params),
+  opportunitiesXlsx: (params?: ExportParams) => blobGet('/exports/opportunities.xlsx', params),
+  dealsPdf: (params?: ExportParams) => blobGet('/exports/deals.pdf', params),
+  dealsXlsx: (params?: ExportParams) => blobGet('/exports/deals.xlsx', params),
+  companiesPdf: (params?: ExportParams) => blobGet('/exports/companies.pdf', params),
+  companiesXlsx: (params?: ExportParams) => blobGet('/exports/companies.xlsx', params),
+};
+
 // ==================== Dashboard ====================
 export const dashboardApi = {
   getAdminStats: () =>

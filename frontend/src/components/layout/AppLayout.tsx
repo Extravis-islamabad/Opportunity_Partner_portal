@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Badge, Space, Typography } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Badge, Space, Typography, theme, Button, Tooltip } from 'antd';
 import {
   DashboardOutlined,
   BankOutlined,
@@ -13,11 +13,13 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  TrophyOutlined,
   SafetyCertificateOutlined,
+  BulbOutlined,
+  BulbFilled,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAppTheme } from '@/contexts/ThemeContext';
 import { useQuery } from '@tanstack/react-query';
 import { notificationsApi } from '@/api/endpoints';
 import type { MenuProps } from 'antd';
@@ -30,6 +32,8 @@ const AppLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
+  const { isDark, toggle: toggleTheme } = useAppTheme();
+  const { token } = theme.useToken();
   const isAdmin = user?.role === 'admin';
 
   const { data: notifCount } = useQuery({
@@ -79,15 +83,21 @@ const AppLayout: React.FC = () => {
     }
   };
 
+  // Theme-aware colors. Sider always stays dark (like an app shell) but the
+  // header + content follow the algorithm so the rest of the app is readable
+  // in both modes.
+  const siderBg = isDark ? '#0b0e14' : '#001529';
+  const siderBorder = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.1)';
+
   return (
-    <Layout style={{ minHeight: '100vh' }} hasSider>
+    <Layout style={{ minHeight: '100vh', background: token.colorBgLayout }} hasSider>
       <Sider
         trigger={null}
         collapsible
         collapsed={collapsed}
         width={220}
         style={{
-          background: '#001529',
+          background: siderBg,
           overflow: 'auto',
           height: '100vh',
           position: 'sticky',
@@ -101,7 +111,7 @@ const AppLayout: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          borderBottom: `1px solid ${siderBorder}`,
         }}>
           <Text strong style={{ color: '#fff', fontSize: collapsed ? 14 : 18 }}>
             {collapsed ? 'EP' : 'Extravis Portal'}
@@ -110,12 +120,13 @@ const AppLayout: React.FC = () => {
         <Menu
           theme="dark"
           mode="inline"
+          style={{ background: siderBg }}
           selectedKeys={[selectedKey]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />
         {!collapsed && user?.company_name && (
-          <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.1)', position: 'absolute', bottom: 48, left: 0, right: 0 }}>
+          <div style={{ padding: '16px', borderTop: `1px solid ${siderBorder}`, position: 'absolute', bottom: 48, left: 0, right: 0 }}>
             <Space direction="vertical" size={0}>
               <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Company</Text>
               <Text style={{ color: '#fff', fontSize: 13 }}>{user.company_name}</Text>
@@ -127,25 +138,37 @@ const AppLayout: React.FC = () => {
           </div>
         )}
       </Sider>
-      <Layout style={{ flex: 1, minWidth: 0 }}>
+      <Layout style={{ flex: 1, minWidth: 0, background: token.colorBgLayout }}>
         <Header style={{
-          background: '#fff',
+          background: token.colorBgContainer,
           padding: '0 24px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+          boxShadow: `0 1px 4px ${isDark ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.08)'}`,
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}>
           <div
             onClick={() => setCollapsed(!collapsed)}
-            style={{ cursor: 'pointer', fontSize: 18 }}
+            style={{ cursor: 'pointer', fontSize: 18, color: token.colorText }}
+            role="button"
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           </div>
-          <Space size={20}>
+          <Space size={16}>
+            <Tooltip title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}>
+              <Button
+                type="text"
+                shape="circle"
+                icon={isDark ? <BulbFilled style={{ color: '#faad14' }} /> : <BulbOutlined />}
+                onClick={toggleTheme}
+                aria-label="Toggle theme"
+              />
+            </Tooltip>
             <Badge count={notifCount?.unread_count ?? 0} size="small">
               <BellOutlined
-                style={{ fontSize: 20, cursor: 'pointer' }}
+                style={{ fontSize: 20, cursor: 'pointer', color: token.colorText }}
                 onClick={() => navigate('/notifications')}
               />
             </Badge>
@@ -157,7 +180,13 @@ const AppLayout: React.FC = () => {
             </Dropdown>
           </Space>
         </Header>
-        <Content style={{ margin: 16, padding: 20, background: '#fff', borderRadius: 8, minHeight: 360 }}>
+        <Content style={{
+          margin: 16,
+          padding: 20,
+          background: token.colorBgContainer,
+          borderRadius: 8,
+          minHeight: 360,
+        }}>
           <Outlet />
         </Content>
       </Layout>

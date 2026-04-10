@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { Table, Button, Input, Tag, Space, Select, Skeleton, Alert, Empty, message } from 'antd';
+import { Table, Button, Input, Tag, Space, Select, Alert } from 'antd';
 import { PlusOutlined, SearchOutlined, EyeOutlined, StarFilled, WarningOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { opportunitiesApi } from '@/api/endpoints';
+import { opportunitiesApi, exportsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
+import EmptyState from '@/components/common/EmptyState';
+import TableSkeleton from '@/components/common/TableSkeleton';
+import ExportMenu from '@/components/common/ExportMenu';
 import type { OpportunityListItem } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -61,12 +64,29 @@ const OpportunityListPage: React.FC = () => {
 
   if (error) return <Alert type="error" message="Failed to load opportunities" showIcon />;
 
+  const exportParams: Record<string, string | number | undefined> = {};
+  if (search) exportParams['search'] = search;
+  if (statusFilter) exportParams['status'] = statusFilter;
+
   return (
     <>
       <PageHeader
         title={isAdmin ? 'All Opportunities' : 'My Opportunities'}
         subtitle={`${data?.total ?? 0} total`}
-        extra={!isAdmin && <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/opportunities/create')}>New Opportunity</Button>}
+        extra={
+          <Space>
+            <ExportMenu
+              filenamePrefix="opportunities"
+              pdf={() => exportsApi.opportunitiesPdf(exportParams)}
+              xlsx={() => exportsApi.opportunitiesXlsx(exportParams)}
+            />
+            {!isAdmin && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/opportunities/create')}>
+                New Opportunity
+              </Button>
+            )}
+          </Space>
+        }
       />
       <Space style={{ marginBottom: 16 }}>
         <Input.Search placeholder="Search..." allowClear onSearch={setSearch} style={{ width: 300 }} prefix={<SearchOutlined />} />
@@ -78,11 +98,21 @@ const OpportunityListPage: React.FC = () => {
           ]}
         />
       </Space>
-      {isLoading ? <Skeleton active /> : (
+      {isLoading ? <TableSkeleton /> : (
         data && data.items.length > 0 ? (
           <Table columns={columns} dataSource={data.items} rowKey="id"
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage, showTotal: (t) => `Total ${t}` }} />
-        ) : <Empty description="No opportunities found" />
+        ) : (
+          <EmptyState
+            title="No opportunities found"
+            description={isAdmin ? 'No opportunities match the current filters.' : 'Create your first opportunity to get started.'}
+            action={!isAdmin && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/opportunities/create')}>
+                New Opportunity
+              </Button>
+            )}
+          />
+        )
       )}
     </>
   );

@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { Table, Button, Tag, Space, Skeleton, Alert, Empty, Modal, Form, Input, InputNumber, DatePicker, message } from 'antd';
+import { Table, Button, Tag, Space, Alert, Modal, Form, Input, InputNumber, DatePicker, message } from 'antd';
 import { PlusOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { dashboardApi } from '@/api/endpoints';
+import { dashboardApi, exportsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
+import EmptyState from '@/components/common/EmptyState';
+import TableSkeleton from '@/components/common/TableSkeleton';
+import ExportMenu from '@/components/common/ExportMenu';
 import type { DealRegistrationResponse } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -72,13 +75,38 @@ const DealsPage: React.FC = () => {
       <PageHeader
         title="Deal Registration"
         subtitle="Register and protect your deals"
-        extra={isPartner && <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>Register Deal</Button>}
+        extra={
+          <Space>
+            <ExportMenu
+              filenamePrefix="deals"
+              pdf={() => exportsApi.dealsPdf()}
+              xlsx={() => exportsApi.dealsXlsx()}
+            />
+            {isPartner && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>
+                Register Deal
+              </Button>
+            )}
+          </Space>
+        }
       />
-      {isLoading ? <Skeleton active /> : (
+      {isLoading ? <TableSkeleton /> : (
         data && data.items.length > 0 ? (
           <Table columns={columns} dataSource={data.items} rowKey="id"
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage }} />
-        ) : <Empty description="No deal registrations" />
+        ) : (
+          <EmptyState
+            title="No deal registrations"
+            description={isPartner
+              ? 'Register a deal to protect your pipeline with exclusivity.'
+              : 'No deal registrations have been submitted yet.'}
+            action={isPartner && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>
+                Register Deal
+              </Button>
+            )}
+          />
+        )
       )}
 
       <Modal title="Register New Deal" open={createModal} onCancel={() => setCreateModal(false)}
