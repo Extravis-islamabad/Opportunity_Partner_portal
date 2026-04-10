@@ -78,9 +78,22 @@ class Settings(BaseSettings):
     # Session
     SESSION_TIMEOUT_HOURS: int = 8
 
+    # AI / Groq (free tier, OpenAI-compatible API)
+    AI_ENABLED: bool = True
+    GROQ_API_KEY: str = ""
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    GROQ_MODEL_DEFAULT: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL_FAST: str = "llama-3.1-8b-instant"
+    GROQ_TIMEOUT_SECONDS: float = 20.0
+    AI_SCORE_CACHE_SECONDS: int = 86400  # 24h for summaries
+
     @property
     def max_file_size_bytes(self) -> int:
         return self.MAX_FILE_SIZE_MB * 1024 * 1024
+
+    @property
+    def ai_is_configured(self) -> bool:
+        return self.AI_ENABLED and bool(self.GROQ_API_KEY)
 
 
 settings = Settings()

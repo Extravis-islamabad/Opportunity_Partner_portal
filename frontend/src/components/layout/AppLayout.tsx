@@ -25,6 +25,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useQuery } from '@tanstack/react-query';
 import { notificationsApi } from '@/api/endpoints';
+import KbChatWidget from '@/components/ai/KbChatWidget';
 import type { MenuProps } from 'antd';
 
 const { Header, Sider, Content } = Layout;
@@ -198,6 +199,7 @@ const AppLayout: React.FC = () => {
           <Outlet />
         </Content>
       </Layout>
+      <KbChatWidget />
     </Layout>
   );
 };

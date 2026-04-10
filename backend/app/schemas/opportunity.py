@@ -78,6 +78,11 @@ class OpportunityResponse(BaseModel):
     submitted_at: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
     documents: List[OppDocumentResponse] = []
+    # AI enrichment (populated async after submit)
+    ai_score: Optional[int] = None
+    ai_reasoning: Optional[str] = None
+    ai_scored_at: Optional[datetime] = None
+    ai_duplicate_of_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -98,6 +103,8 @@ class OpportunityListResponse(BaseModel):
     company_name: Optional[str] = None
     company_id: int
     submitted_at: Optional[datetime] = None
+    ai_score: Optional[int] = None
+    ai_reasoning: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

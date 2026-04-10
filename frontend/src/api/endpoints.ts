@@ -246,6 +246,46 @@ export const scorecardApi = {
     apiClient.get<LeaderboardResponse>('/scorecard/leaderboard/top', { params }),
 };
 
+// ==================== AI ====================
+export interface AIConfigResponse {
+  enabled: boolean;
+  model_default: string;
+  model_fast: string;
+}
+
+export interface KbCitation {
+  id: number;
+  title: string;
+  category: string;
+}
+
+export interface KbAskResponse {
+  answer: string;
+  citations: KbCitation[];
+}
+
+export interface OpportunitySummaryResponse {
+  opportunity_id: number;
+  summary: string;
+  cached: boolean;
+}
+
+export interface RescoreResponse {
+  opportunity_id: number;
+  score: number | null;
+  reasoning: string | null;
+}
+
+export const aiApi = {
+  config: () => apiClient.get<AIConfigResponse>('/ai/config'),
+  kbAsk: (question: string) =>
+    apiClient.post<KbAskResponse>('/ai/kb-ask', { question }),
+  summarizeOpportunity: (id: number) =>
+    apiClient.post<OpportunitySummaryResponse>(`/ai/opportunities/${id}/summarize`),
+  rescoreOpportunity: (id: number) =>
+    apiClient.post<RescoreResponse>(`/ai/opportunities/${id}/rescore`),
+};
+
 // ==================== Dashboard ====================
 export const dashboardApi = {
   getAdminStats: () =>

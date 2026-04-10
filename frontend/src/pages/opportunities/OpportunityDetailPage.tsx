@@ -2,12 +2,11 @@ import React, { useState } from 'react';
 import { Descriptions, Card, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Modal, Input, Checkbox, Upload, List, message, Typography } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { opportunitiesApi } from '@/api/endpoints';
+import { opportunitiesApi, aiApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
-import { StarFilled, WarningOutlined, UploadOutlined, FileOutlined } from '@ant-design/icons';
-import { AxiosError } from 'axios';
-import type { ErrorResponse, OpportunityResponse } from '@/types';
+import AIScoreBadge from '@/components/ai/AIScoreBadge';
+import { StarFilled, WarningOutlined, UploadOutlined, FileOutlined, ThunderboltOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 const statusColors: Record<string, string> = {
@@ -54,6 +53,21 @@ const OpportunityDetailPage: React.FC = () => {
   const noteMut = useMutation({
     mutationFn: () => opportunitiesApi.addNote(oppId, noteText),
     onSuccess: () => { setNoteModal(false); invalidate(); void message.success('Note added'); },
+  });
+
+  const [summary, setSummary] = useState<string | null>(null);
+  const summarizeMut = useMutation({
+    mutationFn: () => aiApi.summarizeOpportunity(oppId),
+    onSuccess: (res) => {
+      setSummary(res.data.summary);
+      void message.success(res.data.cached ? 'Summary loaded from cache' : 'Summary generated');
+    },
+    onError: () => { void message.error('Summarization unavailable'); },
+  });
+  const rescoreMut = useMutation({
+    mutationFn: () => aiApi.rescoreOpportunity(oppId),
+    onSuccess: () => { invalidate(); void message.success('AI score updated'); },
+    onError: () => { void message.error('Rescoring unavailable'); },
   });
 
   if (error) return <Alert type="error" message="Failed to load opportunity" showIcon />;
@@ -127,6 +141,83 @@ const OpportunityDetailPage: React.FC = () => {
               <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{opp.internal_notes}</Typography.Paragraph>
             </Card>
           )}
+
+          <Card
+            title={
+              <Space>
+                <ThunderboltOutlined style={{ color: '#faad14' }} />
+                AI Insights
+              </Space>
+            }
+            style={{ marginTop: 16 }}
+            extra={
+              isAdmin && (
+                <Space>
+                  <Button
+                    size="small"
+                    icon={<ReloadOutlined />}
+                    loading={rescoreMut.isPending}
+                    onClick={() => rescoreMut.mutate()}
+                  >
+                    Re-score
+                  </Button>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<ThunderboltOutlined />}
+                    loading={summarizeMut.isPending}
+                    onClick={() => summarizeMut.mutate()}
+                  >
+                    Summarize
+                  </Button>
+                </Space>
+              )
+            }
+          >
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Space align="center">
+                <AIScoreBadge score={opp.ai_score} />
+                {opp.ai_scored_at && (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    scored {dayjs(opp.ai_scored_at).format('MMM D, YYYY')}
+                  </Typography.Text>
+                )}
+              </Space>
+              {opp.ai_reasoning && (
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 13 }}>
+                  {opp.ai_reasoning}
+                </Typography.Paragraph>
+              )}
+              {opp.ai_duplicate_of_id && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Possible duplicate detected"
+                  description={
+                    <span>
+                      This opportunity may be a duplicate of{' '}
+                      <a onClick={() => navigate(`/opportunities/${opp.ai_duplicate_of_id}`)}>
+                        opportunity #{opp.ai_duplicate_of_id}
+                      </a>.
+                    </span>
+                  }
+                />
+              )}
+              {summary && (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="AI Summary"
+                  description={<div style={{ whiteSpace: 'pre-wrap' }}>{summary}</div>}
+                />
+              )}
+              {!opp.ai_score && !opp.ai_reasoning && (
+                <Typography.Text type="secondary">
+                  AI scoring runs automatically when an opportunity is submitted for review.
+                </Typography.Text>
+              )}
+            </Space>
+          </Card>
         </Col>
 
         <Col xs={24} lg={8}>

@@ -9,6 +9,7 @@ import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
 import TableSkeleton from '@/components/common/TableSkeleton';
 import ExportMenu from '@/components/common/ExportMenu';
+import AIScoreBadge from '@/components/ai/AIScoreBadge';
 import type { OpportunityListItem } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -52,6 +53,11 @@ const OpportunityListPage: React.FC = () => {
     ...(isAdmin ? [{ title: 'Company', dataIndex: 'company_name' as const, key: 'company' }] : []),
     { title: 'Worth (USD)', dataIndex: 'worth', key: 'worth', render: (v: string) => `$${Number(v).toLocaleString()}` },
     { title: 'Closing Date', dataIndex: 'closing_date', key: 'date', render: (d: string) => dayjs(d).format('MMM D, YYYY') },
+    {
+      title: 'AI', key: 'ai',
+      width: 90,
+      render: (_, record) => <AIScoreBadge score={record.ai_score} reasoning={record.ai_reasoning} />,
+    },
     {
       title: 'Status', dataIndex: 'status', key: 'status',
       render: (s: string) => <Tag color={statusColors[s] ?? 'default'}>{s.replace(/_/g, ' ').toUpperCase()}</Tag>,

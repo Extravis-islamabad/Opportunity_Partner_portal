@@ -164,6 +164,10 @@ export interface OpportunityResponse {
   submitted_at: string | null;
   reviewed_at: string | null;
   documents: OppDocumentResponse[];
+  ai_score: number | null;
+  ai_reasoning: string | null;
+  ai_scored_at: string | null;
+  ai_duplicate_of_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -182,6 +186,8 @@ export interface OpportunityListItem {
   company_name: string | null;
   company_id: number;
   submitted_at: string | null;
+  ai_score: number | null;
+  ai_reasoning: string | null;
   created_at: string;
 }
 

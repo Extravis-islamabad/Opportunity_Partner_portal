@@ -35,6 +35,12 @@ class Opportunity(Base):
     rejection_reason = Column(Text, nullable=True)
     internal_notes = Column(Text, nullable=True)
 
+    # AI-generated fields (populated asynchronously by ai_service)
+    ai_score = Column(Integer, nullable=True)
+    ai_reasoning = Column(Text, nullable=True)
+    ai_scored_at = Column(DateTime(timezone=True), nullable=True)
+    ai_duplicate_of_id = Column(Integer, ForeignKey("opportunities.id"), nullable=True)
+
     submitted_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
