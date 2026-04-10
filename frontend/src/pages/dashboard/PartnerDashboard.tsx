@@ -1,5 +1,5 @@
 import React from 'react';
-import { Row, Col, Card, Statistic, Skeleton, Alert, Empty, Tag, Progress, Typography, Button, Divider } from 'antd';
+import { Row, Col, Card, Statistic, Skeleton, Alert, Empty, Tag, Progress, Typography, Button } from 'antd';
 import {
   FundProjectionScreenOutlined,
   CheckCircleOutlined,
@@ -18,7 +18,6 @@ import { dashboardApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/common/PageHeader';
-import type { TierProgress } from '@/types';
 
 const tierColors: Record<string, string> = {
   silver: '#a0a0a0',
