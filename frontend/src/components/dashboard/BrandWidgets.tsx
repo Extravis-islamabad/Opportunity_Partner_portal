@@ -55,11 +55,12 @@ export const BrandFunnel: React.FC<BrandFunnelProps> = ({ data, height = 280 }) 
     <div style={{ padding: '8px 0', height, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
       {data.map((d, idx) => {
         const widthPct = Math.max(20, (d.count / max) * 100);
+        const prev = idx > 0 ? data[idx - 1] : undefined;
         const conversion =
           idx === 0
             ? 100
-            : data[idx - 1].count > 0
-              ? Math.round((d.count / data[idx - 1].count) * 100)
+            : prev && prev.count > 0
+              ? Math.round((d.count / prev.count) * 100)
               : 0;
         return (
           <div
@@ -252,7 +253,7 @@ export const BrandRadialBars: React.FC<BrandRadialBarsProps> = ({ data, formatVa
     <div>
       {data.map((d, idx) => {
         const pct = (d.value / max) * 100;
-        const color = d.color ?? palette[idx % palette.length];
+        const color = d.color ?? palette[idx % palette.length] ?? BRAND.royal500;
         return (
           <div key={d.label} style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -769,9 +770,10 @@ export const BrandTimelineMetric: React.FC<BrandTimelineMetricProps> = ({ data }
       }}
     >
       {visible.map((d, idx) => {
-        const prev = idx > 0 ? visible[idx - 1].value : null;
+        const prevPoint = idx > 0 ? visible[idx - 1] : undefined;
+        const prev = prevPoint?.value ?? null;
         const delta = prev !== null ? d.value - prev : null;
-        const deltaPct = prev !== null && prev > 0 ? Math.round((delta! / prev) * 100) : null;
+        const deltaPct = prev !== null && prev > 0 && delta !== null ? Math.round((delta / prev) * 100) : null;
         const fillPct = (d.value / max) * 100;
         return (
           <div
@@ -888,7 +890,7 @@ export const BrandSparkCards: React.FC<BrandSparkCardsProps> = ({ data }) => {
       }}
     >
       {data.map((card, idx) => {
-        const color = card.color ?? palette[idx % palette.length];
+        const color = card.color ?? palette[idx % palette.length] ?? BRAND.royal500;
         return (
           <div
             key={card.label}
@@ -944,7 +946,7 @@ export const BrandRingGrid: React.FC<BrandRingGridProps> = ({ data, size = 96 })
     >
       {data.map((d, idx) => {
         const safe = Math.max(0, Math.min(100, d.percent));
-        const color = d.color ?? palette[idx % palette.length];
+        const color = d.color ?? palette[idx % palette.length] ?? BRAND.royal500;
         const dashoffset = circumference * (1 - safe / 100);
         return (
           <div key={d.label} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
@@ -1021,7 +1023,7 @@ export const BrandBubbleMatrix: React.FC<BrandBubbleMatrixProps> = ({ data }) =>
       {data.map((d, idx) => {
         const ratio = d.value / max;
         const bubbleSize = Math.max(48, 48 + ratio * 56);
-        const color = palette[idx % palette.length];
+        const color = palette[idx % palette.length] ?? BRAND.royal500;
         return (
           <div
             key={d.label}

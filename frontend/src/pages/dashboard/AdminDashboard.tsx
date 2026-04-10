@@ -260,6 +260,7 @@ const AdminDashboard: React.FC = () => {
     const arr = monthly as MonthlyOpportunityData[];
     const last = arr[arr.length - 1];
     const prev = arr[arr.length - 2];
+    if (!last || !prev) return [];
     return [
       {
         label: 'This month — Submitted',
