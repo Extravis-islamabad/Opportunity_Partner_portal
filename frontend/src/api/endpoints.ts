@@ -28,6 +28,10 @@ import type {
   MonthlyOpportunityData,
   PaginatedResponse,
   MessageResponse,
+  CommissionRead,
+  ScorecardRead,
+  LeaderboardResponse,
+  StatementPeriodSummary,
 } from '@/types';
 
 // ==================== Auth ====================
@@ -216,6 +220,30 @@ export const exportsApi = {
   dealsXlsx: (params?: ExportParams) => blobGet('/exports/deals.xlsx', params),
   companiesPdf: (params?: ExportParams) => blobGet('/exports/companies.pdf', params),
   companiesXlsx: (params?: ExportParams) => blobGet('/exports/companies.xlsx', params),
+};
+
+// ==================== Commissions & Scorecard ====================
+export const commissionsApi = {
+  list: (params: Record<string, string | number | undefined>) =>
+    apiClient.get<PaginatedResponse<CommissionRead>>('/commissions', { params }),
+  get: (id: number) =>
+    apiClient.get<CommissionRead>(`/commissions/${id}`),
+  updateStatus: (id: number, status: string, notes?: string) =>
+    apiClient.patch<CommissionRead>(`/commissions/${id}/status`, { status, notes }),
+  listStatements: (params?: { company_id?: number }) =>
+    apiClient.get<StatementPeriodSummary[]>('/commissions/statements/list', { params }),
+  statementPdf: (companyId: number, period: string) =>
+    apiClient.get<Blob>(`/commissions/statements/${companyId}/${period}.pdf`, {
+      responseType: 'blob',
+    }),
+};
+
+export const scorecardApi = {
+  me: () => apiClient.get<ScorecardRead>('/scorecard/me'),
+  company: (companyId: number) =>
+    apiClient.get<ScorecardRead>(`/scorecard/${companyId}`),
+  leaderboard: (params?: { period?: string; limit?: number }) =>
+    apiClient.get<LeaderboardResponse>('/scorecard/leaderboard/top', { params }),
 };
 
 // ==================== Dashboard ====================

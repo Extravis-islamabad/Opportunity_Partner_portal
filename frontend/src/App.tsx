@@ -24,6 +24,9 @@ import DocRequestPage from '@/pages/documents/DocRequestPage';
 import NotificationsPage from '@/pages/notifications/NotificationsPage';
 import ProfilePage from '@/pages/profile/ProfilePage';
 import DealsPage from '@/pages/deals/DealsPage';
+import CommissionsListPage from '@/pages/commissions/CommissionsListPage';
+import ScorecardPage from '@/pages/scorecard/ScorecardPage';
+import LeaderboardPage from '@/pages/scorecard/LeaderboardPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,6 +75,9 @@ const App: React.FC = () => {
                 <Route path="/lms" element={<LmsPage />} />
                 <Route path="/doc-requests" element={<DocRequestPage />} />
                 <Route path="/deals" element={<DealsPage />} />
+                <Route path="/commissions" element={<CommissionsListPage />} />
+                <Route path="/scorecard" element={<ScorecardPage />} />
+                <Route path="/leaderboard" element={<LeaderboardPage />} />
                 <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
               </Route>

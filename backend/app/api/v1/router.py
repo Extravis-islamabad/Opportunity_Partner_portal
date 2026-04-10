@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     onboarding,
     bulk_import,
     exports,
+    commissions,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -30,3 +31,4 @@ api_router.include_router(audit_logs.router)
 api_router.include_router(onboarding.router)
 api_router.include_router(bulk_import.router)
 api_router.include_router(exports.router)
+api_router.include_router(commissions.router)

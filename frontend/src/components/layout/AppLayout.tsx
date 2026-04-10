@@ -16,6 +16,9 @@ import {
   SafetyCertificateOutlined,
   BulbOutlined,
   BulbFilled,
+  DollarOutlined,
+  TrophyOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -50,19 +53,24 @@ const AppLayout: React.FC = () => {
     { key: '/companies', icon: <BankOutlined />, label: 'Companies' },
     { key: '/users', icon: <TeamOutlined />, label: 'Users' },
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'Opportunities' },
+    { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
+    { key: '/commissions', icon: <DollarOutlined />, label: 'Commissions' },
+    { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
     { key: '/lms', icon: <ReadOutlined />, label: 'LMS / Training' },
     { key: '/doc-requests', icon: <FileTextOutlined />, label: 'Document Requests' },
-    { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
   ];
 
   const partnerMenuItems: MenuProps['items'] = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+    { key: '/scorecard', icon: <TrophyOutlined />, label: 'My Scorecard' },
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'My Opportunities' },
+    { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
+    { key: '/commissions', icon: <DollarOutlined />, label: 'My Commissions' },
+    { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
     { key: '/lms', icon: <ReadOutlined />, label: 'Training Courses' },
     { key: '/doc-requests', icon: <FileTextOutlined />, label: 'Document Requests' },
-    { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
   ];
 
   const menuItems = isAdmin ? adminMenuItems : partnerMenuItems;
@@ -131,7 +139,7 @@ const AppLayout: React.FC = () => {
               <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Company</Text>
               <Text style={{ color: '#fff', fontSize: 13 }}>{user.company_name}</Text>
               <Badge
-                count={user.role === 'partner' ? (user as Record<string, unknown>).company_tier as string : undefined}
+                count={user.role === 'partner' ? ((user as unknown) as Record<string, unknown>).company_tier as string : undefined}
                 style={{ backgroundColor: '#52c41a', marginTop: 4 }}
               />
             </Space>

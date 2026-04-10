@@ -393,3 +393,78 @@ export interface MonthlyOpportunityData {
   approved: number;
   rejected: number;
 }
+
+// ==================== Commissions & Scorecard ====================
+export type CommissionStatus = 'pending' | 'approved' | 'paid' | 'void';
+
+export interface CommissionRead {
+  id: number;
+  deal_id: number;
+  company_id: number;
+  company_name: string | null;
+  user_id: number | null;
+  user_name: string | null;
+  tier_at_calculation: string;
+  rate_percentage: string;
+  deal_value: string;
+  amount: string;
+  currency: string;
+  status: CommissionStatus;
+  notes: string | null;
+  calculated_at: string;
+  approved_at: string | null;
+  paid_at: string | null;
+  deal_customer_name: string | null;
+  deal_expected_close_date: string | null;
+}
+
+export interface Badge {
+  key: string;
+  label: string;
+  description: string;
+  earned_at: string | null;
+}
+
+export interface MonthlyCommissionPoint {
+  month: string;
+  amount: string;
+}
+
+export interface ScorecardRead {
+  company_id: number;
+  company_name: string;
+  tier: string;
+  next_tier: string | null;
+  total_approved_deals: number;
+  total_closed_value: string;
+  ytd_commission: string;
+  lifetime_commission: string;
+  tier_progress_pct: number;
+  rank: number | null;
+  badges: Badge[];
+  monthly_commission: MonthlyCommissionPoint[];
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  company_id: number;
+  company_name: string;
+  tier: string;
+  total_amount: string;
+  deal_count: number;
+}
+
+export interface LeaderboardResponse {
+  period: string;
+  entries: LeaderboardEntry[];
+}
+
+export interface StatementPeriodSummary {
+  period_start: string;
+  period_end: string;
+  company_id: number;
+  company_name: string | null;
+  total_amount: string;
+  commission_count: number;
+  currency: string;
+}

@@ -19,6 +19,7 @@ import { dashboardApi } from '@/api/endpoints';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/common/PageHeader';
 import type { DashboardStats, OpportunityStatusBreakdown, MonthlyOpportunityData, OverdueOpportunityItem } from '@/types';
+import LeaderboardWidget from '@/components/dashboard/LeaderboardWidget';
 
 const statusColors: Record<string, string> = {
   approved: '#52c41a',
@@ -302,6 +303,12 @@ const AdminDashboard: React.FC = () => {
                 <TeamOutlined style={{ fontSize: 28, color: '#722ed1', marginBottom: 8 }} />
                 <div><Typography.Text strong>LMS / Training</Typography.Text></div>
               </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={16} style={{ marginTop: 24 }}>
+            <Col xs={24} lg={12}>
+              <LeaderboardWidget />
             </Col>
           </Row>
         </>
