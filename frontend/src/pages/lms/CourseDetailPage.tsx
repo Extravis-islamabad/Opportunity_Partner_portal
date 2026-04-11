@@ -34,7 +34,7 @@ import {
   TrophyOutlined,
   DownloadOutlined,
 } from '@ant-design/icons';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { lmsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
@@ -310,7 +310,6 @@ const ModuleEditorModal: React.FC<ModuleEditorProps> = ({ open, initial, onCance
 const CourseDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const courseId = Number(id);
-  const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const queryClient = useQueryClient();
