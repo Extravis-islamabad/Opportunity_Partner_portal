@@ -1,5 +1,6 @@
 from decimal import Decimal
 from datetime import date, timedelta
+from typing import Optional
 from sqlalchemy import select, func, case, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 
