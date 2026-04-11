@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Table, Button, Input, Tag, Space, Select, Alert } from 'antd';
-import { PlusOutlined, SearchOutlined, EyeOutlined, StarFilled, WarningOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Tag, Space, Select, Alert, Tooltip } from 'antd';
+import { PlusOutlined, SearchOutlined, EyeOutlined, StarFilled, WarningOutlined, RobotOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { opportunitiesApi, exportsApi } from '@/api/endpoints';
@@ -44,8 +44,21 @@ const OpportunityListPage: React.FC = () => {
       render: (name: string, record) => (
         <Space>
           {name}
-          {record.preferred_partner && <StarFilled style={{ color: '#faad14' }} />}
-          {record.multi_partner_alert && <WarningOutlined style={{ color: '#ff4d4f' }} />}
+          {record.preferred_partner && (
+            <Tooltip title="Preferred partner">
+              <StarFilled style={{ color: '#faad14' }} />
+            </Tooltip>
+          )}
+          {record.multi_partner_alert && (
+            <Tooltip title="Possible duplicate — flagged for review">
+              <WarningOutlined style={{ color: '#ff4d4f' }} />
+            </Tooltip>
+          )}
+          {record.ai_duplicate_of_id && (
+            <Tooltip title={`AI flagged as possible duplicate of opportunity #${record.ai_duplicate_of_id}`}>
+              <RobotOutlined style={{ color: '#a064f3' }} />
+            </Tooltip>
+          )}
         </Space>
       ),
     },

@@ -99,8 +99,33 @@ const OpportunityDetailPage: React.FC = () => {
 
       {opp.multi_partner_alert && (
         <Alert type="warning" icon={<WarningOutlined />} message="Multi-Partner Alert"
-          description="Another partner has already submitted an opportunity for this customer. Admins have been notified."
-          showIcon style={{ marginBottom: 16 }} />
+          description="Another partner has already submitted an opportunity for this customer. Admins have been notified — this opportunity is in the duplicate review queue."
+          showIcon style={{ marginBottom: 16 }}
+          action={isAdmin && (
+            <Button size="small" onClick={() => navigate('/opportunities/duplicates')}>Review Queue</Button>
+          )}
+        />
+      )}
+
+      {opp.ai_duplicate_of_id && (
+        <Alert
+          type="info"
+          message="AI flagged a possible duplicate"
+          description={
+            <span>
+              The AI scoring service believes this opportunity may be a duplicate of{' '}
+              <a onClick={() => navigate(`/opportunities/${opp.ai_duplicate_of_id}`)}>opportunity #{opp.ai_duplicate_of_id}</a>.
+              Review both side-by-side before making an approval decision.
+            </span>
+          }
+          showIcon
+          style={{ marginBottom: 16 }}
+          action={isAdmin && (
+            <Button size="small" onClick={() => navigate(`/opportunities/${opp.ai_duplicate_of_id}`)}>
+              View match
+            </Button>
+          )}
+        />
       )}
 
       <Row gutter={[16, 16]}>

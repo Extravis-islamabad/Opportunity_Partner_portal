@@ -23,6 +23,13 @@ class Opportunity(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), nullable=False, index=True)
     customer_name = Column(String(200), nullable=False, index=True)
+    # Stripped, lowercased, suffix-removed form of customer_name used for
+    # duplicate detection (exact match + pg_trgm fuzzy match). Populated
+    # automatically on insert/update by the opportunity_service.
+    customer_name_normalized = Column(String(300), nullable=True, index=True)
+    # Optional customer domain (e.g. "atlas-mfg.com"). When two opps share
+    # the same domain it's a near-certain duplicate even if names differ.
+    customer_domain = Column(String(255), nullable=True, index=True)
     region = Column(String(100), nullable=False)
     country = Column(String(100), nullable=False)
     city = Column(String(100), nullable=False)

@@ -83,6 +83,9 @@ class OpportunityResponse(BaseModel):
     ai_reasoning: Optional[str] = None
     ai_scored_at: Optional[datetime] = None
     ai_duplicate_of_id: Optional[int] = None
+    # Duplicate detection (populated synchronously on create/update/submit)
+    customer_name_normalized: Optional[str] = None
+    customer_domain: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -105,6 +108,7 @@ class OpportunityListResponse(BaseModel):
     submitted_at: Optional[datetime] = None
     ai_score: Optional[int] = None
     ai_reasoning: Optional[str] = None
+    ai_duplicate_of_id: Optional[int] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

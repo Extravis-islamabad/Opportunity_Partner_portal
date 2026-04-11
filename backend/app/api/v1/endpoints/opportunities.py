@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, Query, Response, UploadFile, File
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_current_admin, get_current_partner
+from app.core.deps import get_current_user, get_current_admin, get_current_partner, get_admin_scope
 from app.models.user import User, UserRole
 from app.schemas.opportunity import (
     OpportunityCreateRequest,
@@ -16,11 +17,68 @@ from app.schemas.opportunity import (
     OppDocumentResponse,
 )
 from app.schemas.common import MessageResponse
-from app.services import opportunity_service
+from app.services import opportunity_service, duplicate_service
 from app.utils.file_upload import save_upload
 from app.core.exceptions import ForbiddenException
 
 router = APIRouter(prefix="/opportunities", tags=["Opportunities"])
+
+
+# ---------------------------------------------------------------------------
+# Duplicate detection endpoints
+# ---------------------------------------------------------------------------
+
+class DuplicateCheckRequest(BaseModel):
+    customer_name: str = Field(..., min_length=2, max_length=200)
+    country: str = Field(..., min_length=1, max_length=100)
+    city: Optional[str] = None
+    customer_domain: Optional[str] = None
+    exclude_opportunity_id: Optional[int] = None
+
+
+@router.post("/check-duplicate", status_code=200)
+async def check_duplicate(
+    data: DuplicateCheckRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Real-time duplicate check used by the create-opportunity form.
+    Does NOT mutate state — purely a lookup. Returns the same shape as
+    `find_duplicates` so the frontend can render the warning panel."""
+    submitting_company_id = None
+    if current_user.role == UserRole.PARTNER:
+        submitting_company_id = current_user.company_id
+    return await duplicate_service.find_duplicates(
+        db,
+        customer_name=data.customer_name,
+        country=data.country,
+        city=data.city,
+        submitting_company_id=submitting_company_id,
+        customer_domain=data.customer_domain,
+        exclude_opportunity_id=data.exclude_opportunity_id,
+    )
+
+
+@router.get("/duplicates", status_code=200)
+async def list_duplicate_review_queue(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin/channel-manager review queue for opportunities flagged as
+    possible duplicates (multi_partner_alert OR ai_duplicate_of_id set)."""
+    scope = await get_admin_scope(db, admin)
+    items, total = await duplicate_service.get_review_queue(
+        db, scope_company_ids=scope, page=page, page_size=page_size
+    )
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": math.ceil(total / page_size) if total > 0 else 0,
+    }
 
 
 @router.post("", response_model=OpportunityResponse, status_code=201)

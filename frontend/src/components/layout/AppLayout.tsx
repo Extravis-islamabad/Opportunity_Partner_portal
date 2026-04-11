@@ -21,6 +21,7 @@ import {
   CrownOutlined,
   SearchOutlined,
   MenuOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -86,6 +87,7 @@ const AppLayout: React.FC = () => {
     // through the company detail page instead.
     ...(isSuperadmin ? [{ key: '/users', icon: <TeamOutlined />, label: 'Users' }] : []),
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: isSuperadmin ? 'Opportunities' : 'Pipeline' },
+    { key: '/opportunities/duplicates', icon: <ExclamationCircleOutlined />, label: 'Duplicate Review' },
     { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
     { key: '/commissions', icon: <DollarOutlined />, label: 'Commissions' },
     { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },

@@ -37,7 +37,7 @@ import {
 } from '@ant-design/icons';
 import { Column, Bar, Radar } from '@ant-design/plots';
 import { useQuery } from '@tanstack/react-query';
-import { dashboardApi } from '@/api/endpoints';
+import { dashboardApi, duplicatesApi } from '@/api/endpoints';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
@@ -171,6 +171,11 @@ const AdminDashboard: React.FC = () => {
   const { data: analytics } = useQuery({
     queryKey: ['admin-analytics'],
     queryFn: async () => (await dashboardApi.getAdminAnalytics()).data,
+  });
+
+  const { data: dupQueue } = useQuery({
+    queryKey: ['dup-review-count'],
+    queryFn: async () => (await duplicatesApi.listReviewQueue({ page: 1, page_size: 1 })).data,
   });
 
   const approvalRate = stats && stats.total_opportunities > 0
@@ -457,6 +462,17 @@ const AdminDashboard: React.FC = () => {
           message={`${stats.pending_doc_requests} document request${stats.pending_doc_requests === 1 ? '' : 's'} awaiting action`}
           style={{ marginBottom: 16, borderRadius: 10 }}
           action={<Button size="small" onClick={() => navigate('/doc-requests')}>Review</Button>}
+        />
+      )}
+      {dupQueue && dupQueue.total > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          icon={<ExclamationCircleOutlined />}
+          message={`${dupQueue.total} opportunit${dupQueue.total === 1 ? 'y' : 'ies'} flagged as possible duplicate${dupQueue.total === 1 ? '' : 's'}`}
+          description="System or AI detected these against existing opportunities. Resolve the conflict before approving."
+          style={{ marginBottom: 16, borderRadius: 10 }}
+          action={<Button size="small" type="primary" onClick={() => navigate('/opportunities/duplicates')}>Open Review Queue</Button>}
         />
       )}
 

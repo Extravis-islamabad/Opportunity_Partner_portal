@@ -11,6 +11,7 @@ from app.models.audit_log import AuditLog
 from app.models.deal_registration import DealRegistration
 from app.models.partner_tier import PartnerTierHistory
 from app.models.commission import Commission, CommissionStatement, TierCommissionRate
+from app.models.customer_ownership import CustomerOwnership
 
 __all__ = [
     "User",
@@ -29,4 +30,5 @@ __all__ = [
     "Commission",
     "CommissionStatement",
     "TierCommissionRate",
+    "CustomerOwnership",
 ]

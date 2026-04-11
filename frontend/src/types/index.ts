@@ -191,6 +191,7 @@ export interface OpportunityListItem {
   submitted_at: string | null;
   ai_score: number | null;
   ai_reasoning: string | null;
+  ai_duplicate_of_id?: number | null;
   created_at: string;
 }
 

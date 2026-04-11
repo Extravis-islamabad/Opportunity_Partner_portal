@@ -174,6 +174,15 @@ async def approve_deal(
     deal.exclusivity_end = date.today() + timedelta(days=data.exclusivity_days)
 
     await db.flush()
+
+    # Register customer ownership so future opportunities for the same
+    # customer (in the same country) from a different company are blocked.
+    from app.services import duplicate_service
+    try:
+        await duplicate_service.upsert_ownership_from_deal(db, deal)
+    except Exception:
+        # Don't fail the approval if ownership write fails — it's secondary
+        pass
     await write_audit_log(db, admin_user.id, "UPDATE", "deal_registration", deal.id, {
         "status": "approved", "exclusivity_days": data.exclusivity_days,
     })

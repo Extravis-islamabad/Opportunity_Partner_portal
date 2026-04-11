@@ -294,6 +294,72 @@ export const aiApi = {
     apiClient.post<RescoreResponse>(`/ai/opportunities/${id}/rescore`),
 };
 
+// ==================== Duplicate detection ====================
+export interface DuplicateCheckRequest {
+  customer_name: string;
+  country: string;
+  city?: string;
+  customer_domain?: string;
+  exclude_opportunity_id?: number;
+}
+
+export interface DuplicateOppSummary {
+  id: number;
+  name: string;
+  customer_name: string;
+  country: string;
+  city: string | null;
+  company_id: number;
+  company_name: string | null;
+  status: string;
+  worth: string | null;
+  submitted_at: string | null;
+  created_at: string | null;
+  similarity?: number | null;
+}
+
+export interface DuplicateCheckResponse {
+  severity: 'block' | 'warn' | 'info' | 'clear';
+  messages: string[];
+  exact_matches: DuplicateOppSummary[];
+  fuzzy_matches: DuplicateOppSummary[];
+  exclusivity_blocks: Array<{
+    deal_id: number;
+    company_id: number;
+    company_name: string | null;
+    customer_name: string;
+    exclusivity_start: string;
+    exclusivity_end: string;
+  }>;
+  ownership_blocks: Array<{
+    ownership_id: number;
+    company_id: number;
+    company_name: string | null;
+    valid_from: string;
+    valid_until: string | null;
+  }>;
+  domain_matches: DuplicateOppSummary[];
+}
+
+export interface DuplicateReviewItem {
+  opportunity: DuplicateOppSummary;
+  matched_against: DuplicateOppSummary | null;
+  flagged_by: 'ai' | 'system';
+}
+
+export const duplicatesApi = {
+  checkDuplicate: (data: DuplicateCheckRequest) =>
+    apiClient.post<DuplicateCheckResponse>('/opportunities/check-duplicate', data),
+  listReviewQueue: (params: { page?: number; page_size?: number }) =>
+    apiClient.get<{
+      items: DuplicateReviewItem[];
+      total: number;
+      page: number;
+      page_size: number;
+      total_pages: number;
+    }>('/opportunities/duplicates', { params }),
+};
+
 // ==================== Dashboard ====================
 export const dashboardApi = {
   getAdminStats: () =>

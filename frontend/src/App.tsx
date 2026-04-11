@@ -19,6 +19,7 @@ import UserListPage from '@/pages/users/UserListPage';
 import OpportunityListPage from '@/pages/opportunities/OpportunityListPage';
 import OpportunityCreatePage from '@/pages/opportunities/OpportunityCreatePage';
 import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage';
+import DuplicateReviewPage from '@/pages/opportunities/DuplicateReviewPage';
 import KnowledgeBasePage from '@/pages/knowledge-base/KnowledgeBasePage';
 import LmsPage from '@/pages/lms/LmsPage';
 import CourseDetailPage from '@/pages/lms/CourseDetailPage';
@@ -75,6 +76,8 @@ const App: React.FC = () => {
                 {/* All authenticated users */}
                 <Route path="/opportunities" element={<OpportunityListPage />} />
                 <Route path="/opportunities/create" element={<ProtectedRoute requiredRole="partner"><OpportunityCreatePage /></ProtectedRoute>} />
+                {/* Admin/channel-manager review queue — declared BEFORE :id so it doesn't get caught by the param route */}
+                <Route path="/opportunities/duplicates" element={<ProtectedRoute requiredRole="admin"><DuplicateReviewPage /></ProtectedRoute>} />
                 <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
                 <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
                 <Route path="/lms" element={<LmsPage />} />

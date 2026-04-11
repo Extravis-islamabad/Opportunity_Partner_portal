@@ -110,6 +110,8 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         ai_reasoning=opp.ai_reasoning,
         ai_scored_at=opp.ai_scored_at,
         ai_duplicate_of_id=opp.ai_duplicate_of_id,
+        customer_name_normalized=opp.customer_name_normalized,
+        customer_domain=opp.customer_domain,
         documents=[
             OppDocumentResponse(
                 id=d.id, file_name=d.file_name, file_url=d.file_url,
@@ -126,9 +128,37 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
 async def create_opportunity(
     db: AsyncSession, data: OpportunityCreateRequest, partner_user: User
 ) -> OpportunityResponse:
+    from app.utils.customer_normalize import normalize_customer_name, extract_domain
+    from app.services import duplicate_service
+
+    normalized = normalize_customer_name(data.customer_name)
+    # Try to extract a domain from the customer name itself or the
+    # requirements field (partners often paste the URL there).
+    domain = extract_domain(data.customer_name) or extract_domain(data.requirements)
+
+    # Run duplicate detection BEFORE inserting. Hard-block if a different
+    # company has an active exclusivity / ownership lock; soft-warn if
+    # similar opportunities exist (we still create, just with a flag).
+    dup_report = await duplicate_service.find_duplicates(
+        db,
+        customer_name=data.customer_name,
+        country=data.country,
+        city=data.city,
+        submitting_company_id=partner_user.company_id,
+        customer_domain=domain,
+    )
+    if dup_report["severity"] == "block":
+        raise ConflictException(
+            code="DUPLICATE_BLOCKED",
+            message="Duplicate registration is blocked",
+            details=dup_report,
+        )
+
     opp = Opportunity(
         name=data.name,
         customer_name=data.customer_name,
+        customer_name_normalized=normalized,
+        customer_domain=domain,
         region=data.region,
         country=data.country,
         city=data.city,
@@ -138,6 +168,9 @@ async def create_opportunity(
         status=OpportunityStatus(data.status or "draft"),
         submitted_by=partner_user.id,
         company_id=partner_user.company_id,
+        # Soft warning → set the multi_partner_alert flag so the review
+        # queue picks it up
+        multi_partner_alert=(dup_report["severity"] == "warn"),
     )
 
     if opp.status == OpportunityStatus.PENDING_REVIEW:
@@ -280,6 +313,7 @@ async def get_opportunities(
             submitted_at=o.submitted_at,
             ai_score=o.ai_score,
             ai_reasoning=o.ai_reasoning,
+            ai_duplicate_of_id=o.ai_duplicate_of_id,
             created_at=o.created_at,
         ))
 
@@ -344,6 +378,35 @@ async def update_opportunity(
     for key, value in update_data.items():
         setattr(opp, key, value)
 
+    # If customer_name or country changed, re-normalize and re-run duplicate
+    # detection. Hard-block if a different company has exclusivity / ownership.
+    if "customer_name" in update_data or "country" in update_data:
+        from app.utils.customer_normalize import normalize_customer_name, extract_domain
+        from app.services import duplicate_service
+
+        opp.customer_name_normalized = normalize_customer_name(opp.customer_name)
+        # Re-extract domain only if customer_name changed (don't overwrite a
+        # manually set domain on a country-only edit).
+        if "customer_name" in update_data:
+            opp.customer_domain = extract_domain(opp.customer_name) or extract_domain(opp.requirements)
+
+        dup_report = await duplicate_service.find_duplicates(
+            db,
+            customer_name=opp.customer_name,
+            country=opp.country,
+            city=opp.city,
+            submitting_company_id=opp.company_id,
+            customer_domain=opp.customer_domain,
+            exclude_opportunity_id=opp.id,
+        )
+        if dup_report["severity"] == "block":
+            raise ConflictException(
+                code="DUPLICATE_BLOCKED",
+                message="This change would create a duplicate registration",
+                details=dup_report,
+            )
+        opp.multi_partner_alert = (dup_report["severity"] == "warn")
+
     await db.flush()
     await write_audit_log(db, partner_user.id, "UPDATE", "opportunity", opp.id, {
         "before": before_state,
@@ -375,9 +438,35 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
 
     before_state = {"status": opp.status.value}
 
+    # Run duplicate detection at submission time. Hard-block if a different
+    # company has exclusivity / ownership; otherwise set the soft warning flag.
+    from app.utils.customer_normalize import normalize_customer_name, extract_domain
+    from app.services import duplicate_service
+    if not opp.customer_name_normalized:
+        opp.customer_name_normalized = normalize_customer_name(opp.customer_name)
+    if not opp.customer_domain:
+        opp.customer_domain = extract_domain(opp.customer_name) or extract_domain(opp.requirements)
+
+    dup_report = await duplicate_service.find_duplicates(
+        db,
+        customer_name=opp.customer_name,
+        country=opp.country,
+        city=opp.city,
+        submitting_company_id=opp.company_id,
+        customer_domain=opp.customer_domain,
+        exclude_opportunity_id=opp.id,
+    )
+    if dup_report["severity"] == "block":
+        raise ConflictException(
+            code="DUPLICATE_BLOCKED",
+            message="Submission blocked: another partner has exclusivity on this customer",
+            details=dup_report,
+        )
+
     opp.status = OpportunityStatus.PENDING_REVIEW
     opp.submitted_at = datetime.now(timezone.utc)
     opp.rejection_reason = None
+    opp.multi_partner_alert = (dup_report["severity"] == "warn")
 
     await _check_multi_partner_conflict(db, opp)
 
