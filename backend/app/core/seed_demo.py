@@ -421,13 +421,23 @@ async def reset_demo_data(db) -> None:
         ).all()
     ]
 
-    if demo_company_ids:
-        # 1. Reassign channel manager so demo admins become deletable
+    # 1a. Reassign channel manager on ANY company (demo or not) whose
+    # channel_manager is a demo admin user — otherwise we can't delete those
+    # demo admin users at the end.
+    demo_admin_emails = [u["email"] for u in ADMIN_USERS]
+    demo_admin_ids = [
+        row[0] for row in (
+            await db.execute(select(User.id).where(User.email.in_(demo_admin_emails)))
+        ).all()
+    ]
+    if demo_admin_ids:
         await db.execute(
             update(Company)
-            .where(Company.id.in_(demo_company_ids))
+            .where(Company.channel_manager_id.in_(demo_admin_ids))
             .values(channel_manager_id=bootstrap.id)
         )
+
+    if demo_company_ids:
         # 2. Detach any non-demo users still pointing at a demo company
         await db.execute(
             update(User)
