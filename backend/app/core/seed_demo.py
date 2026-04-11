@@ -390,16 +390,20 @@ async def reset_demo_data(db) -> None:
     await db.execute(delete(Opportunity))
     await db.execute(delete(PartnerTierHistory))
 
-    # Delete demo users by their *.example domain to be safe
+    # Order matters: partner users reference companies via User.company_id,
+    # and companies reference admin users via Company.channel_manager_id.
+    # So delete partners FIRST, then companies, then admin users last.
+
+    # 1. Partner users (*.example domain)
     await db.execute(
         delete(User).where(User.email.like("%.example"))
     )
-    # Delete the named admin demo users
+    # 2. Companies (now no users reference them)
+    await db.execute(delete(Company))
+    # 3. Admin users (no companies reference them anymore)
     await db.execute(
         delete(User).where(User.email.in_([u["email"] for u in ADMIN_USERS]))
     )
-    # Companies last (users that referenced them are gone)
-    await db.execute(delete(Company))
     await db.commit()
     print("   reset complete")
 
