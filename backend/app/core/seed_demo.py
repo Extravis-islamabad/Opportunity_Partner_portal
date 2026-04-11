@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.core.database import async_session_factory
 from app.core.security import hash_password
@@ -390,20 +390,63 @@ async def reset_demo_data(db) -> None:
     await db.execute(delete(Opportunity))
     await db.execute(delete(PartnerTierHistory))
 
-    # Order matters: partner users reference companies via User.company_id,
-    # and companies reference admin users via Company.channel_manager_id.
-    # So delete partners FIRST, then companies, then admin users last.
+    # Targeted cleanup: only touch entities that match the demo set, so the
+    # bootstrap superadmin and any user-created entities (e.g. testaccount@…)
+    # are preserved.
+    #
+    # FK ordering challenges:
+    #   - User.company_id  →  companies.id   (no ON DELETE; would block)
+    #   - Company.channel_manager_id → users.id (NOT NULL; can't null out)
+    #
+    # Strategy:
+    #   1. Reassign demo companies' channel_manager_id to the bootstrap
+    #      superadmin so demo admin users become unreferenced.
+    #   2. NULL out company_id on any non-demo user that points to a demo
+    #      company (defensive — usually 0 rows).
+    #   3. Delete demo partner users (*.example).
+    #   4. Delete demo companies (matched by name only — non-demo companies
+    #      created via the UI are preserved).
+    #   5. Delete demo admin users.
 
-    # 1. Partner users (*.example domain)
-    await db.execute(
-        delete(User).where(User.email.like("%.example"))
-    )
-    # 2. Companies (now no users reference them)
-    await db.execute(delete(Company))
-    # 3. Admin users (no companies reference them anymore)
+    bootstrap = (await db.execute(
+        select(User).where(User.email == "admin@extravis.com")
+    )).scalar_one_or_none()
+    if not bootstrap:
+        raise RuntimeError("Bootstrap superadmin admin@extravis.com not found.")
+
+    demo_company_names = [c["name"] for c in COMPANIES]
+    demo_company_ids = [
+        row[0] for row in (
+            await db.execute(select(Company.id).where(Company.name.in_(demo_company_names)))
+        ).all()
+    ]
+
+    if demo_company_ids:
+        # 1. Reassign channel manager so demo admins become deletable
+        await db.execute(
+            update(Company)
+            .where(Company.id.in_(demo_company_ids))
+            .values(channel_manager_id=bootstrap.id)
+        )
+        # 2. Detach any non-demo users still pointing at a demo company
+        await db.execute(
+            update(User)
+            .where(User.company_id.in_(demo_company_ids))
+            .values(company_id=None)
+        )
+
+    # 3. Delete demo partner users
+    await db.execute(delete(User).where(User.email.like("%.example")))
+
+    # 4. Delete the demo companies only (preserves user-created companies)
+    if demo_company_ids:
+        await db.execute(delete(Company).where(Company.id.in_(demo_company_ids)))
+
+    # 5. Delete the demo admin users (now nothing references them)
     await db.execute(
         delete(User).where(User.email.in_([u["email"] for u in ADMIN_USERS]))
     )
+
     await db.commit()
     print("   reset complete")
 
