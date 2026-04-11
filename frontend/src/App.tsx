@@ -21,6 +21,7 @@ import OpportunityCreatePage from '@/pages/opportunities/OpportunityCreatePage';
 import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage';
 import KnowledgeBasePage from '@/pages/knowledge-base/KnowledgeBasePage';
 import LmsPage from '@/pages/lms/LmsPage';
+import CourseDetailPage from '@/pages/lms/CourseDetailPage';
 import DocRequestPage from '@/pages/documents/DocRequestPage';
 import NotificationsPage from '@/pages/notifications/NotificationsPage';
 import ProfilePage from '@/pages/profile/ProfilePage';
@@ -75,6 +76,7 @@ const App: React.FC = () => {
                 <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
                 <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
                 <Route path="/lms" element={<LmsPage />} />
+                <Route path="/lms/courses/:id" element={<CourseDetailPage />} />
                 <Route path="/doc-requests" element={<DocRequestPage />} />
                 <Route path="/deals" element={<DealsPage />} />
                 <Route path="/commissions" element={<CommissionsListPage />} />

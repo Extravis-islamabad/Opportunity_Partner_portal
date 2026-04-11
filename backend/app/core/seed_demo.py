@@ -193,21 +193,55 @@ KB_DOCS = [
      "REST API reference, sample payloads, and rate limits for the platform integration."),
 ]
 
+# Demo videos — public, freely embeddable content used as placeholder
+# lessons. Replace with your own training videos in the admin UI later.
+_VIDEO_INTRO = "https://www.youtube.com/watch?v=LXb3EKWsInQ"   # CC short
+_VIDEO_CLOUD = "https://www.youtube.com/watch?v=2LaAJq1lB1Q"   # cloud overview
+_VIDEO_SEC   = "https://www.youtube.com/watch?v=inWWhr5tnEA"   # cybersecurity
+_VIDEO_DATA  = "https://www.youtube.com/watch?v=ku9OkEAjLiI"   # data analytics
+_VIDEO_SALES = "https://www.youtube.com/watch?v=hIgnameJzQI"   # sales method
+
+
+def _module(idx: int, title: str, mtype: str, *, content_url: str | None = None, description: str | None = None, duration_minutes: int | None = None) -> dict:
+    return {
+        "id": f"m{idx}",
+        "title": title,
+        "type": mtype,
+        "content_url": content_url,
+        "description": description,
+        "duration_minutes": duration_minutes,
+        "order": idx - 1,
+    }
+
+
 COURSES = [
     {
         "title": "Extravis Foundations",
         "description": "Core concepts, value proposition, and partner program structure. Required for all new partner reps.",
         "duration_hours": 3,
         "modules": [
-            {"id": 1, "title": "Welcome & Program Overview", "content": "Introduction to Extravis and the partner ecosystem.", "duration_minutes": 25},
-            {"id": 2, "title": "Solution Pillars", "content": "Cloud, Security, Data — the three solution pillars explained.", "duration_minutes": 35},
-            {"id": 3, "title": "Engagement Model", "content": "How partners engage with Extravis sales and CS teams.", "duration_minutes": 30},
-            {"id": 4, "title": "Tools & Portal Tour", "content": "Walkthrough of the partner portal and supporting tools.", "duration_minutes": 25},
+            _module(1, "Welcome & Program Overview", "video", content_url=_VIDEO_INTRO,
+                    description="A short welcome video from the partner team introducing the Extravis ecosystem.", duration_minutes=25),
+            _module(2, "Solution Pillars", "text",
+                    description="Extravis is built on three solution pillars: Cloud, Security, and Data.\n\nEach pillar maps to a different buyer persona and has its own portfolio of products, certifications, and reference architectures. Partners typically specialise in one pillar before expanding into the others.\n\n• Cloud — infrastructure, migration, managed services\n• Security — zero-trust, SIEM, endpoint, compliance\n• Data — warehousing, streaming, analytics, AI/ML\n\nRead through the pillar descriptions and continue to the next lesson.",
+                    duration_minutes=15),
+            _module(3, "Engagement Model", "text",
+                    description="Partners engage Extravis through a dedicated channel manager who supports deal qualification, technical pre-sales, and joint go-to-market planning. The standard cadence is a weekly sync, a monthly pipeline review, and a quarterly business review.",
+                    duration_minutes=10),
+            _module(4, "Tools & Portal Tour", "video", content_url=_VIDEO_INTRO,
+                    description="A walkthrough of the partner portal — opportunities, deal registration, knowledge base, and the LMS itself.",
+                    duration_minutes=20),
+            _module(5, "Knowledge Check", "quiz", description="Short quiz on the foundations material.", duration_minutes=10),
         ],
         "assessment": [
-            {"id": 1, "question": "Which is NOT one of the three solution pillars?", "options": ["Cloud", "Security", "Data", "Hardware"], "correct": 3},
-            {"id": 2, "question": "What percentage is required to pass this assessment?", "options": ["50%", "60%", "70%", "80%"], "correct": 2},
-            {"id": 3, "question": "Where do you register a new opportunity?", "options": ["Email", "Partner Portal", "Phone", "Excel sheet"], "correct": 1},
+            {"id": 1, "question": "Which is NOT one of the three Extravis solution pillars?",
+             "options": ["Cloud", "Security", "Data", "Hardware"], "correct_answer": 3, "points": 1},
+            {"id": 2, "question": "What is the minimum passing score for the LMS quizzes?",
+             "options": ["50%", "60%", "70%", "80%"], "correct_answer": 2, "points": 1},
+            {"id": 3, "question": "Where do partners register a new opportunity?",
+             "options": ["By emailing the channel manager", "In the partner portal", "On a phone call", "In a shared spreadsheet"], "correct_answer": 1, "points": 1},
+            {"id": 4, "question": "How often does a partner typically meet their channel manager?",
+             "options": ["Daily", "Weekly", "Monthly", "Yearly"], "correct_answer": 1, "points": 1},
         ],
     },
     {
@@ -215,13 +249,25 @@ COURSES = [
         "description": "Discovery, qualification, and ROI framing for the Extravis cloud portfolio.",
         "duration_hours": 4,
         "modules": [
-            {"id": 1, "title": "Discovery Questions", "content": "The 8 questions that uncover real opportunity.", "duration_minutes": 40},
-            {"id": 2, "title": "ROI Framework", "content": "Calculating and presenting customer ROI.", "duration_minutes": 50},
-            {"id": 3, "title": "Handling Objections", "content": "Top objections and proven responses.", "duration_minutes": 45},
+            _module(1, "Cloud Platform Overview", "video", content_url=_VIDEO_CLOUD,
+                    description="Tour of the Extravis cloud platform and its key differentiators.", duration_minutes=30),
+            _module(2, "Discovery Questions", "text",
+                    description="The 8 discovery questions every cloud opportunity should answer:\n\n1. What are you running today (on-prem, cloud, hybrid)?\n2. What are your top 3 pain points?\n3. What's the timeline?\n4. Who are the stakeholders and decision-makers?\n5. What's the budget envelope?\n6. Are there compliance/regulatory requirements?\n7. What does success look like in 12 months?\n8. What other vendors are being evaluated?",
+                    duration_minutes=20),
+            _module(3, "ROI Framework", "text",
+                    description="ROI conversations should always include three components: total cost of ownership (TCO) of the current state, projected TCO of the new state, and time-to-value for the migration. Use the Extravis ROI calculator template — link in the knowledge base.",
+                    duration_minutes=25),
+            _module(4, "Handling Objections", "video", content_url=_VIDEO_SALES,
+                    description="Top 5 objections in cloud deals and proven responses.", duration_minutes=35),
+            _module(5, "Cloud Sales Quiz", "quiz", description="Test your cloud sales knowledge.", duration_minutes=10),
         ],
         "assessment": [
-            {"id": 1, "question": "How many discovery questions are in the framework?", "options": ["5", "6", "7", "8"], "correct": 3},
-            {"id": 2, "question": "ROI calculations should always include?", "options": ["Hardware costs", "Total cost of ownership", "Marketing budget", "Headcount"], "correct": 1},
+            {"id": 1, "question": "How many discovery questions are in the Extravis framework?",
+             "options": ["5", "6", "7", "8"], "correct_answer": 3, "points": 1},
+            {"id": 2, "question": "ROI calculations should ALWAYS include?",
+             "options": ["Hardware costs only", "Total cost of ownership", "Marketing budget", "Headcount changes"], "correct_answer": 1, "points": 1},
+            {"id": 3, "question": "What is the FIRST thing to ask in a discovery call?",
+             "options": ["Budget", "What they're running today", "Decision timeline", "Competitors"], "correct_answer": 1, "points": 1},
         ],
     },
     {
@@ -229,15 +275,27 @@ COURSES = [
         "description": "Deep-dive on the security portfolio for partners targeting regulated industries.",
         "duration_hours": 6,
         "modules": [
-            {"id": 1, "title": "Threat Landscape 2026", "content": "Current threats and customer pain points.", "duration_minutes": 60},
-            {"id": 2, "title": "Zero-Trust Architecture", "content": "The Extravis zero-trust reference architecture.", "duration_minutes": 75},
-            {"id": 3, "title": "Compliance Frameworks", "content": "Mapping the platform to SOC2, ISO 27001, HIPAA.", "duration_minutes": 60},
-            {"id": 4, "title": "Customer Case Studies", "content": "Real wins and lessons learned.", "duration_minutes": 45},
+            _module(1, "Threat Landscape 2026", "video", content_url=_VIDEO_SEC,
+                    description="Current threat actors, attack vectors, and customer pain points.", duration_minutes=45),
+            _module(2, "Zero-Trust Architecture", "text",
+                    description="Zero-trust assumes the network is hostile by default. Every request — internal or external — must be authenticated, authorised, and continuously validated. The Extravis zero-trust reference architecture has 6 components:\n\n1. Identity provider (IdP) with MFA\n2. Device posture verification\n3. Micro-segmentation\n4. Policy decision point (PDP)\n5. Encryption in transit and at rest\n6. Continuous monitoring and analytics",
+                    duration_minutes=40),
+            _module(3, "Compliance Frameworks", "text",
+                    description="The Extravis platform supports the following compliance frameworks out of the box:\n\n• SOC 2 Type II — for SaaS / cloud services\n• ISO 27001 — international ISMS standard\n• HIPAA — healthcare in the US\n• PCI-DSS — payment card data\n• GDPR — EU data protection\n• FedRAMP Moderate — US federal\n\nKnow your customer's vertical and pre-load the relevant compliance brief from the knowledge base before the call.",
+                    duration_minutes=35),
+            _module(4, "Customer Case Studies", "video", content_url=_VIDEO_SEC,
+                    description="Real customer wins in healthcare, financial services, and government.", duration_minutes=30),
+            _module(5, "Cybersecurity Quiz", "quiz", description="Quiz on zero-trust and compliance.", duration_minutes=15),
         ],
         "assessment": [
-            {"id": 1, "question": "Zero-trust assumes which of the following?", "options": ["The network is safe inside the firewall", "Every request must be verified", "Only external threats matter", "VPN is sufficient"], "correct": 1},
-            {"id": 2, "question": "Which standard is most common for healthcare?", "options": ["PCI-DSS", "HIPAA", "FedRAMP", "GDPR"], "correct": 1},
-            {"id": 3, "question": "SOC2 has how many trust principles?", "options": ["3", "4", "5", "6"], "correct": 2},
+            {"id": 1, "question": "Zero-trust assumes which of the following?",
+             "options": ["The network is safe inside the firewall", "Every request must be verified", "Only external threats matter", "VPN is sufficient"], "correct_answer": 1, "points": 1},
+            {"id": 2, "question": "Which compliance framework is most common for US healthcare?",
+             "options": ["PCI-DSS", "HIPAA", "FedRAMP", "GDPR"], "correct_answer": 1, "points": 1},
+            {"id": 3, "question": "How many components does the Extravis zero-trust reference architecture have?",
+             "options": ["3", "4", "5", "6"], "correct_answer": 3, "points": 1},
+            {"id": 4, "question": "Which framework applies to SaaS providers?",
+             "options": ["HIPAA", "SOC 2", "PCI-DSS", "FERPA"], "correct_answer": 1, "points": 1},
         ],
     },
     {
@@ -245,12 +303,21 @@ COURSES = [
         "description": "Position the data platform for analytics, AI, and reporting use cases.",
         "duration_hours": 5,
         "modules": [
-            {"id": 1, "title": "Data Architecture", "content": "Lakehouse vs warehouse — when to use what.", "duration_minutes": 50},
-            {"id": 2, "title": "Real-time Pipelines", "content": "Streaming ingestion patterns.", "duration_minutes": 55},
-            {"id": 3, "title": "AI & ML Integration", "content": "Model training and serving on the platform.", "duration_minutes": 60},
+            _module(1, "Data Architecture", "video", content_url=_VIDEO_DATA,
+                    description="Lakehouse vs warehouse — when to use what.", duration_minutes=35),
+            _module(2, "Real-time Pipelines", "text",
+                    description="Streaming ingestion patterns:\n\n• Change-data-capture (CDC) from operational databases\n• Event streaming via Kafka / Pulsar\n• Webhooks for SaaS data\n• File-based micro-batches for legacy systems\n\nLow-latency analytics requires a streaming pipeline; daily batches won't cut it for real-time fraud detection or personalisation.",
+                    duration_minutes=30),
+            _module(3, "AI & ML Integration", "text",
+                    description="The Extravis data platform includes a managed feature store, model registry, and serving layer. Partners can position the platform for both traditional ML (XGBoost, scikit) and modern LLM use cases (RAG, fine-tuning).",
+                    duration_minutes=40),
+            _module(4, "Data Quiz", "quiz", description="Test your data platform knowledge.", duration_minutes=10),
         ],
         "assessment": [
-            {"id": 1, "question": "Which is best for low-latency analytics?", "options": ["Daily batch", "Streaming pipeline", "Manual export", "Email reports"], "correct": 1},
+            {"id": 1, "question": "Which is best for low-latency analytics?",
+             "options": ["Daily batch", "Streaming pipeline", "Manual export", "Email reports"], "correct_answer": 1, "points": 1},
+            {"id": 2, "question": "Change-data-capture (CDC) is used to?",
+             "options": ["Backup the database", "Stream changes from operational DBs", "Encrypt data at rest", "Compress data"], "correct_answer": 1, "points": 1},
         ],
     },
     {
@@ -258,11 +325,18 @@ COURSES = [
         "description": "Joint go-to-market motions and how to co-sell with the Extravis field team.",
         "duration_hours": 2,
         "modules": [
-            {"id": 1, "title": "Joint Account Planning", "content": "Building a 30-60-90 plan with your channel manager.", "duration_minutes": 40},
-            {"id": 2, "title": "Co-selling Motions", "content": "When to invite Extravis into the deal.", "duration_minutes": 35},
+            _module(1, "Joint Account Planning", "video", content_url=_VIDEO_SALES,
+                    description="Building a 30-60-90 plan with your channel manager.", duration_minutes=25),
+            _module(2, "Co-selling Motions", "text",
+                    description="The four moments to invite Extravis into a deal:\n\n1. Qualification — get a second opinion before investing in the opportunity\n2. Technical evaluation — Extravis pre-sales engineer joins demos and POCs\n3. Negotiation — channel manager helps with pricing and exec sponsorship\n4. Closure and handoff — joint kick-off with customer success",
+                    duration_minutes=20),
+            _module(3, "Methodology Quiz", "quiz", description="Quick quiz on co-selling.", duration_minutes=8),
         ],
         "assessment": [
-            {"id": 1, "question": "When should you involve your channel manager?", "options": ["Never", "Only on contract", "From qualification onwards", "After the deal is closed"], "correct": 2},
+            {"id": 1, "question": "When should you involve your channel manager?",
+             "options": ["Never", "Only on contract signature", "From qualification onwards", "After the deal is closed"], "correct_answer": 2, "points": 1},
+            {"id": 2, "question": "How many moments are in the co-selling motion?",
+             "options": ["2", "3", "4", "5"], "correct_answer": 2, "points": 1},
         ],
     },
 ]

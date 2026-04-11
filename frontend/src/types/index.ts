@@ -251,13 +251,25 @@ export interface CourseResponse {
   updated_at: string;
 }
 
+export type CourseModuleType = 'video' | 'pdf' | 'text' | 'quiz';
+
 export interface CourseModule {
   id: string;
   title: string;
-  type: string;
-  content_url: string | null;
-  description: string | null;
+  type: CourseModuleType;
+  content_url?: string | null;
+  description?: string | null;
+  duration_minutes?: number | null;
   order: number;
+}
+
+export interface QuizQuestion {
+  id: number;
+  question: string;
+  options: string[];
+  correct?: number;
+  correct_answer?: number;
+  points?: number;
 }
 
 export interface EnrollmentResponse {
@@ -267,8 +279,10 @@ export interface EnrollmentResponse {
   course_id: number;
   course_title: string | null;
   status: string;
-  progress_json: string | null;
+  progress_json: Record<string, boolean> | null;
   completed_at: string | null;
+  score?: number | null;
+  attempt_count?: number;
   certificate_requested: boolean;
   certificate_requested_at: string | null;
   certificate_url: string | null;

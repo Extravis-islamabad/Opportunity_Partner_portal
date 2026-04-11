@@ -4,11 +4,21 @@ from datetime import datetime
 
 
 class CourseModuleSchema(BaseModel):
+    """A single lesson inside a course.
+
+    Allowed `type` values:
+    - video: content_url is a YouTube URL, Vimeo URL, or direct .mp4 URL
+    - pdf:   content_url points to a PDF (will be rendered in an iframe)
+    - text:  content lives in `description` (markdown-friendly plain text)
+    - quiz:  the course's `assessment_json` block is the quiz; this entry
+             marks the position of the quiz in the lesson sequence
+    """
     id: str
     title: str
-    type: str
+    type: str = Field(..., pattern="^(video|pdf|text|quiz)$")
     content_url: Optional[str] = None
     description: Optional[str] = None
+    duration_minutes: Optional[int] = None
     order: int = 0
 
 

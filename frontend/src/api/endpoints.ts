@@ -164,13 +164,20 @@ export const lmsApi = {
     apiClient.post<EnrollmentResponse>(`/lms/enrollments/${enrollmentId}/request-certificate`),
   listCertificateRequests: (params: Record<string, string | number | undefined>) =>
     apiClient.get<PaginatedResponse<EnrollmentResponse>>('/lms/certificate-requests', { params }),
-  issueCertificate: (enrollmentId: number, file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    return apiClient.post<EnrollmentResponse>(`/lms/enrollments/${enrollmentId}/issue-certificate`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
+  // Auto-generated cert (no PDF upload — backend builds it from a template)
+  issueCertificate: (enrollmentId: number) =>
+    apiClient.post<EnrollmentResponse>(`/lms/enrollments/${enrollmentId}/issue-certificate`),
+  // Mark a single lesson as completed; backend auto-completes the course +
+  // auto-issues the certificate when all modules are done.
+  markModuleProgress: (enrollmentId: number, moduleId: string) =>
+    apiClient.put<EnrollmentResponse>(`/lms/enrollments/${enrollmentId}/progress`, { module_id: moduleId }),
+  // Submit quiz answers; backend scores and (if passing) marks completion +
+  // auto-issues the certificate.
+  submitAssessment: (enrollmentId: number, answers: Record<string, number>) =>
+    apiClient.post<{ score: number; passed: boolean; passing_score: number; attempt_count: number }>(
+      `/lms/enrollments/${enrollmentId}/submit-assessment`,
+      { answers },
+    ),
 };
 
 // ==================== Document Requests ====================

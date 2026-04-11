@@ -444,6 +444,81 @@ async def issue_certificate(
     )
 
 
+async def _auto_issue_certificate(db: AsyncSession, enrollment: Enrollment) -> None:
+    """Auto-generate the completion certificate when a partner finishes a
+    course. Skips the legacy 'request → admin approves → admin uploads PDF'
+    flow entirely. Idempotent: returns if a cert already exists."""
+    from app.services.certificate_service import generate_certificate_pdf
+    from app.services.dashboard_service import evaluate_tier_upgrade
+    import uuid
+    import os
+    import aiofiles
+    from app.core.config import settings
+
+    if enrollment.certificate_url:
+        return  # already issued
+
+    course_title = enrollment.course.title if enrollment.course else "Unknown Course"
+
+    partner_result = await db.execute(select(User).where(User.id == enrollment.user_id))
+    partner = partner_result.scalar_one_or_none()
+    if not partner:
+        return
+
+    company_name = "Unknown"
+    if partner.company_id:
+        company_result = await db.execute(select(Company).where(Company.id == partner.company_id))
+        company = company_result.scalar_one_or_none()
+        if company:
+            company_name = company.name
+
+    certificate_id = str(uuid.uuid4()).upper()[:12]
+    pdf_bytes = generate_certificate_pdf(
+        partner_name=partner.full_name,
+        company_name=company_name,
+        course_title=course_title,
+        completion_date=enrollment.completed_at or datetime.now(timezone.utc),
+        certificate_id=certificate_id,
+    )
+
+    cert_dir = os.path.join(settings.UPLOAD_DIR, "certificates")
+    os.makedirs(cert_dir, exist_ok=True)
+    pdf_filename = f"certificate_{enrollment.id}_{certificate_id}.pdf"
+    pdf_path = os.path.join(cert_dir, pdf_filename)
+    async with aiofiles.open(pdf_path, "wb") as f:
+        await f.write(pdf_bytes)
+
+    enrollment.certificate_url = f"/uploads/certificates/{pdf_filename}"
+    enrollment.certificate_issued_at = datetime.now(timezone.utc)
+    enrollment.certificate_requested = True
+    enrollment.certificate_requested_at = enrollment.completed_at or datetime.now(timezone.utc)
+    await db.flush()
+
+    try:
+        await send_template_email(
+            to_emails=[partner.email],
+            subject=f"Your Certificate for {course_title}",
+            template_name="certificate",
+            context={"name": partner.full_name, "course_name": course_title},
+        )
+    except Exception:
+        pass
+
+    await notify_user(
+        db, partner.id, "certificate_issued",
+        "Certificate Issued",
+        f"Your certificate of completion for {course_title} has been issued.",
+        "enrollment", enrollment.id,
+        send_email_flag=False,
+    )
+
+    if partner.company_id:
+        try:
+            await evaluate_tier_upgrade(db, partner.company_id)
+        except Exception:
+            pass
+
+
 async def update_module_progress(
     db: AsyncSession, enrollment_id: int, module_id: str, current_user: User
 ) -> EnrollmentResponse:
@@ -460,6 +535,7 @@ async def update_module_progress(
     progress[module_id] = True
     enrollment.progress_json = progress
 
+    just_completed = False
     # If not already completed, check if all modules are done
     if enrollment.status != EnrollmentStatus.COMPLETED:
         enrollment.status = EnrollmentStatus.IN_PROGRESS
@@ -470,8 +546,12 @@ async def update_module_progress(
             if module_ids and module_ids.issubset(completed_ids):
                 enrollment.status = EnrollmentStatus.COMPLETED
                 enrollment.completed_at = datetime.now(timezone.utc)
+                just_completed = True
 
     await db.flush()
+
+    if just_completed:
+        await _auto_issue_certificate(db, enrollment)
 
     return EnrollmentResponse(
         id=enrollment.id,
@@ -525,11 +605,16 @@ async def submit_assessment(
     enrollment.attempt_count = (enrollment.attempt_count or 0) + 1
 
     passing_score = course.passing_score or 70
-    if score >= passing_score:
+    just_completed = False
+    if score >= passing_score and enrollment.status != EnrollmentStatus.COMPLETED:
         enrollment.status = EnrollmentStatus.COMPLETED
         enrollment.completed_at = datetime.now(timezone.utc)
+        just_completed = True
 
     await db.flush()
+
+    if just_completed:
+        await _auto_issue_certificate(db, enrollment)
 
     return {
         "score": score,
