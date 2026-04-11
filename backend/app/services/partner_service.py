@@ -96,6 +96,7 @@ async def get_partners(
     status: Optional[str] = None,
     search: Optional[str] = None,
     role: Optional[str] = None,
+    scope_company_ids: Optional[list[int]] = None,
 ) -> tuple[list, int]:
     query = (
         select(User)
@@ -107,6 +108,18 @@ async def get_partners(
     if role:
         query = query.where(User.role == role)
         count_query = count_query.where(User.role == role)
+
+    # Channel-manager scope: restrict to partner users in managed companies.
+    # Other admins (peers, the superadmin) are filtered out.
+    if scope_company_ids is not None:
+        query = query.where(
+            User.company_id.in_(scope_company_ids),
+            User.role == UserRole.PARTNER,
+        )
+        count_query = count_query.where(
+            User.company_id.in_(scope_company_ids),
+            User.role == UserRole.PARTNER,
+        )
 
     if company_id:
         query = query.where(User.company_id == company_id)

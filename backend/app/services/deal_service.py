@@ -94,6 +94,7 @@ async def get_deal_registrations(
     company_id: Optional[int] = None,
     status: Optional[str] = None,
     registered_by: Optional[int] = None,
+    scope_company_ids: Optional[list[int]] = None,
 ) -> tuple[list, int]:
     query = (
         select(DealRegistration)
@@ -104,6 +105,11 @@ async def get_deal_registrations(
         .where(DealRegistration.deleted_at.is_(None))
     )
     count_query = select(func.count(DealRegistration.id)).where(DealRegistration.deleted_at.is_(None))
+
+    # Channel-manager scope: restrict to deals belonging to managed companies
+    if scope_company_ids is not None:
+        query = query.where(DealRegistration.company_id.in_(scope_company_ids))
+        count_query = count_query.where(DealRegistration.company_id.in_(scope_company_ids))
 
     if company_id:
         query = query.where(DealRegistration.company_id == company_id)

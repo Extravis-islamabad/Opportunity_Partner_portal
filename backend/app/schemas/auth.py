@@ -49,6 +49,8 @@ class UserBasicResponse(BaseModel):
     company_id: int | None = None
     company_name: str | None = None
     is_superadmin: bool = False
+    is_channel_manager: bool = False
+    managed_company_count: int = 0
     has_completed_onboarding: bool = False
 
     model_config = {"from_attributes": True}

@@ -4,7 +4,7 @@ from typing import Optional
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_current_admin, get_current_partner
+from app.core.deps import get_current_user, get_current_admin, get_current_partner, get_admin_scope
 from app.models.user import User, UserRole
 from app.schemas.dashboard import (
     DashboardStatsResponse,
@@ -29,7 +29,8 @@ async def admin_stats(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await dashboard_service.get_admin_dashboard_stats(db)
+    scope = await get_admin_scope(db, admin)
+    return await dashboard_service.get_admin_dashboard_stats(db, scope_company_ids=scope)
 
 
 @router.get("/admin/opportunity-breakdown", status_code=200)
@@ -37,7 +38,8 @@ async def opportunity_breakdown(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await dashboard_service.get_opportunity_status_breakdown(db)
+    scope = await get_admin_scope(db, admin)
+    return await dashboard_service.get_opportunity_status_breakdown(db, scope_company_ids=scope)
 
 
 @router.get("/admin/monthly-data", status_code=200)
@@ -46,7 +48,8 @@ async def monthly_data(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    return await dashboard_service.get_monthly_opportunity_data(db, months)
+    scope = await get_admin_scope(db, admin)
+    return await dashboard_service.get_monthly_opportunity_data(db, months, scope_company_ids=scope)
 
 
 @router.get("/admin/analytics", response_model=AnalyticsResponse, status_code=200)
@@ -56,7 +59,8 @@ async def admin_analytics(
 ):
     """Aggregations for charts: regions, tiers, industries, top companies,
     funnel, and recent activity. One round-trip for all dashboard widgets."""
-    return await dashboard_service.get_admin_analytics(db)
+    scope = await get_admin_scope(db, admin)
+    return await dashboard_service.get_admin_analytics(db, scope_company_ids=scope)
 
 
 @router.get("/company/{company_id}/performance", response_model=CompanyPerformance, status_code=200)
@@ -116,11 +120,15 @@ async def list_deals(
     db: AsyncSession = Depends(get_db),
 ):
     registered_by = None
+    scope = None
     if current_user.role == UserRole.PARTNER:
         registered_by = current_user.id
+    elif current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
+        # Channel manager: scope to deals for their managed companies
+        scope = await get_admin_scope(db, current_user)
 
     items, total = await deal_service.get_deal_registrations(
-        db, page, page_size, company_id, status, registered_by
+        db, page, page_size, company_id, status, registered_by, scope_company_ids=scope
     )
     return {
         "items": [item.model_dump() for item in items],

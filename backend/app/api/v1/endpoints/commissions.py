@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user
+from app.core.deps import get_current_admin, get_current_user, get_admin_scope
 from app.models.user import User, UserRole
 from app.schemas.commission import (
     CommissionListResponse,
@@ -45,6 +45,10 @@ async def list_commissions(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CommissionListResponse:
+    scope = None
+    if current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
+        scope = await get_admin_scope(db, current_user)
+
     items, total = await commission_service.list_commissions(
         db,
         current_user=current_user,
@@ -52,6 +56,7 @@ async def list_commissions(
         page_size=page_size,
         status=status,
         company_id=company_id,
+        scope_company_ids=scope,
     )
     return CommissionListResponse(
         items=items,

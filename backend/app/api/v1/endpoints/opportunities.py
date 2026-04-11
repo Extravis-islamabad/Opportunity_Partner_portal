@@ -50,6 +50,12 @@ async def list_opportunities(
         submitted_by = current_user.id
         company_id = current_user.company_id
 
+    # Channel-manager scoping: a non-superadmin admin only sees opportunities
+    # for the companies they channel-manage. Force the filter regardless of
+    # what the client requested.
+    if current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
+        channel_manager_id = current_user.id
+
     items, total = await opportunity_service.get_opportunities(
         db, page, page_size, status, company_id, country, region, search,
         submitted_by, channel_manager_id,

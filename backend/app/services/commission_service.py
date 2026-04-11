@@ -210,6 +210,7 @@ async def list_commissions(
     page_size: int = 20,
     status: Optional[str] = None,
     company_id: Optional[int] = None,
+    scope_company_ids: Optional[list[int]] = None,
 ) -> tuple[list[CommissionRead], int]:
     query = (
         select(Commission)
@@ -227,9 +228,14 @@ async def list_commissions(
             return [], 0
         query = query.where(Commission.company_id == current_user.company_id)
         count_query = count_query.where(Commission.company_id == current_user.company_id)
-    elif company_id:
-        query = query.where(Commission.company_id == company_id)
-        count_query = count_query.where(Commission.company_id == company_id)
+    else:
+        # Channel-manager scope: only commissions for managed companies
+        if scope_company_ids is not None:
+            query = query.where(Commission.company_id.in_(scope_company_ids))
+            count_query = count_query.where(Commission.company_id.in_(scope_company_ids))
+        if company_id:
+            query = query.where(Commission.company_id == company_id)
+            count_query = count_query.where(Commission.company_id == company_id)
 
     if status:
         query = query.where(Commission.status == status)

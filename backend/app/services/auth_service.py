@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 import structlog
@@ -87,6 +87,20 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
 
     company_name = user.company.name if user.company else None
 
+    # Compute channel manager flags for admin users
+    managed_count = 0
+    is_cm = False
+    if user.role == UserRole.ADMIN:
+        from app.models.company import Company
+        cnt_res = await db.execute(
+            select(func.count(Company.id)).where(
+                Company.channel_manager_id == user.id,
+                Company.deleted_at.is_(None),
+            )
+        )
+        managed_count = cnt_res.scalar() or 0
+        is_cm = managed_count > 0
+
     login_response = LoginResponse(
         access_token=access_token,
         user=UserBasicResponse(
@@ -98,6 +112,8 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
             company_id=user.company_id,
             company_name=company_name,
             is_superadmin=user.is_superadmin,
+            is_channel_manager=is_cm,
+            managed_company_count=managed_count,
         ),
     )
 

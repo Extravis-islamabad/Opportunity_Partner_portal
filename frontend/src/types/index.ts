@@ -43,6 +43,9 @@ export interface UserBasic {
   company_id: number | null;
   company_name: string | null;
   is_superadmin: boolean;
+  is_channel_manager?: boolean;
+  managed_company_count?: number;
+  has_completed_onboarding?: boolean;
 }
 
 // ==================== User ====================

@@ -4,6 +4,7 @@ import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined } from '@ant-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { companiesApi, exportsApi } from '@/api/endpoints';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
 import TableSkeleton from '@/components/common/TableSkeleton';
@@ -18,6 +19,8 @@ const CompanyListPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isSuperadmin = !!user?.is_superadmin;
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['companies', page, search],
@@ -46,9 +49,11 @@ const CompanyListPage: React.FC = () => {
       title: 'Actions', key: 'actions', render: (_, record) => (
         <Space>
           <Button type="link" icon={<EyeOutlined />} onClick={() => navigate(`/companies/${record.id}`)}>View</Button>
-          <Popconfirm title="Deactivate this company?" onConfirm={() => deactivateMutation.mutate(record.id)} okText="Yes" cancelText="No">
-            <Button type="link" danger icon={<DeleteOutlined />}>Deactivate</Button>
-          </Popconfirm>
+          {isSuperadmin && (
+            <Popconfirm title="Deactivate this company?" onConfirm={() => deactivateMutation.mutate(record.id)} okText="Yes" cancelText="No">
+              <Button type="link" danger icon={<DeleteOutlined />}>Deactivate</Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
@@ -62,8 +67,12 @@ const CompanyListPage: React.FC = () => {
   return (
     <>
       <PageHeader
-        title="Partner Companies"
-        subtitle={`${data?.total ?? 0} total companies`}
+        title={isSuperadmin ? 'Partner Companies' : 'My Partner Companies'}
+        subtitle={
+          isSuperadmin
+            ? `${data?.total ?? 0} total companies`
+            : `${data?.total ?? 0} ${(data?.total ?? 0) === 1 ? 'company' : 'companies'} you channel-manage`
+        }
         extra={
           <Space>
             <ExportMenu
@@ -71,9 +80,11 @@ const CompanyListPage: React.FC = () => {
               pdf={() => exportsApi.companiesPdf(exportParams)}
               xlsx={() => exportsApi.companiesXlsx(exportParams)}
             />
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
-              Add Company
-            </Button>
+            {isSuperadmin && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
+                Add Company
+              </Button>
+            )}
           </Space>
         }
       />
@@ -94,12 +105,18 @@ const CompanyListPage: React.FC = () => {
           />
         ) : (
           <EmptyState
-            title="No companies found"
-            description="Add a partner company to start tracking opportunities and deals."
+            title={isSuperadmin ? 'No companies found' : 'No companies assigned to you'}
+            description={
+              isSuperadmin
+                ? 'Add a partner company to start tracking opportunities and deals.'
+                : 'You are not currently assigned as channel manager for any companies. Contact a superadmin to be assigned.'
+            }
             action={
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
-                Add Company
-              </Button>
+              isSuperadmin ? (
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
+                  Add Company
+                </Button>
+              ) : null
             }
           />
         )

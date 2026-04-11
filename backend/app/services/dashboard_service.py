@@ -30,52 +30,67 @@ from app.schemas.dashboard import (
 from app.models.audit_log import AuditLog
 
 
-async def get_admin_dashboard_stats(db: AsyncSession) -> DashboardStatsResponse:
-    company_count = await db.execute(
-        select(func.count(Company.id)).where(Company.deleted_at.is_(None))
-    )
-    partner_count = await db.execute(
-        select(func.count(User.id)).where(
-            User.role == UserRole.PARTNER, User.deleted_at.is_(None)
-        )
-    )
-    opp_count = await db.execute(
-        select(func.count(Opportunity.id)).where(Opportunity.deleted_at.is_(None))
-    )
+async def get_admin_dashboard_stats(
+    db: AsyncSession,
+    scope_company_ids: Optional[list[int]] = None,
+) -> DashboardStatsResponse:
+    """
+    Returns admin dashboard stats. When `scope_company_ids` is None, the
+    caller is a superadmin and sees the entire system. When it's a list,
+    the caller is a channel manager and only data for those companies is
+    counted (an empty list means they manage no companies → all-zero view).
+    """
+    is_scoped = scope_company_ids is not None
+
+    # Base filters that apply to opportunity queries
+    opp_scope: list = [Opportunity.deleted_at.is_(None)]
+    if is_scoped:
+        opp_scope.append(Opportunity.company_id.in_(scope_company_ids))
+
+    company_filter: list = [Company.deleted_at.is_(None)]
+    if is_scoped:
+        company_filter.append(Company.id.in_(scope_company_ids))
+
+    partner_filter: list = [User.role == UserRole.PARTNER, User.deleted_at.is_(None)]
+    if is_scoped:
+        partner_filter.append(User.company_id.in_(scope_company_ids))
+
+    docreq_filter: list = [DocRequest.status == DocRequestStatus.PENDING, DocRequest.deleted_at.is_(None)]
+    if is_scoped:
+        docreq_filter.append(DocRequest.company_id.in_(scope_company_ids))
+
+    company_count = await db.execute(select(func.count(Company.id)).where(*company_filter))
+    partner_count = await db.execute(select(func.count(User.id)).where(*partner_filter))
+    opp_count = await db.execute(select(func.count(Opportunity.id)).where(*opp_scope))
     approved_count = await db.execute(
-        select(func.count(Opportunity.id)).where(
-            Opportunity.status == OpportunityStatus.APPROVED,
-            Opportunity.deleted_at.is_(None),
-        )
+        select(func.count(Opportunity.id)).where(*opp_scope, Opportunity.status == OpportunityStatus.APPROVED)
     )
     rejected_count = await db.execute(
-        select(func.count(Opportunity.id)).where(
-            Opportunity.status == OpportunityStatus.REJECTED,
-            Opportunity.deleted_at.is_(None),
-        )
+        select(func.count(Opportunity.id)).where(*opp_scope, Opportunity.status == OpportunityStatus.REJECTED)
     )
     pending_count = await db.execute(
         select(func.count(Opportunity.id)).where(
+            *opp_scope,
             Opportunity.status.in_([OpportunityStatus.PENDING_REVIEW, OpportunityStatus.UNDER_REVIEW]),
-            Opportunity.deleted_at.is_(None),
         )
     )
     total_worth = await db.execute(
-        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(Opportunity.deleted_at.is_(None))
+        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(*opp_scope)
     )
     approved_worth = await db.execute(
         select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
-            Opportunity.status == OpportunityStatus.APPROVED,
-            Opportunity.deleted_at.is_(None),
+            *opp_scope, Opportunity.status == OpportunityStatus.APPROVED
         )
     )
 
-    # FIX 1: Overdue opportunities
+    # Overdue opportunities (scoped)
     overdue_filter = [
         Opportunity.closing_date < date.today(),
         Opportunity.status == OpportunityStatus.PENDING_REVIEW,
         Opportunity.deleted_at.is_(None),
     ]
+    if is_scoped:
+        overdue_filter.append(Opportunity.company_id.in_(scope_company_ids))
     overdue_count_result = await db.execute(
         select(func.count(Opportunity.id)).where(*overdue_filter)
     )
@@ -105,13 +120,7 @@ async def get_admin_dashboard_stats(db: AsyncSession) -> DashboardStatsResponse:
         for row in overdue_rows.all()
     ]
 
-    # FIX 4: Pending doc requests
-    pending_docs_count = await db.execute(
-        select(func.count(DocRequest.id)).where(
-            DocRequest.status == DocRequestStatus.PENDING,
-            DocRequest.deleted_at.is_(None),
-        )
-    )
+    pending_docs_count = await db.execute(select(func.count(DocRequest.id)).where(*docreq_filter))
 
     return DashboardStatsResponse(
         total_companies=company_count.scalar() or 0,
@@ -128,10 +137,16 @@ async def get_admin_dashboard_stats(db: AsyncSession) -> DashboardStatsResponse:
     )
 
 
-async def get_opportunity_status_breakdown(db: AsyncSession) -> list[OpportunityStatusBreakdown]:
+async def get_opportunity_status_breakdown(
+    db: AsyncSession,
+    scope_company_ids: Optional[list[int]] = None,
+) -> list[OpportunityStatusBreakdown]:
+    filters = [Opportunity.deleted_at.is_(None)]
+    if scope_company_ids is not None:
+        filters.append(Opportunity.company_id.in_(scope_company_ids))
     result = await db.execute(
         select(Opportunity.status, func.count(Opportunity.id))
-        .where(Opportunity.deleted_at.is_(None))
+        .where(*filters)
         .group_by(Opportunity.status)
     )
     rows = result.all()
@@ -141,9 +156,20 @@ async def get_opportunity_status_breakdown(db: AsyncSession) -> list[Opportunity
     ]
 
 
-async def get_monthly_opportunity_data(db: AsyncSession, months: int = 12) -> list[MonthlyOpportunityData]:
+async def get_monthly_opportunity_data(
+    db: AsyncSession,
+    months: int = 12,
+    scope_company_ids: Optional[list[int]] = None,
+) -> list[MonthlyOpportunityData]:
     today = date.today()
     start_date = today.replace(day=1) - timedelta(days=30 * (months - 1))
+
+    filters = [
+        Opportunity.deleted_at.is_(None),
+        Opportunity.created_at >= start_date,
+    ]
+    if scope_company_ids is not None:
+        filters.append(Opportunity.company_id.in_(scope_company_ids))
 
     month_col = func.to_char(Opportunity.created_at, 'YYYY-MM')
     result = await db.execute(
@@ -153,10 +179,7 @@ async def get_monthly_opportunity_data(db: AsyncSession, months: int = 12) -> li
             func.sum(case((Opportunity.status == OpportunityStatus.APPROVED, 1), else_=0)).label('approved'),
             func.sum(case((Opportunity.status == OpportunityStatus.REJECTED, 1), else_=0)).label('rejected'),
         )
-        .where(
-            Opportunity.deleted_at.is_(None),
-            Opportunity.created_at >= start_date,
-        )
+        .where(*filters)
         .group_by(month_col)
         .order_by(month_col)
     )
@@ -475,12 +498,22 @@ async def get_partner_timeline(
     ]
 
 
-async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
+async def get_admin_analytics(
+    db: AsyncSession,
+    scope_company_ids: Optional[list[int]] = None,
+) -> AnalyticsResponse:
     """
     Aggregations for the admin dashboard charts. One service call returns
     everything the dashboard needs to draw region/tier/industry/funnel
     breakdowns plus the top-companies leaderboard and recent activity feed.
+
+    When `scope_company_ids` is None → superadmin view (everything).
+    When it's a list → channel-manager view scoped to those companies.
     """
+    is_scoped = scope_company_ids is not None
+    company_filter = [Company.deleted_at.is_(None)]
+    if is_scoped:
+        company_filter.append(Company.id.in_(scope_company_ids))
     # ---- Region breakdown ---------------------------------------------------
     region_rows = (await db.execute(
         select(
@@ -503,7 +536,7 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
             Opportunity,
             (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
         )
-        .where(Company.deleted_at.is_(None))
+        .where(*company_filter)
         .group_by(Company.region)
         .order_by(func.coalesce(func.sum(Opportunity.worth), 0).desc())
     )).all()
@@ -530,7 +563,7 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
             Opportunity,
             (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
         )
-        .where(Company.deleted_at.is_(None))
+        .where(*company_filter)
         .group_by(Company.tier)
     )).all()
     tiers = [
@@ -554,7 +587,7 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
             Opportunity,
             (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
         )
-        .where(Company.deleted_at.is_(None))
+        .where(*company_filter)
         .group_by(Company.industry)
         .order_by(func.count(Opportunity.id).desc())
         .limit(8)
@@ -593,7 +626,7 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
             Opportunity,
             (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
         )
-        .where(Company.deleted_at.is_(None))
+        .where(*company_filter)
         .group_by(Company.id, Company.name, Company.tier, Company.region)
         .order_by(
             func.coalesce(
@@ -622,6 +655,9 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
 
     # ---- Conversion funnel --------------------------------------------------
     funnel_counts = {}
+    funnel_base = [Opportunity.deleted_at.is_(None)]
+    if is_scoped:
+        funnel_base.append(Opportunity.company_id.in_(scope_company_ids))
     for status in [
         OpportunityStatus.DRAFT,
         OpportunityStatus.PENDING_REVIEW,
@@ -630,8 +666,8 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
     ]:
         c = (await db.execute(
             select(func.count(Opportunity.id)).where(
+                *funnel_base,
                 Opportunity.status == status,
-                Opportunity.deleted_at.is_(None),
             )
         )).scalar() or 0
         funnel_counts[status.value] = c
@@ -644,7 +680,10 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
     ]
 
     # ---- Recent activity (last 10 audit log entries) -----------------------
-    activity_rows = (await db.execute(
+    # When scoped: only show actions taken by partners of managed companies
+    # (so a channel manager doesn't see audit logs for partners they don't
+    # manage). Superadmin sees the global feed.
+    activity_query = (
         select(
             AuditLog.id,
             User.full_name,
@@ -656,7 +695,15 @@ async def get_admin_analytics(db: AsyncSession) -> AnalyticsResponse:
         .join(User, User.id == AuditLog.user_id)
         .order_by(AuditLog.timestamp.desc())
         .limit(10)
-    )).all()
+    )
+    if is_scoped:
+        # Get user ids of partners belonging to managed companies
+        scoped_user_rows = (await db.execute(
+            select(User.id).where(User.company_id.in_(scope_company_ids))
+        )).all()
+        scoped_user_ids = [r[0] for r in scoped_user_rows]
+        activity_query = activity_query.where(AuditLog.user_id.in_(scoped_user_ids or [-1]))
+    activity_rows = (await db.execute(activity_query)).all()
     recent_activity = [
         RecentActivityItem(
             id=row[0],

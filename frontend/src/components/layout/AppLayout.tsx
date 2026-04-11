@@ -47,6 +47,7 @@ const AppLayout: React.FC = () => {
   const { token } = theme.useToken();
   const { isMobile } = useBreakpoint();
   const isAdmin = user?.role === 'admin';
+  const isSuperadmin = !!user?.is_superadmin;
 
   // Global Cmd/Ctrl+K listener for the command palette
   useEffect(() => {
@@ -76,11 +77,15 @@ const AppLayout: React.FC = () => {
     refetchInterval: 30000,
   });
 
+  // Superadmin sees everything; channel managers see the operational items
+  // for their managed companies but not user-management or audit logs.
   const adminMenuItems: MenuProps['items'] = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
-    { key: '/companies', icon: <BankOutlined />, label: 'Companies' },
-    { key: '/users', icon: <TeamOutlined />, label: 'Users' },
-    { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'Opportunities' },
+    { key: '/companies', icon: <BankOutlined />, label: isSuperadmin ? 'Companies' : 'My Companies' },
+    // Users page is superadmin-only — channel managers manage partners
+    // through the company detail page instead.
+    ...(isSuperadmin ? [{ key: '/users', icon: <TeamOutlined />, label: 'Users' }] : []),
+    { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: isSuperadmin ? 'Opportunities' : 'Pipeline' },
     { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
     { key: '/commissions', icon: <DollarOutlined />, label: 'Commissions' },
     { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },

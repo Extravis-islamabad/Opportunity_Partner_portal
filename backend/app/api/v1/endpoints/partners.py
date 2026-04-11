@@ -4,7 +4,7 @@ from typing import Optional
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user
+from app.core.deps import get_current_admin, get_current_user, get_admin_scope
 from app.models.user import User
 from app.schemas.user import (
     UserCreateRequest,
@@ -24,6 +24,17 @@ async def create_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Channel managers can only create partner accounts for companies they
+    # manage. Superadmins can create anything.
+    if not admin.is_superadmin:
+        if data.role == "admin":
+            from app.core.exceptions import ForbiddenException
+            raise ForbiddenException(message="Only superadmins can create admin accounts")
+        if data.role == "partner":
+            scope = await get_admin_scope(db, admin)
+            if data.company_id not in (scope or []):
+                from app.core.exceptions import ForbiddenException
+                raise ForbiddenException(message="You can only add partners to companies you manage")
     return await partner_service.create_partner_account(db, data, admin)
 
 
@@ -38,8 +49,14 @@ async def list_users(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Channel-manager scope: only see partner users belonging to their companies
+    scope = None
+    if not admin.is_superadmin:
+        scope = await get_admin_scope(db, admin)
+
     items, total = await partner_service.get_partners(
-        db, page, page_size, company_id, status, search, role
+        db, page, page_size, company_id, status, search, role,
+        scope_company_ids=scope,
     )
     return {
         "items": items,

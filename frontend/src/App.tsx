@@ -65,10 +65,12 @@ const App: React.FC = () => {
 
                 {/* Admin only */}
                 <Route path="/companies" element={<ProtectedRoute requiredRole="admin"><CompanyListPage /></ProtectedRoute>} />
-                <Route path="/companies/create" element={<ProtectedRoute requiredRole="admin"><CompanyCreatePage /></ProtectedRoute>} />
+                {/* Only superadmins can create new companies (assigning channel managers etc.) */}
+                <Route path="/companies/create" element={<ProtectedRoute requiredRole="superadmin"><CompanyCreatePage /></ProtectedRoute>} />
                 <Route path="/companies/:id/edit" element={<ProtectedRoute requiredRole="admin"><CompanyEditPage /></ProtectedRoute>} />
                 <Route path="/companies/:id" element={<ProtectedRoute requiredRole="admin"><CompanyDetailPage /></ProtectedRoute>} />
-                <Route path="/users" element={<ProtectedRoute requiredRole="admin"><UserListPage /></ProtectedRoute>} />
+                {/* User management is superadmin-only */}
+                <Route path="/users" element={<ProtectedRoute requiredRole="superadmin"><UserListPage /></ProtectedRoute>} />
 
                 {/* All authenticated users */}
                 <Route path="/opportunities" element={<OpportunityListPage />} />

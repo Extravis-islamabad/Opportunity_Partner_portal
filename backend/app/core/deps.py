@@ -75,3 +75,31 @@ async def get_admin_or_channel_manager(
     if current_user.role != UserRole.ADMIN:
         raise ForbiddenException(message="Admin access required")
     return current_user
+
+
+async def get_admin_scope(
+    db: AsyncSession,
+    user: User,
+) -> Optional[list[int]]:
+    """
+    Determine which company IDs an admin is allowed to see.
+
+    Returns:
+      - None  → superadmin (no scope, sees everything globally)
+      - [...] → channel manager scoped to these company ids (may be empty
+                if the admin manages zero companies, in which case they see
+                no operational data)
+
+    Partners should not call this — they have their own scoping by
+    submitted_by / company_id at the endpoint level.
+    """
+    if user.is_superadmin:
+        return None
+    from app.models.company import Company
+    result = await db.execute(
+        select(Company.id).where(
+            Company.channel_manager_id == user.id,
+            Company.deleted_at.is_(None),
+        )
+    )
+    return [row[0] for row in result.all()]

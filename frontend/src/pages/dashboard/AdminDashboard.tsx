@@ -39,6 +39,7 @@ import { Column, Bar, Radar } from '@ant-design/plots';
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '@/api/endpoints';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import {
   BrandFunnel,
@@ -153,6 +154,9 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon, gradient, trend, 
 // ---------------------------------------------------------------------------
 const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isSuperadmin = !!user?.is_superadmin;
+  const managedCount = user?.managed_company_count ?? 0;
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['admin-dashboard-stats'],
@@ -408,12 +412,28 @@ const AdminDashboard: React.FC = () => {
   return (
     <>
       <PageHeader
-        title="Admin Dashboard"
-        subtitle={`${stats.total_opportunities} opportunities tracked across ${stats.total_companies} companies`}
+        title={isSuperadmin ? 'Admin Dashboard' : 'Channel Manager Dashboard'}
+        subtitle={
+          isSuperadmin
+            ? `${stats.total_opportunities} opportunities across ${stats.total_companies} companies — full system view`
+            : managedCount > 0
+              ? `Managing ${managedCount} ${managedCount === 1 ? 'company' : 'companies'} • ${stats.total_opportunities} opportunities • ${stats.total_partners} partners`
+              : 'You are not currently assigned as channel manager for any companies. Contact a superadmin to be assigned.'
+        }
         extra={
-          <Tag style={{ padding: '6px 14px', borderRadius: 20, fontSize: 13, background: BRAND.violet100, color: BRAND.violet700, border: 'none', fontWeight: 600 }}>
+          <Tag
+            style={{
+              padding: '6px 14px',
+              borderRadius: 20,
+              fontSize: 13,
+              background: isSuperadmin ? BRAND.violet100 : BRAND.royal50,
+              color: isSuperadmin ? BRAND.violet700 : BRAND.royal500,
+              border: 'none',
+              fontWeight: 600,
+            }}
+          >
             <RiseOutlined style={{ marginRight: 6 }} />
-            {approvalRate}% approval rate
+            {isSuperadmin ? `${approvalRate}% approval rate` : 'CHANNEL MANAGER'}
           </Tag>
         }
       />

@@ -140,10 +140,29 @@ async def change_password(
 
 
 @router.get("/me", response_model=UserBasicResponse, status_code=200)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     company_name = None
     if current_user.company:
         company_name = current_user.company.name
+
+    # Channel-manager flags for admin users
+    managed_count = 0
+    is_cm = False
+    if current_user.role.value == "admin":
+        from sqlalchemy import func, select
+        from app.models.company import Company
+        cnt_res = await db.execute(
+            select(func.count(Company.id)).where(
+                Company.channel_manager_id == current_user.id,
+                Company.deleted_at.is_(None),
+            )
+        )
+        managed_count = cnt_res.scalar() or 0
+        is_cm = managed_count > 0
+
     return UserBasicResponse(
         id=current_user.id,
         full_name=current_user.full_name,
@@ -153,5 +172,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
         company_id=current_user.company_id,
         company_name=company_name,
         is_superadmin=current_user.is_superadmin,
+        is_channel_manager=is_cm,
+        managed_company_count=managed_count,
         has_completed_onboarding=current_user.has_completed_onboarding,
     )

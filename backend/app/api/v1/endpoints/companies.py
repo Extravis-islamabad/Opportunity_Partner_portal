@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional
 import math
 
@@ -40,6 +41,11 @@ async def list_companies(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Channel-manager scope: a non-superadmin admin only sees companies
+    # they channel-manage, regardless of what the client requested.
+    if not admin.is_superadmin:
+        channel_manager_id = admin.id
+
     items, total = await company_service.get_companies(
         db, page, page_size, country, region, channel_manager_id, search, status
     )
@@ -58,6 +64,19 @@ async def get_company(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Channel manager can only view companies they manage
+    if not admin.is_superadmin:
+        from app.core.exceptions import ForbiddenException
+        from app.models.company import Company
+        result = await db.execute(
+            select(Company).where(
+                Company.id == company_id,
+                Company.channel_manager_id == admin.id,
+                Company.deleted_at.is_(None),
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise ForbiddenException(message="You can only view companies you manage")
     return await company_service.get_company_detail(db, company_id)
 
 

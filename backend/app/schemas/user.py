@@ -36,6 +36,11 @@ class UserResponse(BaseModel):
     company_id: Optional[int] = None
     company_name: Optional[str] = None
     is_superadmin: bool = False
+    # Channel-manager flags: a non-superadmin admin who is the channel
+    # manager of one or more companies. Frontend uses this to render the
+    # scoped sidebar and dashboard labels.
+    is_channel_manager: bool = False
+    managed_company_count: int = 0
     last_login_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
