@@ -1,5 +1,6 @@
 from fastapi import Depends, Header
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 from typing import Optional
 
 from app.core.database import get_db
@@ -31,10 +32,15 @@ async def get_current_user(
     if not user_id:
         raise UnauthorizedException(code="INVALID_TOKEN", message="Invalid token payload")
 
+    # Eager-load .company so any downstream endpoint that touches
+    # current_user.company doesn't trigger an async lazy-load (which fails
+    # outside the greenlet context with MissingGreenlet).
     result = await db.execute(
-        select(User).where(User.id == int(user_id), User.deleted_at.is_(None))
+        select(User)
+        .options(joinedload(User.company))
+        .where(User.id == int(user_id), User.deleted_at.is_(None))
     )
-    user = result.scalar_one_or_none()
+    user = result.unique().scalar_one_or_none()
 
     if not user:
         raise UnauthorizedException(code="USER_NOT_FOUND", message="User account not found")
