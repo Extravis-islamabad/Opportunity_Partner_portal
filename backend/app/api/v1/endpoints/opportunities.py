@@ -124,7 +124,7 @@ async def list_opportunities(
         submitted_by, channel_manager_id, sales_rep_id=sales_rep_id,
     )
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,

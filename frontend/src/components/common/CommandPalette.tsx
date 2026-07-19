@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Input, List, Typography, Tag, Space, Empty } from 'antd';
 import { SearchOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { ROUTES, type RouteDescriptor, type UserRole } from '@/routes/routeConfig';
+import { ROUTES, capabilitiesFor, type RouteDescriptor, type UserRole } from '@/routes/routeConfig';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface CommandPaletteProps {
@@ -17,10 +17,13 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
   const [highlighted, setHighlighted] = useState(0);
 
   const role = (user?.role ?? 'partner') as UserRole;
+  const isSuperadmin = !!user?.is_superadmin;
 
-  // Filter routes by role + search query
+  // Filter routes by capability + search query. Capabilities (not raw role)
+  // so superadmin-only pages don't show dead-end entries to channel managers.
   const filtered: RouteDescriptor[] = useMemo(() => {
-    const accessible = ROUTES.filter((r) => !r.roles || r.roles.includes(role));
+    const caps = capabilitiesFor(role, isSuperadmin);
+    const accessible = ROUTES.filter((r) => !r.roles || r.roles.some((c) => caps.includes(c)));
     if (!query.trim()) return accessible;
     const q = query.trim().toLowerCase();
     return accessible.filter((r) => {
@@ -30,7 +33,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
       if (r.path.toLowerCase().includes(q)) return true;
       return false;
     });
-  }, [query, role]);
+  }, [query, role, isSuperadmin]);
 
   // Reset state whenever palette opens
   useEffect(() => {
@@ -128,6 +131,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
                       )}
                     </Space>
                     <Space>
+                      {item.roles?.includes('superadmin') && <Tag color="purple">Superadmin</Tag>}
                       {item.roles?.includes('admin') && <Tag color="blue">Admin</Tag>}
                       <ArrowRightOutlined style={{ color: '#888' }} />
                     </Space>

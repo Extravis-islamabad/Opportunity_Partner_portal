@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,30 @@ from app.core.rate_limit import limiter
 from app.api.v1.router import api_router
 
 
+async def _license_status_refresher(logger) -> None:
+    """Daily re-sync of the cached CustomerLicense.status column.
+
+    Reads always derive status live (derive_license_status), so this is not
+    load-bearing — it keeps the raw column sane for BI tools / psql / exports.
+    Runs once at startup, then every 24h. Failures are logged and retried on
+    the next cycle rather than crashing the app.
+    """
+    from app.core.database import async_session_factory
+    from app.services.poc_service import refresh_license_statuses
+
+    while True:
+        try:
+            async with async_session_factory() as session:
+                changed = await refresh_license_statuses(session)
+            if changed:
+                logger.info("license_status_refresh", changed=changed)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — background loop must survive
+            logger.warning("license_status_refresh_failed", error=str(exc))
+        await asyncio.sleep(24 * 60 * 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
@@ -23,7 +48,15 @@ async def lifespan(app: FastAPI):
     from app.core.init_db import create_superadmin
     await create_superadmin()
 
+    refresher = asyncio.create_task(_license_status_refresher(logger))
+
     yield
+
+    refresher.cancel()
+    try:
+        await refresher
+    except asyncio.CancelledError:
+        pass
 
     from app.core.redis import redis_client
     await redis_client.aclose()

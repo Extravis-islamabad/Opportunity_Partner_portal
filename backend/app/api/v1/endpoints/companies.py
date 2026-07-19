@@ -12,10 +12,9 @@ from app.schemas.company import (
     CompanyCreateRequest,
     CompanyUpdateRequest,
     CompanyResponse,
-    CompanyListResponse,
     CompanyDetailResponse,
 )
-from app.schemas.common import PaginatedResponse, MessageResponse
+from app.schemas.common import MessageResponse
 from app.services import company_service
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
@@ -24,7 +23,10 @@ router = APIRouter(prefix="/companies", tags=["Companies"])
 @router.post("", response_model=CompanyResponse, status_code=201)
 async def create_company(
     data: CompanyCreateRequest,
-    admin: User = Depends(get_current_admin),
+    # Superadmin-only: the UI only offers company creation to superadmins
+    # (channel managers work within their assigned companies), so the API
+    # must enforce the same boundary.
+    admin: User = Depends(get_current_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
     return await company_service.create_company(db, data, admin)

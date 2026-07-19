@@ -6,7 +6,7 @@ from typing import Optional
 
 from app.models.user import User, UserRole, UserStatus
 from app.models.company import Company
-from app.schemas.user import UserCreateRequest, AdminUserUpdateRequest, UserResponse, UserListResponse
+from app.schemas.user import UserCreateRequest, AdminUserUpdateRequest, UserResponse
 from app.core.security import hash_password, generate_token
 from app.core.config import settings
 from app.core.exceptions import NotFoundException, ConflictException, BadRequestException
@@ -165,9 +165,8 @@ async def get_partners(
 
 
 async def load_user_or_404(db: AsyncSession, user_id: int) -> User:
-    """Fetch the User model so the caller can authorise against it before any
-    of it is serialised. get_partner_detail returns a response schema, which
-    is too late to make an access decision on."""
+    """Fetch the User model so the caller can authorise against it (e.g.
+    assert_can_view_user) before any of it is serialised via serialize_user."""
     result = await db.execute(
         select(User)
         .options(joinedload(User.company))
@@ -195,12 +194,6 @@ def serialize_user(user: User) -> UserResponse:
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
-
-
-async def get_partner_detail(db: AsyncSession, user_id: int) -> UserResponse:
-    """Kept for callers that have already authorised the read. New code should
-    prefer load_user_or_404 + assert_can_view_user + serialize_user."""
-    return serialize_user(await load_user_or_404(db, user_id))
 
 
 async def update_partner(

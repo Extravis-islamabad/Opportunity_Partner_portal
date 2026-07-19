@@ -661,7 +661,7 @@ const PartnerDashboard: React.FC = () => {
                 <Card
                   hoverable
                   bordered={false}
-                  onClick={() => navigate('/opportunities/new')}
+                  onClick={() => navigate('/opportunities/create')}
                   style={{
                     background: `linear-gradient(135deg, ${BRAND.royal50} 0%, ${BRAND.violet100} 100%)`,
                     borderRadius: 10,

@@ -25,7 +25,7 @@ async def list_notifications(
     )
     return {
         "items": [
-            NotificationResponse.model_validate(n).model_dump() for n in items
+            NotificationResponse.model_validate(n).model_dump(mode="json") for n in items
         ],
         "total": total,
         "page": page,

@@ -44,7 +44,7 @@ async def list_kb_documents(
 ):
     items, total = await kb_service.get_kb_documents(db, page, page_size, category, search)
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,

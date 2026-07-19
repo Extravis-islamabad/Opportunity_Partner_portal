@@ -10,13 +10,29 @@
 
 export type UserRole = 'admin' | 'partner' | 'sales_rep';
 
+/**
+ * Access keys a route can require. Mirrors ProtectedRoute: 'superadmin' is a
+ * capability derived from user.is_superadmin, not a role of its own — a
+ * channel-manager admin has 'admin' but NOT 'superadmin'.
+ */
+export type RouteCapability = UserRole | 'superadmin';
+
 export interface RouteDescriptor {
   path: string;
   label: string;
   section?: string;
   icon?: string; // ant design icon name, for palette only
-  roles?: UserRole[]; // if unset → available to all authenticated users
+  roles?: RouteCapability[]; // if unset → available to all authenticated users
   keywords?: string[]; // extra search terms for the palette
+}
+
+/**
+ * The capability set for a user: their role, plus 'superadmin' when flagged.
+ * Use this (not raw role equality) when filtering routes, so superadmin-only
+ * pages never surface for channel-manager admins.
+ */
+export function capabilitiesFor(role: UserRole, isSuperadmin: boolean): RouteCapability[] {
+  return isSuperadmin ? [role, 'superadmin'] : [role];
 }
 
 export const ROUTES: RouteDescriptor[] = [
@@ -49,14 +65,14 @@ export const ROUTES: RouteDescriptor[] = [
     path: '/audit-logs',
     label: 'Audit Logs',
     section: 'Administration',
-    roles: ['admin'],
+    roles: ['superadmin'],
     keywords: ['audit', 'history', 'activity', 'log', 'trail'],
   },
   {
     path: '/admin/bulk-import',
     label: 'Bulk Import',
     section: 'Administration',
-    roles: ['admin'],
+    roles: ['superadmin'],
     keywords: ['import', 'bulk', 'upload', 'xlsx', 'excel', 'template'],
   },
   {
@@ -126,7 +142,7 @@ export const ROUTES: RouteDescriptor[] = [
     path: '/users',
     label: 'Users',
     section: 'Administration',
-    roles: ['admin'],
+    roles: ['superadmin'],
     keywords: ['team', 'accounts'],
   },
   {

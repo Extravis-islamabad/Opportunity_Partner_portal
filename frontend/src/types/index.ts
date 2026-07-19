@@ -764,6 +764,27 @@ export interface PocSummary {
   by_country: PocCountryBreakdown[];
 }
 
+// Mirrors backend ChannelManagerCompanyBreakdown / ChannelManagerDashboardResponse
+// (schemas/dashboard.py) — the per-company rollup for a channel manager's book.
+export interface ChannelManagerCompanyBreakdown {
+  company_id: number;
+  company_name: string;
+  tier: string;
+  partner_count: number;
+  pending_opportunities: number;
+  approved_opportunities: number;
+  pending_doc_requests: number;
+}
+
+export interface ChannelManagerDashboard {
+  total_companies: number;
+  total_partners: number;
+  total_pending_opportunities: number;
+  total_approved_opportunities: number;
+  total_pending_doc_requests: number;
+  companies: ChannelManagerCompanyBreakdown[];
+}
+
 export interface DeploymentMonthPoint {
   month: string;
   started: number;
@@ -848,6 +869,9 @@ export interface BulkImportResult {
   processed: number;
   succeeded: number;
   failed: Array<{ row: number; error: string }>;
+  // Only returned by the opportunities importer (bulk_import_opportunities.py)
+  companies_touched?: number;
+  admins_touched?: number;
 }
 
 // ==================== Onboarding ====================

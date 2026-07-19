@@ -10,6 +10,7 @@ from app.core.deps import (
     get_current_partner,
     get_admin_scope,
     get_poc_editor,
+    deny_sales_rep,
 )
 from app.models.user import User, UserRole
 from app.schemas.dashboard import (
@@ -184,7 +185,11 @@ async def list_deals(
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
     company_id: Optional[int] = None,
-    current_user: User = Depends(get_current_user),
+    # deny_sales_rep: this handler predates the sales-rep role and branches
+    # `if partner … else show-all`; a rep would land in the else and read the
+    # whole dataset. The frontend already hides /deals from reps — this makes
+    # the API match.
+    current_user: User = Depends(deny_sales_rep),
     db: AsyncSession = Depends(get_db),
 ):
     registered_by = None
@@ -204,7 +209,7 @@ async def list_deals(
         db, page, page_size, company_id, status, registered_by, scope_company_ids=scope
     )
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,

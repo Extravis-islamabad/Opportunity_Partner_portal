@@ -616,8 +616,8 @@ async def refresh_license_statuses(db: AsyncSession) -> int:
     derive_license_status and every query groups/filters via
     license_status_expr, so nothing user-facing depends on this running.
     It exists so the raw column is sane for anyone querying the table
-    directly (psql, BI tools, a future export). There is no scheduler in this
-    app — call it from a management command if you want it.
+    directly (psql, BI tools, a future export). Runs daily via the
+    _license_status_refresher background task started in app.main's lifespan.
     """
     result = await db.execute(
         select(CustomerLicense).where(CustomerLicense.deleted_at.is_(None))

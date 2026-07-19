@@ -48,15 +48,3 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class UserListResponse(BaseModel):
-    id: int
-    full_name: str
-    email: str
-    role: str
-    status: str
-    job_title: Optional[str] = None
-    company_id: Optional[int] = None
-    company_name: Optional[str] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}

@@ -16,6 +16,7 @@ from app.schemas.lms import (
 )
 from app.core.exceptions import NotFoundException, BadRequestException, ConflictException
 from app.utils.audit import write_audit_log
+from app.utils.file_tokens import signed_file_url
 from app.services.notification_service import notify_all_admins, notify_channel_manager, notify_user
 from app.utils.email import send_template_email
 from app.models.company import Company
@@ -276,7 +277,7 @@ async def update_enrollment(
         completed_at=enrollment.completed_at,
         certificate_requested=enrollment.certificate_requested,
         certificate_requested_at=enrollment.certificate_requested_at,
-        certificate_url=enrollment.certificate_url,
+        certificate_url=signed_file_url(enrollment.certificate_url),
         certificate_issued_at=enrollment.certificate_issued_at,
         enrolled_at=enrollment.enrolled_at,
     )
@@ -345,7 +346,7 @@ async def request_certificate(db: AsyncSession, enrollment_id: int, partner_user
         completed_at=enrollment.completed_at,
         certificate_requested=enrollment.certificate_requested,
         certificate_requested_at=enrollment.certificate_requested_at,
-        certificate_url=enrollment.certificate_url,
+        certificate_url=signed_file_url(enrollment.certificate_url),
         certificate_issued_at=enrollment.certificate_issued_at,
         enrolled_at=enrollment.enrolled_at,
     )
@@ -446,7 +447,7 @@ async def issue_certificate(
         attempt_count=enrollment.attempt_count,
         certificate_requested=enrollment.certificate_requested,
         certificate_requested_at=enrollment.certificate_requested_at,
-        certificate_url=enrollment.certificate_url,
+        certificate_url=signed_file_url(enrollment.certificate_url),
         certificate_issued_at=enrollment.certificate_issued_at,
         enrolled_at=enrollment.enrolled_at,
     )
@@ -574,7 +575,7 @@ async def update_module_progress(
         attempt_count=enrollment.attempt_count,
         certificate_requested=enrollment.certificate_requested,
         certificate_requested_at=enrollment.certificate_requested_at,
-        certificate_url=enrollment.certificate_url,
+        certificate_url=signed_file_url(enrollment.certificate_url),
         certificate_issued_at=enrollment.certificate_issued_at,
         enrolled_at=enrollment.enrolled_at,
     )
@@ -656,7 +657,7 @@ async def get_my_enrollments(
             attempt_count=e.attempt_count,
             certificate_requested=e.certificate_requested,
             certificate_requested_at=e.certificate_requested_at,
-            certificate_url=e.certificate_url,
+            certificate_url=signed_file_url(e.certificate_url),
             certificate_issued_at=e.certificate_issued_at,
             enrolled_at=e.enrolled_at,
         )
@@ -705,7 +706,7 @@ async def get_enrollment_requests(
             attempt_count=e.attempt_count,
             certificate_requested=e.certificate_requested,
             certificate_requested_at=e.certificate_requested_at,
-            certificate_url=e.certificate_url,
+            certificate_url=signed_file_url(e.certificate_url),
             certificate_issued_at=e.certificate_issued_at,
             enrolled_at=e.enrolled_at,
         )

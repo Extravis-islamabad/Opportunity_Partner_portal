@@ -55,7 +55,7 @@ async def list_doc_requests(
         db, page, page_size, status, company_id, requested_by
     )
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,

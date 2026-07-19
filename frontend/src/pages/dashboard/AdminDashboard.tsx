@@ -204,6 +204,14 @@ const AdminDashboard: React.FC = () => {
     queryFn: async () => (await dashboardApi.getCityFunnel()).data,
   });
 
+  // Channel managers get a per-company rollup of their book; superadmins see
+  // everything through the global widgets, so skip the extra request.
+  const { data: cmBook } = useQuery({
+    queryKey: ['channel-manager-dashboard'],
+    queryFn: async () => (await dashboardApi.getChannelManagerDashboard()).data,
+    enabled: !isSuperadmin,
+  });
+
   // 'all' sums every quarter; the picker narrows to one.
   const [funnelQuarter, setFunnelQuarter] = useState<string>('all');
 
@@ -524,7 +532,9 @@ const AdminDashboard: React.FC = () => {
             icon={<TeamOutlined />}
             gradient={`linear-gradient(135deg, ${BRAND.violet600} 0%, ${BRAND.violet500} 100%)`}
             trend={{ value: 8, label: 'new this month' }}
-            onClick={() => navigate('/users')}
+            // /users is superadmin-only; channel managers reach their partners
+            // through their managed companies instead of a silent redirect.
+            onClick={() => navigate(isSuperadmin ? '/users' : '/companies')}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
@@ -547,6 +557,69 @@ const AdminDashboard: React.FC = () => {
           />
         </Col>
       </Row>
+
+      {/* ---------------- Channel manager: my companies --------------------- */}
+      {!isSuperadmin && cmBook && cmBook.companies.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Card
+              title="My Companies"
+              bordered={false}
+              style={{ borderRadius: 12 }}
+              extra={
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {cmBook.total_partners} partner{cmBook.total_partners === 1 ? '' : 's'} ·{' '}
+                  {cmBook.total_pending_opportunities} pending opportunit{cmBook.total_pending_opportunities === 1 ? 'y' : 'ies'} ·{' '}
+                  {cmBook.total_pending_doc_requests} open doc request{cmBook.total_pending_doc_requests === 1 ? '' : 's'}
+                </Typography.Text>
+              }
+            >
+              <Table
+                dataSource={cmBook.companies}
+                rowKey="company_id"
+                pagination={false}
+                size="small"
+                onRow={(record) => ({
+                  onClick: () => navigate(`/companies/${record.company_id}`),
+                  style: { cursor: 'pointer' },
+                })}
+                columns={[
+                  {
+                    title: 'Company',
+                    dataIndex: 'company_name',
+                    key: 'company_name',
+                    render: (name: string) => <Typography.Text strong>{name}</Typography.Text>,
+                  },
+                  {
+                    title: 'Tier',
+                    dataIndex: 'tier',
+                    key: 'tier',
+                    render: (tier: string) => <Tag color="blue">{tier}</Tag>,
+                  },
+                  { title: 'Partners', dataIndex: 'partner_count', key: 'partner_count', align: 'right' as const },
+                  {
+                    title: 'Pending Opps',
+                    dataIndex: 'pending_opportunities',
+                    key: 'pending_opportunities',
+                    align: 'right' as const,
+                    render: (n: number) =>
+                      n > 0 ? <Tag color="orange">{n}</Tag> : <Typography.Text type="secondary">0</Typography.Text>,
+                  },
+                  { title: 'Approved Opps', dataIndex: 'approved_opportunities', key: 'approved_opportunities', align: 'right' as const },
+                  {
+                    title: 'Doc Requests',
+                    dataIndex: 'pending_doc_requests',
+                    key: 'pending_doc_requests',
+                    align: 'right' as const,
+                    render: (n: number) =>
+                      n > 0 ? <Tag color="red">{n}</Tag> : <Typography.Text type="secondary">0</Typography.Text>,
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* ---------------- POC tracking ------------------------------------- */}
       {pocSummary && pocSummary.total_pocs > 0 && (

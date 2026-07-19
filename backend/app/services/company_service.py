@@ -19,16 +19,6 @@ from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_user
 
 
-async def get_user_managed_companies(db: AsyncSession, user_id: int) -> list[int]:
-    result = await db.execute(
-        select(Company.id).where(
-            Company.channel_manager_id == user_id,
-            Company.deleted_at.is_(None),
-        )
-    )
-    return list(result.scalars().all())
-
-
 async def create_company(
     db: AsyncSession, data: CompanyCreateRequest, admin_user: User
 ) -> CompanyResponse:

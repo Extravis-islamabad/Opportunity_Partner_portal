@@ -45,7 +45,7 @@ async def list_courses(
         db, page, page_size, status, search, include_unpublished
     )
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -128,7 +128,7 @@ async def list_certificate_requests(
 ):
     items, total = await lms_service.get_enrollment_requests(db, True, page, page_size)
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,

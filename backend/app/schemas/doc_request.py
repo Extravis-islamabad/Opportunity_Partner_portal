@@ -42,13 +42,3 @@ class DocRequestResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class DocRequestListResponse(BaseModel):
-    id: int
-    company_name: Optional[str] = None
-    requester_name: Optional[str] = None
-    description: str
-    urgency: str
-    status: str
-    created_at: datetime
-
-    model_config = {"from_attributes": True}

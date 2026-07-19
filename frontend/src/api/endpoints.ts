@@ -43,6 +43,7 @@ import type {
   LicenseUpsertRequest,
   DeploymentAnalytics,
   CityFunnelResponse,
+  ChannelManagerDashboard,
   AuditLogListResponse,
   BulkImportResult,
   OnboardingChecklist,
@@ -415,6 +416,8 @@ export const dashboardApi = {
     apiClient.get<DeploymentAnalytics>('/dashboard/deployment', { params: { months } }),
   getCityFunnel: (year?: number) =>
     apiClient.get<CityFunnelResponse>('/dashboard/admin/city-funnel', { params: { year } }),
+  getChannelManagerDashboard: () =>
+    apiClient.get<ChannelManagerDashboard>('/dashboard/channel-manager'),
 };
 
 // ==================== POC ====================

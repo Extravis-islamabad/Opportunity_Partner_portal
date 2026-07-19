@@ -77,7 +77,7 @@ async def list_pocs(
         **await _list_scope(db, current_user),
     )
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -200,7 +200,7 @@ async def list_licenses(
         **await _list_scope(db, current_user),
     )
     return {
-        "items": [item.model_dump() for item in items],
+        "items": [item.model_dump(mode="json") for item in items],
         "total": total,
         "page": page,
         "page_size": page_size,
