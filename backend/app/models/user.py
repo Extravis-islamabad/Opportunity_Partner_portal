@@ -10,6 +10,12 @@ from app.core.database import Base
 class UserRole(str, enum.Enum):
     ADMIN = "admin"
     PARTNER = "partner"
+    # An Extravis sales rep. Owns opportunities via Opportunity.sales_rep_id
+    # and drives their POC / deployment / licence records. Scoped strictly to
+    # their own opportunities — they are NOT a weaker admin, and any code that
+    # branches "if partner: ... else: <assume admin>" must deny them
+    # explicitly rather than let them fall through.
+    SALES_REP = "sales_rep"
 
 
 class UserStatus(str, enum.Enum):

@@ -59,7 +59,8 @@ async def get_course(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await lms_service.get_course_detail(db, course_id)
+    include_unpublished = current_user.role == UserRole.ADMIN
+    return await lms_service.get_course_detail(db, course_id, include_unpublished)
 
 
 @router.put("/courses/{course_id}", response_model=CourseResponse, status_code=200)

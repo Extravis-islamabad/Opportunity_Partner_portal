@@ -7,6 +7,7 @@ from sqlalchemy.orm import joinedload
 from typing import Optional
 import structlog
 
+from app.utils.file_tokens import signed_file_url
 from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.opp_document import OppDocument
 from app.models.user import User, UserRole
@@ -104,6 +105,12 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         company_name=opp.company.name if opp.company else None,
         reviewed_by=opp.reviewed_by,
         reviewer_name=opp.reviewer.full_name if opp.reviewer else None,
+        sales_rep_id=opp.sales_rep_id,
+        sales_rep_name=opp.sales_rep.full_name if opp.sales_rep else None,
+        industry=opp.industry,
+        product=opp.product,
+        stage_probability=opp.stage_probability,
+        time_frame=opp.time_frame,
         submitted_at=opp.submitted_at,
         reviewed_at=opp.reviewed_at,
         ai_score=opp.ai_score,
@@ -114,7 +121,7 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         customer_domain=opp.customer_domain,
         documents=[
             OppDocumentResponse(
-                id=d.id, file_name=d.file_name, file_url=d.file_url,
+                id=d.id, file_name=d.file_name, file_url=signed_file_url(d.file_url),
                 file_size=d.file_size, content_type=d.content_type, uploaded_at=d.uploaded_at,
             )
             for d in (opp.documents or [])
@@ -171,6 +178,11 @@ async def create_opportunity(
         # Soft warning → set the multi_partner_alert flag so the review
         # queue picks it up
         multi_partner_alert=(dup_report["severity"] == "warn"),
+        industry=data.industry,
+        product=data.product,
+        stage_probability=data.stage_probability,
+        time_frame=data.time_frame,
+        sales_rep_id=data.sales_rep_id,
     )
 
     if opp.status == OpportunityStatus.PENDING_REVIEW:
@@ -245,12 +257,14 @@ async def get_opportunities(
     channel_manager_id: Optional[int] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    sales_rep_id: Optional[int] = None,
 ) -> tuple[list, int]:
     query = (
         select(Opportunity)
         .options(
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
+            joinedload(Opportunity.sales_rep),
         )
         .where(Opportunity.deleted_at.is_(None))
     )
@@ -271,6 +285,9 @@ async def get_opportunities(
     if submitted_by:
         query = query.where(Opportunity.submitted_by == submitted_by)
         count_query = count_query.where(Opportunity.submitted_by == submitted_by)
+    if sales_rep_id:
+        query = query.where(Opportunity.sales_rep_id == sales_rep_id)
+        count_query = count_query.where(Opportunity.sales_rep_id == sales_rep_id)
     if search:
         sf = or_(
             Opportunity.name.ilike(f"%{search}%"),
@@ -310,6 +327,12 @@ async def get_opportunities(
             submitted_by_name=o.submitted_by_user.full_name if o.submitted_by_user else None,
             company_name=o.company.name if o.company else None,
             company_id=o.company_id,
+            industry=o.industry,
+            product=o.product,
+            stage_probability=o.stage_probability,
+            time_frame=o.time_frame,
+            sales_rep_id=o.sales_rep_id,
+            sales_rep_name=o.sales_rep.full_name if o.sales_rep else None,
             submitted_at=o.submitted_at,
             ai_score=o.ai_score,
             ai_reasoning=o.ai_reasoning,
@@ -327,6 +350,7 @@ async def get_opportunity_detail(db: AsyncSession, opp_id: int) -> OpportunityRe
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
             joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -500,6 +524,7 @@ async def approve_opportunity(
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
             joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -556,6 +581,7 @@ async def reject_opportunity(
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
             joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -621,6 +647,7 @@ async def add_internal_note(
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
             joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -656,6 +683,7 @@ async def mark_under_review(db: AsyncSession, opp_id: int, admin_user: User) -> 
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
             joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -691,6 +719,7 @@ async def auto_mark_under_review(
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
             joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -737,7 +766,7 @@ async def add_opp_document(db: AsyncSession, opp_id: int, file_info: dict) -> Op
     return OppDocumentResponse(
         id=doc.id,
         file_name=doc.file_name,
-        file_url=doc.file_url,
+        file_url=signed_file_url(doc.file_url),
         file_size=doc.file_size,
         content_type=doc.content_type,
         uploaded_at=doc.uploaded_at,

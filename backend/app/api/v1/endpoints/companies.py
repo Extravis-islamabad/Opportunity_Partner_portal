@@ -5,7 +5,8 @@ from typing import Optional
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_superadmin
+from app.core.deps import get_current_admin, get_current_superadmin, assert_manages_company
+from app.core.exceptions import ForbiddenException
 from app.models.user import User
 from app.schemas.company import (
     CompanyCreateRequest,
@@ -64,19 +65,7 @@ async def get_company(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    # Channel manager can only view companies they manage
-    if not admin.is_superadmin:
-        from app.core.exceptions import ForbiddenException
-        from app.models.company import Company
-        result = await db.execute(
-            select(Company).where(
-                Company.id == company_id,
-                Company.channel_manager_id == admin.id,
-                Company.deleted_at.is_(None),
-            )
-        )
-        if not result.scalar_one_or_none():
-            raise ForbiddenException(message="You can only view companies you manage")
+    await assert_manages_company(db, admin, company_id, action="view")
     return await company_service.get_company_detail(db, company_id)
 
 
@@ -87,6 +76,19 @@ async def update_company(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Same scope check the GET has. Without it a channel manager could PUT a
+    # company they don't manage and set channel_manager_id to themselves,
+    # widening their own scope across every scoped route.
+    await assert_manages_company(db, admin, company_id, action="edit")
+
+    # Reassigning a company to a different channel manager is a superadmin
+    # action. A channel manager editing their own company must not be able to
+    # hand it to someone else — or take another one.
+    if not admin.is_superadmin and data.channel_manager_id is not None:
+        raise ForbiddenException(
+            message="Only superadmins can change a company's channel manager"
+        )
+
     return await company_service.update_company(db, company_id, data, admin)
 
 

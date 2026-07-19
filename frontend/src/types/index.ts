@@ -34,11 +34,13 @@ export interface RefreshResponse {
   token_type: string;
 }
 
+export type UserRole = 'admin' | 'partner' | 'sales_rep';
+
 export interface UserBasic {
   id: number;
   full_name: string;
   email: string;
-  role: 'admin' | 'partner';
+  role: UserRole;
   status: string;
   company_id: number | null;
   company_name: string | null;
@@ -143,6 +145,9 @@ export type OpportunityStatus =
   | 'removed'
   | 'multi_partner_flagged';
 
+export type ProductName = 'MonetX' | 'PatchX' | 'SupportX';
+export type StageProbability = 0.1 | 0.3 | 0.6 | 0.7 | 0.9 | 1.0;
+
 export interface OpportunityResponse {
   id: number;
   name: string;
@@ -164,6 +169,12 @@ export interface OpportunityResponse {
   company_name: string | null;
   reviewed_by: number | null;
   reviewer_name: string | null;
+  sales_rep_id: number | null;
+  sales_rep_name: string | null;
+  industry: string | null;
+  product: string | null;
+  stage_probability: string | null;
+  time_frame: string | null;
   submitted_at: string | null;
   reviewed_at: string | null;
   documents: OppDocumentResponse[];
@@ -188,6 +199,12 @@ export interface OpportunityListItem {
   submitted_by_name: string | null;
   company_name: string | null;
   company_id: number;
+  industry: string | null;
+  product: string | null;
+  stage_probability: string | null;
+  time_frame: string | null;
+  sales_rep_id: number | null;
+  sales_rep_name: string | null;
   submitted_at: string | null;
   ai_score: number | null;
   ai_reasoning: string | null;
@@ -214,6 +231,53 @@ export interface OpportunityCreateRequest {
   closing_date: string;
   requirements: string;
   status?: string;
+  industry?: string;
+  product?: string;
+  stage_probability?: number;
+  time_frame?: string;
+  sales_rep_id?: number;
+}
+
+// 2027 Target Plan analytics (admin dashboard)
+export interface ProductBreakdown {
+  product: string;
+  opportunity_count: number;
+  total_worth: string;
+  weighted_pipeline: string;
+}
+export interface OppIndustryBreakdown {
+  industry: string;
+  opportunity_count: number;
+  total_worth: string;
+}
+export interface StageBreakdown {
+  probability: number;
+  stage_label: string;
+  opportunity_count: number;
+  total_worth: string;
+}
+export interface QuarterBreakdown {
+  time_frame: string;
+  opportunity_count: number;
+  total_worth: string;
+  weighted_pipeline: string;
+}
+export interface SalesRepBreakdown {
+  sales_rep_id: number;
+  sales_rep_name: string;
+  opportunity_count: number;
+  total_worth: string;
+  weighted_pipeline: string;
+}
+export interface TargetPlanAnalytics {
+  total_opportunities: number;
+  total_worth: string;
+  weighted_pipeline: string;
+  by_product: ProductBreakdown[];
+  by_industry: OppIndustryBreakdown[];
+  by_stage: StageBreakdown[];
+  by_quarter: QuarterBreakdown[];
+  by_sales_rep: SalesRepBreakdown[];
 }
 
 // ==================== Knowledge Base ====================
@@ -544,4 +608,255 @@ export interface StatementPeriodSummary {
   total_amount: string;
   commission_count: number;
   currency: string;
+}
+
+// ==================== POC ====================
+
+export type PocStatus = 'not_started' | 'running' | 'successful' | 'unsuccessful';
+export type PocStageKey =
+  | 'vm_provisioning'
+  | 'deployment'
+  | 'device_onboarding'
+  | 'dashboarding'
+  | 'fine_tuning';
+
+export interface PocStageState {
+  key: PocStageKey;
+  label: string;
+  completed: boolean;
+  completed_at: string | null;
+}
+
+export interface PocResponse {
+  id: number;
+  opportunity_id: number;
+  status: PocStatus;
+
+  start_date: string | null;
+  target_end_date: string | null;
+  end_date: string | null;
+
+  vm_provisioning_completed_at: string | null;
+  deployment_completed_at: string | null;
+  device_onboarding_completed_at: string | null;
+  dashboarding_completed_at: string | null;
+  fine_tuning_completed_at: string | null;
+
+  closed_at: string | null;
+  outcome_notes: string | null;
+  failure_reason: string | null;
+  notes: string | null;
+
+  stages: PocStageState[];
+  completed_stage_count: number;
+  total_stage_count: number;
+  current_stage: PocStageKey | null;
+  current_stage_label: string | null;
+  days_running: number | null;
+  is_overdue: boolean;
+
+  opportunity_name: string | null;
+  customer_name: string | null;
+  company_name: string | null;
+  partner_name: string | null;
+  country: string | null;
+  city: string | null;
+  region: string | null;
+  product: string | null;
+  worth: string | null;
+  sales_rep_name: string | null;
+  closed_by_name: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PocStartRequest {
+  start_date: string;
+  target_end_date?: string | null;
+  notes?: string | null;
+}
+
+export interface PocCloseRequest {
+  successful: boolean;
+  end_date?: string | null;
+  outcome_notes?: string | null;
+  failure_reason?: string | null;
+}
+
+// ==================== Customer licence (post-PO) ====================
+
+export type LicenseStatus = 'pending_activation' | 'active' | 'expiring_soon' | 'expired';
+
+export interface LicenseResponse {
+  id: number;
+  opportunity_id: number;
+  po_number: string | null;
+  po_received_date: string | null;
+  po_value: string | null;
+  device_count: number | null;
+  node_count: number | null;
+  license_activated_at: string | null;
+  license_expires_at: string | null;
+  license_key: string | null;
+  status: LicenseStatus;
+  notes: string | null;
+  days_until_expiry: number | null;
+  opportunity_name: string | null;
+  customer_name: string | null;
+  company_name: string | null;
+  country: string | null;
+  product: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LicenseUpsertRequest {
+  po_number?: string | null;
+  po_received_date?: string | null;
+  po_value?: string | null;
+  device_count?: number | null;
+  node_count?: number | null;
+  license_activated_at?: string | null;
+  license_expires_at?: string | null;
+  license_key?: string | null;
+  notes?: string | null;
+}
+
+// ==================== POC / deployment analytics ====================
+
+export interface PocStatusCount {
+  status: PocStatus;
+  label: string;
+  count: number;
+  total_worth: string;
+}
+
+export interface PocStageProgress {
+  stage: PocStageKey;
+  label: string;
+  completed_count: number;
+  pending_count: number;
+  avg_days_to_complete: number | null;
+}
+
+export interface PocCountryBreakdown {
+  country: string;
+  running: number;
+  successful: number;
+  unsuccessful: number;
+  total_worth: string;
+}
+
+export interface PocSummary {
+  total_pocs: number;
+  not_started: number;
+  running: number;
+  successful: number;
+  unsuccessful: number;
+  overdue: number;
+  success_rate: number | null;
+  avg_duration_days: number | null;
+  running_worth: string;
+  won_worth: string;
+  by_status: PocStatusCount[];
+  by_stage: PocStageProgress[];
+  by_country: PocCountryBreakdown[];
+}
+
+export interface DeploymentMonthPoint {
+  month: string;
+  started: number;
+  completed: number;
+}
+
+export interface LicenseStatusCount {
+  status: LicenseStatus;
+  label: string;
+  count: number;
+  device_count: number;
+  node_count: number;
+}
+
+export interface ExpiringLicenseItem {
+  opportunity_id: number;
+  customer_name: string;
+  company_name: string | null;
+  country: string | null;
+  license_expires_at: string;
+  days_until_expiry: number;
+  device_count: number | null;
+  node_count: number | null;
+}
+
+export interface DeploymentAnalytics {
+  active_pocs: number;
+  stage_funnel: PocStageProgress[];
+  monthly_activity: DeploymentMonthPoint[];
+  total_devices: number;
+  total_nodes: number;
+  active_licenses: number;
+  licenses_by_status: LicenseStatusCount[];
+  expiring_soon: ExpiringLicenseItem[];
+}
+
+// ==================== City funnel ====================
+
+export interface CityFunnelCell {
+  city: string;
+  country: string | null;
+  quarter: string;
+  stage: string;
+  stage_label: string;
+  opportunity_count: number;
+  total_worth: string;
+  weighted_pipeline: string;
+}
+
+export interface CityFunnelResponse {
+  cities: string[];
+  quarters: string[];
+  stages: string[];
+  stage_labels: Record<string, string>;
+  cells: CityFunnelCell[];
+  total_worth: string;
+  weighted_pipeline: string;
+}
+
+// ==================== Audit Logs ====================
+export interface AuditLogItem {
+  id: number;
+  user_id: number;
+  user_full_name: string;
+  action: string;
+  entity_type: string;
+  entity_id: number;
+  metadata_json: Record<string, unknown> | null;
+  timestamp: string;
+}
+
+export interface AuditLogListResponse {
+  items: AuditLogItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+// ==================== Bulk Import ====================
+export interface BulkImportResult {
+  processed: number;
+  succeeded: number;
+  failed: Array<{ row: number; error: string }>;
+}
+
+// ==================== Onboarding ====================
+export interface OnboardingChecklistItem {
+  key: string;
+  label: string;
+  completed: boolean;
+}
+export interface OnboardingChecklist {
+  has_completed_onboarding: boolean;
+  items: OnboardingChecklistItem[];
 }

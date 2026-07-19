@@ -30,6 +30,16 @@ from app.utils.email import send_template_email
 
 logger = structlog.get_logger()
 
+# A precomputed bcrypt hash used to equalise timing when the email doesn't
+# exist. Without it, an unknown email returns in ~1ms (no bcrypt) while a real
+# one takes ~250ms — a timing oracle that enumerates valid accounts. We run a
+# real verify against this dummy so both paths cost the same.
+_DUMMY_PASSWORD_HASH = hash_password("timing-equaliser-not-a-real-password")
+
+_GENERIC_LOGIN_ERROR = UnauthorizedException(
+    code="INVALID_CREDENTIALS", message="Invalid email or password"
+)
+
 
 async def login(db: AsyncSession, data: LoginRequest) -> dict:
     result = await db.execute(
@@ -39,19 +49,48 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
     )
     user = result.scalar_one_or_none()
 
-    if not user:
-        raise UnauthorizedException(code="INVALID_CREDENTIALS", message="Invalid email or password")
+    now = datetime.now(timezone.utc)
+    currently_locked = bool(
+        user
+        and user.status == UserStatus.LOCKED
+        and user.locked_until
+        and user.locked_until > now
+    )
 
+    # ALWAYS run a bcrypt verify — against the real hash if the user exists,
+    # otherwise against a dummy — so response time doesn't reveal whether the
+    # email is registered.
+    password_ok = verify_password(
+        data.password, user.password_hash if user else _DUMMY_PASSWORD_HASH
+    )
+
+    if not user or not password_ok:
+        # Count the failure and lock after too many — but never while already
+        # locked (so a locked account's window can't be extended forever), and
+        # only for real accounts.
+        if user and not currently_locked:
+            user.failed_login_attempts += 1
+            if user.failed_login_attempts >= settings.LOGIN_MAX_ATTEMPTS:
+                user.status = UserStatus.LOCKED
+                user.locked_until = now + timedelta(minutes=settings.LOGIN_LOCKOUT_MINUTES)
+                logger.warning("account_locked", user_id=user.id, email=user.email)
+            await db.flush()
+        # Identical response for unknown-email and wrong-password: no oracle.
+        raise _GENERIC_LOGIN_ERROR
+
+    # Password is correct. Only now is it safe to reveal account state — this
+    # is not an enumeration oracle because the caller already proved they hold
+    # the credentials.
     if user.status == UserStatus.LOCKED:
-        if user.locked_until and user.locked_until > datetime.now(timezone.utc):
+        if currently_locked:
             raise UnauthorizedException(
                 code="ACCOUNT_LOCKED",
                 message=f"Account is locked. Try again after {user.locked_until.isoformat()}",
             )
-        else:
-            user.status = UserStatus.ACTIVE
-            user.failed_login_attempts = 0
-            user.locked_until = None
+        # Lock window has passed — auto-unlock and continue.
+        user.status = UserStatus.ACTIVE
+        user.failed_login_attempts = 0
+        user.locked_until = None
 
     if user.status == UserStatus.PENDING_ACTIVATION:
         raise UnauthorizedException(code="ACCOUNT_NOT_ACTIVATED", message="Please activate your account first")
@@ -59,18 +98,9 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
     if user.status == UserStatus.INACTIVE:
         raise UnauthorizedException(code="ACCOUNT_INACTIVE", message="Account has been deactivated")
 
-    if not verify_password(data.password, user.password_hash):
-        user.failed_login_attempts += 1
-        if user.failed_login_attempts >= settings.LOGIN_MAX_ATTEMPTS:
-            user.status = UserStatus.LOCKED
-            user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=settings.LOGIN_LOCKOUT_MINUTES)
-            logger.warning("account_locked", user_id=user.id, email=user.email)
-        await db.flush()
-        raise UnauthorizedException(code="INVALID_CREDENTIALS", message="Invalid email or password")
-
     user.failed_login_attempts = 0
     user.locked_until = None
-    user.last_login_at = datetime.now(timezone.utc)
+    user.last_login_at = now
     await db.flush()
 
     token_data = {"sub": str(user.id), "role": user.role.value}

@@ -36,6 +36,13 @@ class Opportunity(Base):
     worth = Column(Numeric(15, 2), nullable=False)
     closing_date = Column(Date, nullable=False)
     requirements = Column(Text, nullable=False)
+
+    # Excel-driven fields (2027 Target Plan)
+    industry = Column(String(100), nullable=True, index=True)
+    product = Column(String(50), nullable=True, index=True)
+    stage_probability = Column(Numeric(3, 2), nullable=True)
+    time_frame = Column(String(20), nullable=True, index=True)
+    sales_rep_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(Enum(OpportunityStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=OpportunityStatus.DRAFT)
     preferred_partner = Column(Boolean, default=False, nullable=False)
     multi_partner_alert = Column(Boolean, default=False, nullable=False)
@@ -60,5 +67,8 @@ class Opportunity(Base):
 
     submitted_by_user = relationship("User", back_populates="opportunities", foreign_keys=[submitted_by])
     reviewer = relationship("User", foreign_keys=[reviewed_by])
+    sales_rep = relationship("User", foreign_keys=[sales_rep_id])
     company = relationship("Company", back_populates="opportunities")
     documents = relationship("OppDocument", back_populates="opportunity", cascade="all, delete-orphan")
+    poc = relationship("Poc", back_populates="opportunity", uselist=False, cascade="all, delete-orphan")
+    license = relationship("CustomerLicense", back_populates="opportunity", uselist=False, cascade="all, delete-orphan")

@@ -114,12 +114,20 @@ async def get_courses(
     return items, total
 
 
-async def get_course_detail(db: AsyncSession, course_id: int) -> CourseResponse:
+async def get_course_detail(
+    db: AsyncSession, course_id: int, include_unpublished: bool = False
+) -> CourseResponse:
     result = await db.execute(
         select(Course).where(Course.id == course_id, Course.deleted_at.is_(None))
     )
     course = result.scalar_one_or_none()
     if not course:
+        raise NotFoundException(code="COURSE_NOT_FOUND", message="Course not found")
+
+    # Non-admins may only see published courses. Return 404 (not 403) for a
+    # draft so its existence isn't confirmed — mirrors the list route, which
+    # filters unpublished out for non-admins.
+    if not include_unpublished and course.status != CourseStatus.PUBLISHED:
         raise NotFoundException(code="COURSE_NOT_FOUND", message="Course not found")
 
     enroll_count_result = await db.execute(

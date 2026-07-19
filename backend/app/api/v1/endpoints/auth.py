@@ -22,6 +22,7 @@ from app.schemas.auth import (
 from app.schemas.common import MessageResponse
 from app.services import auth_service
 from app.utils.audit import write_audit_log
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -41,6 +42,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
 
 
 @router.post("/login", response_model=LoginResponse, status_code=200)
+@limiter.limit("10/minute")
 async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     result = await auth_service.login(db, data)
     login_response = result["login_response"]
@@ -112,19 +114,24 @@ async def logout(
 
 
 @router.post("/forgot-password", response_model=MessageResponse, status_code=200)
-async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def forgot_password(data: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    # Rate-limited to stop an attacker mail-bombing a victim and repeatedly
+    # invalidating any reset token they legitimately requested.
     await auth_service.forgot_password(db, data.email)
     return MessageResponse(message="If an account exists with this email, a password reset link has been sent")
 
 
 @router.post("/reset-password", response_model=MessageResponse, status_code=200)
-async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def reset_password(data: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     await auth_service.reset_password(db, data.token, data.new_password)
     return MessageResponse(message="Password reset successfully")
 
 
 @router.post("/activate", response_model=MessageResponse, status_code=200)
-async def activate_account(data: ActivateAccountRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute")
+async def activate_account(data: ActivateAccountRequest, request: Request, db: AsyncSession = Depends(get_db)):
     await auth_service.activate_account(db, data.token, data.password)
     return MessageResponse(message="Account activated successfully")
 

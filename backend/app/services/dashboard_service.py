@@ -1,7 +1,7 @@
 from decimal import Decimal
 from datetime import date, timedelta
 from typing import Optional
-from sqlalchemy import select, func, case, extract
+from sqlalchemy import select, func, case, extract, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
@@ -27,8 +27,28 @@ from app.schemas.dashboard import (
     TopCompany,
     FunnelStage,
     RecentActivityItem,
+    ProductBreakdown,
+    OppIndustryBreakdown,
+    StageBreakdown,
+    QuarterBreakdown,
+    SalesRepBreakdown,
+    TargetPlanAnalyticsResponse,
+    PocStatusCount,
+    PocStageProgress,
+    PocCountryBreakdown,
+    PocSummaryResponse,
+    DeploymentMonthPoint,
+    LicenseStatusCount,
+    ExpiringLicenseItem,
+    DeploymentAnalyticsResponse,
+    CityFunnelCell,
+    CityFunnelResponse,
 )
 from app.models.audit_log import AuditLog
+from app.models.poc import Poc, PocStatus, POC_STAGE_KEYS, POC_STAGE_LABELS
+from app.models.customer_license import CustomerLicense, LicenseStatus
+# Safe: poc_service does not import dashboard_service, so no cycle.
+from app.services import poc_service
 
 
 async def get_admin_dashboard_stats(
@@ -727,6 +747,170 @@ async def get_admin_analytics(
     )
 
 
+STAGE_LABELS = {
+    0.1: "Raw Lead",
+    0.3: "POC Engaged / Tender Specs",
+    0.6: "POC Successful / Budget Approved",
+    0.7: "Price Submitted / Negotiation",
+    0.9: "PO Received",
+    1.0: "Payment Received",
+}
+
+
+def _stage_label(probability: Optional[Decimal]) -> str:
+    if probability is None:
+        return "Unspecified"
+    key = round(float(probability), 1)
+    return STAGE_LABELS.get(key, f"Stage {key:.1f}")
+
+
+async def get_target_plan_analytics(
+    db: AsyncSession,
+    scope_company_ids: Optional[list[int]] = None,
+) -> TargetPlanAnalyticsResponse:
+    """Pipeline analytics driven by the 2027 Target Plan dimensions:
+    product, customer industry, stage probability, time-frame quarter, and
+    Extravis sales rep. Weighted pipeline = sum(worth * stage_probability).
+    """
+    base: list = [Opportunity.deleted_at.is_(None), Opportunity.status != OpportunityStatus.REMOVED]
+    if scope_company_ids is not None:
+        base.append(Opportunity.company_id.in_(scope_company_ids))
+
+    weighted_expr = func.coalesce(func.sum(Opportunity.worth * Opportunity.stage_probability), 0)
+    worth_expr = func.coalesce(func.sum(Opportunity.worth), 0)
+
+    # Totals
+    total_q = (await db.execute(
+        select(
+            func.count(Opportunity.id),
+            worth_expr,
+            weighted_expr,
+        ).where(*base)
+    )).one()
+
+    # By product
+    by_product_rows = (await db.execute(
+        select(
+            func.coalesce(Opportunity.product, "Unspecified"),
+            func.count(Opportunity.id),
+            worth_expr,
+            weighted_expr,
+        )
+        .where(*base)
+        .group_by(Opportunity.product)
+        .order_by(weighted_expr.desc())
+    )).all()
+    by_product = [
+        ProductBreakdown(
+            product=row[0],
+            opportunity_count=row[1],
+            total_worth=row[2],
+            weighted_pipeline=row[3],
+        )
+        for row in by_product_rows
+    ]
+
+    # By industry (from opportunity, not company)
+    by_industry_rows = (await db.execute(
+        select(
+            func.coalesce(Opportunity.industry, "Unspecified"),
+            func.count(Opportunity.id),
+            worth_expr,
+        )
+        .where(*base)
+        .group_by(Opportunity.industry)
+        .order_by(worth_expr.desc())
+    )).all()
+    by_industry = [
+        OppIndustryBreakdown(
+            industry=row[0],
+            opportunity_count=row[1],
+            total_worth=row[2],
+        )
+        for row in by_industry_rows
+    ]
+
+    # By stage probability
+    by_stage_rows = (await db.execute(
+        select(
+            Opportunity.stage_probability,
+            func.count(Opportunity.id),
+            worth_expr,
+        )
+        .where(*base)
+        .group_by(Opportunity.stage_probability)
+        .order_by(Opportunity.stage_probability.asc().nulls_last())
+    )).all()
+    by_stage = [
+        StageBreakdown(
+            probability=float(row[0]) if row[0] is not None else 0.0,
+            stage_label=_stage_label(row[0]),
+            opportunity_count=row[1],
+            total_worth=row[2],
+        )
+        for row in by_stage_rows
+    ]
+
+    # By quarter / time frame
+    by_quarter_rows = (await db.execute(
+        select(
+            func.coalesce(Opportunity.time_frame, "Unspecified"),
+            func.count(Opportunity.id),
+            worth_expr,
+            weighted_expr,
+        )
+        .where(*base)
+        .group_by(Opportunity.time_frame)
+        .order_by(func.coalesce(Opportunity.time_frame, "Unspecified").asc())
+    )).all()
+    by_quarter = [
+        QuarterBreakdown(
+            time_frame=row[0],
+            opportunity_count=row[1],
+            total_worth=row[2],
+            weighted_pipeline=row[3],
+        )
+        for row in by_quarter_rows
+    ]
+
+    # By sales rep (Extravis Team)
+    by_rep_rows = (await db.execute(
+        select(
+            User.id,
+            User.full_name,
+            func.count(Opportunity.id),
+            worth_expr,
+            weighted_expr,
+        )
+        .select_from(Opportunity)
+        .join(User, User.id == Opportunity.sales_rep_id)
+        .where(*base, Opportunity.sales_rep_id.is_not(None))
+        .group_by(User.id, User.full_name)
+        .order_by(weighted_expr.desc())
+    )).all()
+    by_sales_rep = [
+        SalesRepBreakdown(
+            sales_rep_id=row[0],
+            sales_rep_name=row[1],
+            opportunity_count=row[2],
+            total_worth=row[3],
+            weighted_pipeline=row[4],
+        )
+        for row in by_rep_rows
+    ]
+
+    return TargetPlanAnalyticsResponse(
+        total_opportunities=total_q[0] or 0,
+        total_worth=total_q[1] or Decimal("0"),
+        weighted_pipeline=total_q[2] or Decimal("0"),
+        by_product=by_product,
+        by_industry=by_industry,
+        by_stage=by_stage,
+        by_quarter=by_quarter,
+        by_sales_rep=by_sales_rep,
+    )
+
+
 async def evaluate_tier_upgrade(db: AsyncSession, company_id: int) -> str | None:
     from app.models.partner_tier import PartnerTierHistory
 
@@ -774,3 +958,415 @@ async def evaluate_tier_upgrade(db: AsyncSession, company_id: int) -> str | None
         return new_tier
 
     return None
+
+
+# ===========================================================================
+# POC / deployment / city funnel
+# ===========================================================================
+
+POC_STATUS_LABELS = {
+    "not_started": "Not Started",
+    "running": "Running",
+    "successful": "Successful",
+    "unsuccessful": "Unsuccessful",
+}
+
+LICENSE_STATUS_LABELS = {
+    "pending_activation": "Pending Activation",
+    "active": "Active",
+    "expiring_soon": "Expiring Soon",
+    "expired": "Expired",
+}
+
+
+def _poc_base_filters(scope_company_ids: Optional[list[int]], sales_rep_id: Optional[int]) -> list:
+    """Shared scoping for every POC aggregation.
+
+    `scope_company_ids=[]` (a channel manager with no companies) must yield
+    nothing — hence the explicit `is not None` check rather than a truthiness
+    test, which would silently drop the filter and expose everything.
+    """
+    filters: list = [Poc.deleted_at.is_(None), Opportunity.deleted_at.is_(None)]
+    if scope_company_ids is not None:
+        filters.append(Opportunity.company_id.in_(scope_company_ids))
+    if sales_rep_id is not None:
+        filters.append(Opportunity.sales_rep_id == sales_rep_id)
+    return filters
+
+
+async def get_poc_summary(
+    db: AsyncSession,
+    scope_company_ids: Optional[list[int]] = None,
+    sales_rep_id: Optional[int] = None,
+) -> PocSummaryResponse:
+    """POC widgets: status counts, the five-stage funnel, and per-country
+    split. Backs the POC block on the admin dashboard."""
+    today = date.today()
+    base = _poc_base_filters(scope_company_ids, sales_rep_id)
+
+    # Status counts + worth
+    status_rows = (await db.execute(
+        select(
+            Poc.status,
+            func.count(Poc.id),
+            func.coalesce(func.sum(Opportunity.worth), 0),
+        )
+        .select_from(Poc)
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(*base)
+        .group_by(Poc.status)
+    )).all()
+
+    counts = {s: 0 for s in POC_STATUS_LABELS}
+    worths = {s: Decimal(0) for s in POC_STATUS_LABELS}
+    for row in status_rows:
+        key = row[0].value if hasattr(row[0], "value") else str(row[0])
+        counts[key] = row[1]
+        worths[key] = row[2] or Decimal(0)
+
+    by_status = [
+        PocStatusCount(status=k, label=v, count=counts[k], total_worth=worths[k])
+        for k, v in POC_STATUS_LABELS.items()
+    ]
+
+    total = sum(counts.values())
+    closed = counts["successful"] + counts["unsuccessful"]
+    # Rate over *closed* POCs only — an in-flight POC isn't a failure yet.
+    success_rate = (counts["successful"] / closed * 100) if closed else None
+
+    # Average duration over closed POCs that have both dates.
+    avg_duration = (await db.execute(
+        select(func.avg(Poc.end_date - Poc.start_date))
+        .select_from(Poc)
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(*base, Poc.end_date.is_not(None), Poc.start_date.is_not(None))
+    )).scalar()
+
+    overdue = (await db.execute(
+        select(func.count(Poc.id))
+        .select_from(Poc)
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(
+            *base,
+            Poc.closed_at.is_(None),
+            Poc.target_end_date.is_not(None),
+            Poc.target_end_date < today,
+        )
+    )).scalar() or 0
+
+    # Stage funnel across running POCs.
+    running_filter = [*base, Poc.status == PocStatus.RUNNING]
+    running_total = (await db.execute(
+        select(func.count(Poc.id))
+        .select_from(Poc)
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(*running_filter)
+    )).scalar() or 0
+
+    by_stage: list[PocStageProgress] = []
+    for key in POC_STAGE_KEYS:
+        col = getattr(Poc, key + "_completed_at")
+        done = (await db.execute(
+            select(func.count(Poc.id))
+            .select_from(Poc)
+            .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+            .where(*running_filter, col.is_not(None))
+        )).scalar() or 0
+        avg_days = (await db.execute(
+            select(func.avg(col - Poc.start_date))
+            .select_from(Poc)
+            .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+            .where(*base, col.is_not(None), Poc.start_date.is_not(None))
+        )).scalar()
+        by_stage.append(PocStageProgress(
+            stage=key,
+            label=POC_STAGE_LABELS[key],
+            completed_count=done,
+            pending_count=max(running_total - done, 0),
+            avg_days_to_complete=float(avg_days) if avg_days is not None else None,
+        ))
+
+    # Per-country split
+    country_rows = (await db.execute(
+        select(
+            Opportunity.country,
+            func.sum(case((Poc.status == PocStatus.RUNNING, 1), else_=0)),
+            func.sum(case((Poc.status == PocStatus.SUCCESSFUL, 1), else_=0)),
+            func.sum(case((Poc.status == PocStatus.UNSUCCESSFUL, 1), else_=0)),
+            func.coalesce(func.sum(Opportunity.worth), 0),
+        )
+        .select_from(Poc)
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(*base)
+        .group_by(Opportunity.country)
+        .order_by(func.count(Poc.id).desc())
+    )).all()
+
+    by_country = [
+        PocCountryBreakdown(
+            country=r[0] or "Unspecified",
+            running=r[1] or 0,
+            successful=r[2] or 0,
+            unsuccessful=r[3] or 0,
+            total_worth=r[4] or Decimal(0),
+        )
+        for r in country_rows
+    ]
+
+    return PocSummaryResponse(
+        total_pocs=total,
+        not_started=counts["not_started"],
+        running=counts["running"],
+        successful=counts["successful"],
+        unsuccessful=counts["unsuccessful"],
+        overdue=overdue,
+        success_rate=round(success_rate, 1) if success_rate is not None else None,
+        avg_duration_days=round(float(avg_duration), 1) if avg_duration is not None else None,
+        running_worth=worths["running"],
+        won_worth=worths["successful"],
+        by_status=by_status,
+        by_stage=by_stage,
+        by_country=by_country,
+    )
+
+
+async def get_deployment_analytics(
+    db: AsyncSession,
+    scope_company_ids: Optional[list[int]] = None,
+    sales_rep_id: Optional[int] = None,
+    months: int = 12,
+) -> DeploymentAnalyticsResponse:
+    """Backs the Deployment tab: POC stage throughput plus post-PO device /
+    node rollout and licence expiry."""
+    today = date.today()
+    base = _poc_base_filters(scope_company_ids, sales_rep_id)
+
+    summary = await get_poc_summary(db, scope_company_ids, sales_rep_id)
+
+    # Monthly: POCs started vs closed. Two separate groupings because a POC
+    # started in March and closed in June belongs to both months.
+    # Bind each to_char to a single expression object and reuse it in both
+    # SELECT and GROUP BY. Inlining func.to_char() twice emits two separate
+    # bind params ($1, $2), which Postgres treats as different expressions —
+    # "column pocs.start_date must appear in the GROUP BY clause".
+    start_month = func.to_char(Poc.start_date, "YYYY-MM")
+    end_month = func.to_char(Poc.end_date, "YYYY-MM")
+
+    started_rows = (await db.execute(
+        select(start_month, func.count(Poc.id))
+        .select_from(Poc)
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(*base, Poc.start_date.is_not(None))
+        .group_by(start_month)
+    )).all()
+    closed_rows = (await db.execute(
+        select(end_month, func.count(Poc.id))
+        .select_from(Poc)
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(*base, Poc.end_date.is_not(None))
+        .group_by(end_month)
+    )).all()
+
+    started_map = {r[0]: r[1] for r in started_rows}
+    closed_map = {r[0]: r[1] for r in closed_rows}
+
+    # Emit a continuous month axis so the chart doesn't skip quiet months.
+    keys: list[str] = []
+    cursor = today.replace(day=1)
+    for _ in range(months):
+        keys.append(cursor.strftime("%Y-%m"))
+        cursor = (cursor - timedelta(days=1)).replace(day=1)
+
+    monthly = [
+        DeploymentMonthPoint(
+            month=key,
+            started=started_map.get(key, 0),
+            completed=closed_map.get(key, 0),
+        )
+        for key in reversed(keys)
+    ]
+
+    # Post-PO licences
+    lic_base: list = [CustomerLicense.deleted_at.is_(None), Opportunity.deleted_at.is_(None)]
+    if scope_company_ids is not None:
+        lic_base.append(Opportunity.company_id.in_(scope_company_ids))
+    if sales_rep_id is not None:
+        lic_base.append(Opportunity.sales_rep_id == sales_rep_id)
+
+    # Group by the *derived* status, not CustomerLicense.status. The stored
+    # column is only a snapshot of what was true when the row was last saved,
+    # so grouping on it reports licences as active long after they expired.
+    lic_status = poc_service.license_status_expr(today)
+    lic_rows = (await db.execute(
+        select(
+            lic_status,
+            func.count(CustomerLicense.id),
+            func.coalesce(func.sum(CustomerLicense.device_count), 0),
+            func.coalesce(func.sum(CustomerLicense.node_count), 0),
+        )
+        .select_from(CustomerLicense)
+        .join(Opportunity, CustomerLicense.opportunity_id == Opportunity.id)
+        .where(*lic_base)
+        .group_by(lic_status)
+    )).all()
+
+    lic_counts = {s: (0, 0, 0) for s in LICENSE_STATUS_LABELS}
+    for r in lic_rows:
+        key = r[0].value if hasattr(r[0], "value") else str(r[0])
+        lic_counts[key] = (r[1], r[2] or 0, r[3] or 0)
+
+    licenses_by_status = [
+        LicenseStatusCount(
+            status=k, label=v,
+            count=lic_counts[k][0],
+            device_count=lic_counts[k][1],
+            node_count=lic_counts[k][2],
+        )
+        for k, v in LICENSE_STATUS_LABELS.items()
+    ]
+
+    # Devices/nodes only count once a licence is live — pending and expired
+    # rows aren't deployed capacity.
+    live = ("active", "expiring_soon")
+    total_devices = sum(lic_counts[s][1] for s in live)
+    total_nodes = sum(lic_counts[s][2] for s in live)
+    active_licenses = sum(lic_counts[s][0] for s in live)
+
+    # Upcoming expiries — soonest first.
+    exp_rows = (await db.execute(
+        select(CustomerLicense, Opportunity, Company)
+        .select_from(CustomerLicense)
+        .join(Opportunity, CustomerLicense.opportunity_id == Opportunity.id)
+        .outerjoin(Company, Opportunity.company_id == Company.id)
+        .where(
+            *lic_base,
+            CustomerLicense.license_expires_at.is_not(None),
+            CustomerLicense.license_expires_at >= today,
+            CustomerLicense.license_expires_at <= today + timedelta(days=90),
+        )
+        .order_by(CustomerLicense.license_expires_at.asc())
+        .limit(10)
+    )).all()
+
+    expiring_soon = [
+        ExpiringLicenseItem(
+            opportunity_id=opp.id,
+            customer_name=opp.customer_name,
+            company_name=comp.name if comp else None,
+            country=opp.country,
+            license_expires_at=str(lic.license_expires_at),
+            days_until_expiry=(lic.license_expires_at - today).days,
+            device_count=lic.device_count,
+            node_count=lic.node_count,
+        )
+        for lic, opp, comp in exp_rows
+    ]
+
+    return DeploymentAnalyticsResponse(
+        active_pocs=summary.running,
+        stage_funnel=summary.by_stage,
+        monthly_activity=monthly,
+        total_devices=total_devices,
+        total_nodes=total_nodes,
+        active_licenses=active_licenses,
+        licenses_by_status=licenses_by_status,
+        expiring_soon=expiring_soon,
+    )
+
+
+async def get_city_funnel(
+    db: AsyncSession,
+    scope_company_ids: Optional[list[int]] = None,
+    year: Optional[int] = None,
+) -> CityFunnelResponse:
+    """Sales-funnel value broken down by city and quarter.
+
+    Quarter comes out of the `time_frame` string ("Q3 - 2027"), which is the
+    Excel target-plan format. We pull the digit out with a regex rather than
+    parse the whole string, so odd spacing ("Q3-2027", "q3 2027") still lands
+    in the right bucket. Rows with no parseable quarter group under
+    "Unspecified" instead of vanishing from the totals.
+    """
+    base: list = [
+        Opportunity.deleted_at.is_(None),
+        Opportunity.status != OpportunityStatus.REMOVED,
+    ]
+    if scope_company_ids is not None:
+        base.append(Opportunity.company_id.in_(scope_company_ids))
+    if year is not None:
+        base.append(Opportunity.time_frame.ilike("%" + str(year) + "%"))
+
+    # `||` not concat(): Postgres' concat() *ignores* NULLs, so
+    # concat('Q', NULL) returns 'Q' and the coalesce below would never fire —
+    # every unparseable time_frame would land in a phantom quarter named "Q".
+    # `||` propagates NULL, so those rows correctly fall through to
+    # "Unspecified".
+    quarter_expr = func.coalesce(
+        literal("Q").op("||")(func.substring(Opportunity.time_frame, "[Qq]([1-4])")),
+        "Unspecified",
+    )
+    worth_expr = func.coalesce(func.sum(Opportunity.worth), 0)
+    weighted_expr = func.coalesce(
+        func.sum(Opportunity.worth * Opportunity.stage_probability), 0
+    )
+
+    rows = (await db.execute(
+        select(
+            Opportunity.city,
+            Opportunity.country,
+            quarter_expr,
+            Opportunity.stage_probability,
+            func.count(Opportunity.id),
+            worth_expr,
+            weighted_expr,
+        )
+        .where(*base)
+        .group_by(
+            Opportunity.city,
+            Opportunity.country,
+            quarter_expr,
+            Opportunity.stage_probability,
+        )
+        .order_by(worth_expr.desc())
+    )).all()
+
+    cells: list[CityFunnelCell] = []
+    for city, country, quarter, prob, count, worth, weighted in rows:
+        stage_key = "{:.1f}".format(float(prob)) if prob is not None else "unspecified"
+        cells.append(CityFunnelCell(
+            city=city or "Unspecified",
+            country=country,
+            quarter=quarter or "Unspecified",
+            stage=stage_key,
+            stage_label=_stage_label(prob),
+            opportunity_count=count,
+            total_worth=worth or Decimal(0),
+            weighted_pipeline=weighted or Decimal(0),
+        ))
+
+    # Order cities by total value so the chart leads with what matters.
+    city_totals: dict[str, Decimal] = {}
+    for c in cells:
+        city_totals[c.city] = city_totals.get(c.city, Decimal(0)) + c.total_worth
+    cities = sorted(city_totals, key=lambda c: city_totals[c], reverse=True)
+
+    present_quarters = {c.quarter for c in cells}
+    quarters = [q for q in ("Q1", "Q2", "Q3", "Q4") if q in present_quarters]
+    if "Unspecified" in present_quarters:
+        quarters.append("Unspecified")
+
+    stages = ["{:.1f}".format(p) for p in sorted(STAGE_LABELS)]
+    stage_labels = {"{:.1f}".format(p): label for p, label in STAGE_LABELS.items()}
+    if any(c.stage == "unspecified" for c in cells):
+        stages.append("unspecified")
+        stage_labels["unspecified"] = "Unspecified"
+
+    return CityFunnelResponse(
+        cities=cities,
+        quarters=quarters,
+        stages=stages,
+        stage_labels=stage_labels,
+        cells=cells,
+        total_worth=sum((c.total_worth for c in cells), Decimal(0)),
+        weighted_pipeline=sum((c.weighted_pipeline for c in cells), Decimal(0)),
+    )

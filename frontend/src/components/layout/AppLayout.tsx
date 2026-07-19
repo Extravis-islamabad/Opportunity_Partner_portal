@@ -22,6 +22,10 @@ import {
   SearchOutlined,
   MenuOutlined,
   ExclamationCircleOutlined,
+  RocketOutlined,
+  DeploymentUnitOutlined,
+  UploadOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -49,6 +53,7 @@ const AppLayout: React.FC = () => {
   const { isMobile } = useBreakpoint();
   const isAdmin = user?.role === 'admin';
   const isSuperadmin = !!user?.is_superadmin;
+  const isSalesRep = user?.role === 'sales_rep';
 
   // Global Cmd/Ctrl+K listener for the command palette
   useEffect(() => {
@@ -88,18 +93,28 @@ const AppLayout: React.FC = () => {
     ...(isSuperadmin ? [{ key: '/users', icon: <TeamOutlined />, label: 'Users' }] : []),
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: isSuperadmin ? 'Opportunities' : 'Pipeline' },
     { key: '/opportunities/duplicates', icon: <ExclamationCircleOutlined />, label: 'Duplicate Review' },
+    { key: '/poc', icon: <RocketOutlined />, label: 'POC Tracking' },
+    { key: '/deployment', icon: <DeploymentUnitOutlined />, label: 'Deployment' },
     { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
     { key: '/commissions', icon: <DollarOutlined />, label: 'Commissions' },
     { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
     { key: '/lms', icon: <ReadOutlined />, label: 'LMS / Training' },
     { key: '/doc-requests', icon: <FileTextOutlined />, label: 'Document Requests' },
+    // Superadmin-only operational tools.
+    ...(isSuperadmin
+      ? [
+          { key: '/admin/bulk-import', icon: <UploadOutlined />, label: 'Bulk Import' },
+          { key: '/audit-logs', icon: <HistoryOutlined />, label: 'Audit Logs' },
+        ]
+      : []),
   ];
 
   const partnerMenuItems: MenuProps['items'] = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
     { key: '/scorecard', icon: <TrophyOutlined />, label: 'My Scorecard' },
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'My Opportunities' },
+    { key: '/poc', icon: <RocketOutlined />, label: 'POC Status' },
     { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
     { key: '/commissions', icon: <DollarOutlined />, label: 'My Commissions' },
     { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
@@ -108,7 +123,19 @@ const AppLayout: React.FC = () => {
     { key: '/doc-requests', icon: <FileTextOutlined />, label: 'Document Requests' },
   ];
 
-  const menuItems = isAdmin ? adminMenuItems : partnerMenuItems;
+  // Sales reps drive POC/deployment for the opportunities assigned to them.
+  // They deliberately get neither the partner items (commissions, deals, doc
+  // requests — all 403 for them) nor the admin ones.
+  const salesRepMenuItems: MenuProps['items'] = [
+    { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+    { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'My Opportunities' },
+    { key: '/poc', icon: <RocketOutlined />, label: 'POC Tracking' },
+    { key: '/deployment', icon: <DeploymentUnitOutlined />, label: 'Deployment' },
+    { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
+    { key: '/lms', icon: <ReadOutlined />, label: 'Training Courses' },
+  ];
+
+  const menuItems = isAdmin ? adminMenuItems : isSalesRep ? salesRepMenuItems : partnerMenuItems;
 
   const selectedKey = '/' + location.pathname.split('/')[1];
 

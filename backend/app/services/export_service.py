@@ -24,8 +24,10 @@ from reportlab.platypus import (
 )
 
 from app.models.company import Company
+from app.models.customer_license import CustomerLicense
 from app.models.deal_registration import DealRegistration
 from app.models.opportunity import Opportunity
+from app.models.poc import POC_STAGE_KEYS, POC_STAGE_LABELS, Poc
 
 BRAND_COLOR = colors.HexColor("#1a237e")
 HEADER_BG = "1A237E"  # openpyxl expects RGB hex without '#'
@@ -309,3 +311,145 @@ def build_company_pdf(companies: Iterable[Company], subtitle: str | None = None)
     doc.build(elements)
     buf.seek(0)
     return buf.getvalue()
+
+
+# ------------------------------ POCs -----------------------------------------
+
+# Per-stage completion date columns, generated from the canonical stage list
+# so a new stage flows through to the export automatically.
+POC_HEADERS = [
+    "ID", "Customer", "Partner", "Country", "City", "Status",
+    "Start Date", "Target End", "End Date", "Stages Done",
+    *[POC_STAGE_LABELS[k] for k in POC_STAGE_KEYS],
+    "Sales Rep", "Worth (USD)",
+]
+
+
+def _poc_row(p: Poc) -> list:
+    opp = p.opportunity
+    return [
+        p.id,
+        opp.customer_name if opp else "",
+        opp.company.name if opp and opp.company else "",
+        opp.country if opp else "",
+        opp.city if opp else "",
+        p.status.value.replace("_", " ").title() if p.status else "",
+        p.start_date.strftime("%Y-%m-%d") if p.start_date else "",
+        p.target_end_date.strftime("%Y-%m-%d") if p.target_end_date else "",
+        p.end_date.strftime("%Y-%m-%d") if p.end_date else "",
+        f"{p.completed_stage_count}/{len(POC_STAGE_KEYS)}",
+        *[
+            (getattr(p, f"{k}_completed_at").strftime("%Y-%m-%d")
+             if getattr(p, f"{k}_completed_at") else "")
+            for k in POC_STAGE_KEYS
+        ],
+        opp.sales_rep.full_name if opp and opp.sales_rep else "",
+        f"{float(opp.worth):,.2f}" if opp and opp.worth is not None else "",
+    ]
+
+
+def build_poc_pdf(pocs: Iterable[Poc], subtitle: str | None = None) -> bytes:
+    buf = BytesIO()
+    doc = _make_pdf_doc(buf, "POC Report")
+    elements = _pdf_header_elements("POC Report", subtitle)
+
+    rows = [_poc_row(p) for p in pocs]
+    if not rows:
+        styles = getSampleStyleSheet()
+        elements.append(Paragraph("No POCs match the current filters.", styles["Italic"]))
+    else:
+        # 17 columns; keep the five stage-date columns narrow.
+        stage_w = [18 * mm] * len(POC_STAGE_KEYS)
+        col_widths = [
+            10 * mm, 34 * mm, 30 * mm, 18 * mm, 18 * mm, 20 * mm,
+            20 * mm, 20 * mm, 20 * mm, 16 * mm, *stage_w, 26 * mm, 22 * mm,
+        ]
+        elements.append(_pdf_table(POC_HEADERS, rows, col_widths))
+
+    doc.build(elements)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def build_poc_xlsx(pocs: Iterable[Poc]) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "POCs"
+
+    _xlsx_write_header(ws, POC_HEADERS)
+    rows = [_poc_row(p) for p in pocs]
+    for r_idx, row in enumerate(rows, start=2):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+
+    _xlsx_autosize(ws, POC_HEADERS, rows)
+    ws.freeze_panes = "A2"
+    return _xlsx_to_bytes(wb)
+
+
+# ------------------------------ Licences (post-PO) ---------------------------
+
+LICENSE_HEADERS = [
+    "ID", "Customer", "Partner", "Country", "Status", "PO Number",
+    "PO Received", "PO Value (USD)", "Devices", "Nodes",
+    "Activated", "Expires", "Days To Expiry",
+]
+
+
+def _license_row(lic: CustomerLicense, status: str) -> list:
+    """`status` is passed in derived (not lic.status, which is a stale cache —
+    see poc_service.derive_license_status)."""
+    opp = lic.opportunity
+    return [
+        lic.id,
+        opp.customer_name if opp else "",
+        opp.company.name if opp and opp.company else "",
+        opp.country if opp else "",
+        status.replace("_", " ").title(),
+        lic.po_number or "",
+        lic.po_received_date.strftime("%Y-%m-%d") if lic.po_received_date else "",
+        f"{float(lic.po_value):,.2f}" if lic.po_value is not None else "",
+        lic.device_count if lic.device_count is not None else "",
+        lic.node_count if lic.node_count is not None else "",
+        lic.license_activated_at.strftime("%Y-%m-%d") if lic.license_activated_at else "",
+        lic.license_expires_at.strftime("%Y-%m-%d") if lic.license_expires_at else "",
+        lic.days_until_expiry if lic.days_until_expiry is not None else "",
+    ]
+
+
+def build_license_pdf(rows_in: Iterable[tuple], subtitle: str | None = None) -> bytes:
+    """rows_in: iterable of (CustomerLicense, derived_status_str)."""
+    buf = BytesIO()
+    doc = _make_pdf_doc(buf, "Customer Licences Report")
+    elements = _pdf_header_elements("Customer Licences Report", subtitle)
+
+    rows = [_license_row(lic, status) for lic, status in rows_in]
+    if not rows:
+        styles = getSampleStyleSheet()
+        elements.append(Paragraph("No licences match the current filters.", styles["Italic"]))
+    else:
+        col_widths = [
+            12 * mm, 40 * mm, 34 * mm, 22 * mm, 24 * mm, 24 * mm,
+            24 * mm, 26 * mm, 18 * mm, 18 * mm, 22 * mm, 22 * mm, 22 * mm,
+        ]
+        elements.append(_pdf_table(LICENSE_HEADERS, rows, col_widths))
+
+    doc.build(elements)
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def build_license_xlsx(rows_in: Iterable[tuple]) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Licences"
+
+    _xlsx_write_header(ws, LICENSE_HEADERS)
+    rows = [_license_row(lic, status) for lic, status in rows_in]
+    for r_idx, row in enumerate(rows, start=2):
+        for c_idx, value in enumerate(row, start=1):
+            ws.cell(row=r_idx, column=c_idx, value=value)
+
+    _xlsx_autosize(ws, LICENSE_HEADERS, rows)
+    ws.freeze_panes = "A2"
+    return _xlsx_to_bytes(wb)

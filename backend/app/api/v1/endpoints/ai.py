@@ -15,7 +15,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user
+from app.core.deps import get_current_admin, get_current_user, assert_can_access_opportunity
 from app.core.exceptions import NotFoundException
 from app.core.rate_limit import limiter
 from app.core.redis import redis_client
@@ -190,6 +190,9 @@ async def summarize_opportunity(
     opp = result.unique().scalar_one_or_none()
     if not opp:
         raise NotFoundException(code="OPPORTUNITY_NOT_FOUND", message="Opportunity not found")
+    # Channel-manager scoping: an admin may only summarize opportunities for
+    # companies they manage (superadmins pass).
+    await assert_can_access_opportunity(db, _admin, opp)
 
     cache_key = _summary_cache_key(opp_id, opp.updated_at)
     try:
@@ -249,6 +252,9 @@ async def rescore_opportunity(
     opp = result.unique().scalar_one_or_none()
     if not opp:
         raise NotFoundException(code="OPPORTUNITY_NOT_FOUND", message="Opportunity not found")
+    # Channel-manager scoping: an admin may only rescore opportunities for
+    # companies they manage (superadmins pass).
+    await assert_can_access_opportunity(db, _admin, opp)
 
     score_result = await ai_service.score_opportunity(opp)
     if score_result is None:

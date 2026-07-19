@@ -3,14 +3,15 @@ from fastapi import APIRouter, Depends, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from openpyxl import Workbook, load_workbook
+from openpyxl import Workbook
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin
+from app.core.deps import get_current_superadmin
 from app.models.user import User, UserRole
 from app.models.company import Company
 from app.core.exceptions import BadRequestException
 from app.utils.audit import write_audit_log
+from app.utils.bulk_import import load_xlsx_bounded, read_rows_capped
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
 
@@ -27,34 +28,13 @@ EXPECTED_HEADERS = [
 @router.post("/bulk-import", status_code=200)
 async def bulk_import_companies(
     file: UploadFile = File(...),
-    admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_superadmin),
     db: AsyncSession = Depends(get_db),
 ):
-    if not file.filename or not file.filename.endswith(".xlsx"):
-        raise BadRequestException(
-            code="INVALID_FILE_TYPE",
-            message="Only .xlsx files are accepted",
-        )
-
-    contents = await file.read()
-    try:
-        wb = load_workbook(filename=io.BytesIO(contents), read_only=True)
-    except Exception:
-        raise BadRequestException(
-            code="INVALID_FILE",
-            message="Could not parse the uploaded file as a valid Excel workbook",
-        )
-
-    ws = wb.active
-    if ws is None:
-        raise BadRequestException(code="EMPTY_FILE", message="The workbook has no active sheet")
-
-    rows = list(ws.iter_rows(values_only=True))
-    if len(rows) < 2:
-        raise BadRequestException(
-            code="EMPTY_FILE",
-            message="The file must contain a header row and at least one data row",
-        )
+    # Superadmin-only: this endpoint creates companies (and assigns channel
+    # managers), so it must not be reachable by a scoped channel-manager admin.
+    ws = await load_xlsx_bounded(file)
+    rows = read_rows_capped(ws)
 
     header = [str(h).strip() if h else "" for h in rows[0]]
     for expected in EXPECTED_HEADERS:
@@ -128,7 +108,7 @@ async def bulk_import_companies(
 
 @router.get("/bulk-import-template", status_code=200)
 async def download_bulk_import_template(
-    admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_superadmin),
 ):
     wb = Workbook()
     ws = wb.active

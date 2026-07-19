@@ -33,6 +33,19 @@ import type {
   LeaderboardResponse,
   StatementPeriodSummary,
   AdminAnalyticsResponse,
+  TargetPlanAnalytics,
+  PocResponse,
+  PocStartRequest,
+  PocCloseRequest,
+  PocStageKey,
+  PocSummary,
+  LicenseResponse,
+  LicenseUpsertRequest,
+  DeploymentAnalytics,
+  CityFunnelResponse,
+  AuditLogListResponse,
+  BulkImportResult,
+  OnboardingChecklist,
 } from '@/types';
 
 // ==================== Auth ====================
@@ -65,6 +78,10 @@ export const usersApi = {
     apiClient.get<Array<{ id: number; full_name: string; email: string }>>('/users/admins'),
   get: (id: number) =>
     apiClient.get<UserResponse>(`/users/${id}`),
+  // Admin edit accepts status in addition to the profile fields (backend
+  // AdminUserUpdateRequest). Kept permissive so the edit modal can send status.
+  adminUpdate: (id: number, data: Partial<UserUpdateRequest> & { status?: string }) =>
+    apiClient.put<UserResponse>(`/users/${id}`, data),
   update: (id: number, data: UserUpdateRequest) =>
     apiClient.put<UserResponse>(`/users/${id}`, data),
   updateProfile: (data: UserUpdateRequest) =>
@@ -118,6 +135,8 @@ export const opportunitiesApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+  deleteDocument: (id: number, docId: number) =>
+    apiClient.delete<void>(`/opportunities/${id}/documents/${docId}`),
 };
 
 // ==================== Knowledge Base ====================
@@ -228,6 +247,10 @@ export const exportsApi = {
   dealsXlsx: (params?: ExportParams) => blobGet('/exports/deals.xlsx', params),
   companiesPdf: (params?: ExportParams) => blobGet('/exports/companies.pdf', params),
   companiesXlsx: (params?: ExportParams) => blobGet('/exports/companies.xlsx', params),
+  pocsPdf: (params?: ExportParams) => blobGet('/exports/pocs.pdf', params),
+  pocsXlsx: (params?: ExportParams) => blobGet('/exports/pocs.xlsx', params),
+  licensesPdf: (params?: ExportParams) => blobGet('/exports/licenses.pdf', params),
+  licensesXlsx: (params?: ExportParams) => blobGet('/exports/licenses.xlsx', params),
 };
 
 // ==================== Commissions & Scorecard ====================
@@ -370,6 +393,8 @@ export const dashboardApi = {
     apiClient.get<MonthlyOpportunityData[]>('/dashboard/admin/monthly-data', { params: { months } }),
   getAdminAnalytics: () =>
     apiClient.get<AdminAnalyticsResponse>('/dashboard/admin/analytics'),
+  getTargetPlanAnalytics: () =>
+    apiClient.get<TargetPlanAnalytics>('/dashboard/admin/target-plan'),
   getCompanyPerformance: (companyId: number) =>
     apiClient.get<CompanyPerformance>(`/dashboard/company/${companyId}/performance`),
   getPartnerStats: () =>
@@ -384,4 +409,77 @@ export const dashboardApi = {
     apiClient.post<DealRegistrationResponse>(`/dashboard/deals/${id}/approve`, { exclusivity_days }),
   rejectDeal: (id: number, rejection_reason: string) =>
     apiClient.post<DealRegistrationResponse>(`/dashboard/deals/${id}/reject`, { rejection_reason }),
+  getPocSummary: () =>
+    apiClient.get<PocSummary>('/dashboard/poc-summary'),
+  getDeploymentAnalytics: (months?: number) =>
+    apiClient.get<DeploymentAnalytics>('/dashboard/deployment', { params: { months } }),
+  getCityFunnel: (year?: number) =>
+    apiClient.get<CityFunnelResponse>('/dashboard/admin/city-funnel', { params: { year } }),
+};
+
+// ==================== POC ====================
+export const pocsApi = {
+  list: (params: Record<string, string | number | undefined>) =>
+    apiClient.get<PaginatedResponse<PocResponse>>('/pocs', { params }),
+  // Returns null when the opportunity has no POC yet — that's the normal
+  // state for most opportunities, not an error.
+  getByOpportunity: (oppId: number) =>
+    apiClient.get<PocResponse | null>(`/pocs/by-opportunity/${oppId}`),
+  get: (pocId: number) =>
+    apiClient.get<PocResponse>(`/pocs/${pocId}`),
+  start: (oppId: number, data: PocStartRequest) =>
+    apiClient.post<PocResponse>(`/pocs/by-opportunity/${oppId}/start`, data),
+  update: (pocId: number, data: Record<string, unknown>) =>
+    apiClient.put<PocResponse>(`/pocs/${pocId}`, data),
+  // completed_at: null clears the stage (undo a mis-tick).
+  setStage: (pocId: number, stage: PocStageKey, completed_at: string | null) =>
+    apiClient.put<PocResponse>(`/pocs/${pocId}/stages/${stage}`, { completed_at }),
+  close: (pocId: number, data: PocCloseRequest) =>
+    apiClient.post<PocResponse>(`/pocs/${pocId}/close`, data),
+  reopen: (pocId: number) =>
+    apiClient.post<PocResponse>(`/pocs/${pocId}/reopen`),
+};
+
+// ==================== Customer licences (post-PO) ====================
+export const licensesApi = {
+  list: (params: Record<string, string | number | undefined>) =>
+    apiClient.get<PaginatedResponse<LicenseResponse>>('/pocs/licenses/list', { params }),
+  getByOpportunity: (oppId: number) =>
+    apiClient.get<LicenseResponse | null>(`/pocs/licenses/by-opportunity/${oppId}`),
+  upsert: (oppId: number, data: LicenseUpsertRequest) =>
+    apiClient.put<LicenseResponse>(`/pocs/licenses/by-opportunity/${oppId}`, data),
+};
+
+// ==================== Audit Logs (superadmin) ====================
+export const auditLogsApi = {
+  list: (params: Record<string, string | number | undefined>) =>
+    apiClient.get<AuditLogListResponse>('/audit-logs', { params }),
+};
+
+// ==================== Bulk Import (superadmin) ====================
+export const bulkImportApi = {
+  importCompanies: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return apiClient.post<BulkImportResult>('/companies/bulk-import', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  importOpportunities: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return apiClient.post<BulkImportResult>('/opportunities/bulk-import', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  companiesTemplate: () =>
+    apiClient.get<Blob>('/companies/bulk-import-template', { responseType: 'blob' }),
+  opportunitiesTemplate: () =>
+    apiClient.get<Blob>('/opportunities/bulk-import-template', { responseType: 'blob' }),
+};
+
+// ==================== Onboarding (partner) ====================
+export const onboardingApi = {
+  getChecklist: () => apiClient.get<OnboardingChecklist>('/onboarding/checklist'),
+  complete: () => apiClient.post<MessageResponse>('/onboarding/complete'),
 };

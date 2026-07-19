@@ -14,6 +14,12 @@ class OpportunityCreateRequest(BaseModel):
     closing_date: date
     requirements: str = Field(..., min_length=1)
     status: Optional[str] = Field("draft", pattern="^(draft|pending_review)$")
+    # 2027 Target Plan fields
+    industry: Optional[str] = Field(None, max_length=100)
+    product: Optional[str] = Field(None, max_length=50)
+    stage_probability: Optional[Decimal] = Field(None, ge=0, le=1, max_digits=3, decimal_places=2)
+    time_frame: Optional[str] = Field(None, max_length=20)
+    sales_rep_id: Optional[int] = None
 
 
 class OpportunityUpdateRequest(BaseModel):
@@ -25,6 +31,11 @@ class OpportunityUpdateRequest(BaseModel):
     worth: Optional[Decimal] = Field(None, gt=0, max_digits=15, decimal_places=2)
     closing_date: Optional[date] = None
     requirements: Optional[str] = Field(None, min_length=1)
+    industry: Optional[str] = Field(None, max_length=100)
+    product: Optional[str] = Field(None, max_length=50)
+    stage_probability: Optional[Decimal] = Field(None, ge=0, le=1, max_digits=3, decimal_places=2)
+    time_frame: Optional[str] = Field(None, max_length=20)
+    sales_rep_id: Optional[int] = None
 
 
 class OpportunitySubmitRequest(BaseModel):
@@ -46,7 +57,9 @@ class OpportunityInternalNoteRequest(BaseModel):
 class OppDocumentResponse(BaseModel):
     id: int
     file_name: str
-    file_url: str
+    # A signed, short-lived download URL (see utils.file_tokens); Optional so
+    # a missing stored path serialises as null rather than erroring.
+    file_url: Optional[str] = None
     file_size: Optional[int] = None
     content_type: Optional[str] = None
     uploaded_at: datetime
@@ -75,6 +88,12 @@ class OpportunityResponse(BaseModel):
     company_name: Optional[str] = None
     reviewed_by: Optional[int] = None
     reviewer_name: Optional[str] = None
+    sales_rep_id: Optional[int] = None
+    sales_rep_name: Optional[str] = None
+    industry: Optional[str] = None
+    product: Optional[str] = None
+    stage_probability: Optional[Decimal] = None
+    time_frame: Optional[str] = None
     submitted_at: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
     documents: List[OppDocumentResponse] = []
@@ -105,6 +124,12 @@ class OpportunityListResponse(BaseModel):
     submitted_by_name: Optional[str] = None
     company_name: Optional[str] = None
     company_id: int
+    industry: Optional[str] = None
+    product: Optional[str] = None
+    stage_probability: Optional[Decimal] = None
+    time_frame: Optional[str] = None
+    sales_rep_id: Optional[int] = None
+    sales_rep_name: Optional[str] = None
     submitted_at: Optional[datetime] = None
     ai_score: Optional[int] = None
     ai_reasoning: Optional[str] = None

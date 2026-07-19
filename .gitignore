@@ -37,3 +37,6 @@ uploads/*
 
 # Docker
 docker-compose.override.yml
+
+# Business documents (not source)
+*.xlsx

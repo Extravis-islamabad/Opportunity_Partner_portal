@@ -2,7 +2,9 @@
 Commission & scorecard endpoints.
 
 Partners see their own company only. Admins see everything. Admins/channel
-managers can transition commission status.
+managers can transition commission status. Sales reps have no commission
+concept and are denied at the router level — the handlers here scope with
+`if partner: ... else: <everything>`, so a rep must never reach them.
 """
 import math
 from datetime import date
@@ -13,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user, get_admin_scope
+from app.core.deps import get_current_admin, get_current_user, get_admin_scope, deny_sales_rep
 from app.models.user import User, UserRole
 from app.schemas.commission import (
     CommissionListResponse,
@@ -29,7 +31,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
-router = APIRouter(tags=["Commissions"])
+router = APIRouter(tags=["Commissions"], dependencies=[Depends(deny_sales_rep)])
 
 
 # ---------------------------------------------------------------------------

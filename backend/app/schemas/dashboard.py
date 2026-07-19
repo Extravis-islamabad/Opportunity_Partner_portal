@@ -178,3 +178,168 @@ class DealApproveRequest(BaseModel):
 
 class DealRejectRequest(BaseModel):
     rejection_reason: str
+
+
+# ---------------------------------------------------------------------------
+# 2027 Target Plan analytics
+# ---------------------------------------------------------------------------
+
+class ProductBreakdown(BaseModel):
+    product: str
+    opportunity_count: int
+    total_worth: Decimal
+    weighted_pipeline: Decimal  # sum(worth * stage_probability)
+
+
+class OppIndustryBreakdown(BaseModel):
+    industry: str
+    opportunity_count: int
+    total_worth: Decimal
+
+
+class StageBreakdown(BaseModel):
+    probability: float                # 0.10, 0.30, …, 1.00
+    stage_label: str                  # "Raw Lead", "Payment Received", …
+    opportunity_count: int
+    total_worth: Decimal
+
+
+class QuarterBreakdown(BaseModel):
+    time_frame: str                   # "Q3 - 2027"
+    opportunity_count: int
+    total_worth: Decimal
+    weighted_pipeline: Decimal
+
+
+class SalesRepBreakdown(BaseModel):
+    sales_rep_id: int
+    sales_rep_name: str
+    opportunity_count: int
+    total_worth: Decimal
+    weighted_pipeline: Decimal
+
+
+class TargetPlanAnalyticsResponse(BaseModel):
+    total_opportunities: int
+    total_worth: Decimal
+    weighted_pipeline: Decimal
+    by_product: List[ProductBreakdown]
+    by_industry: List[OppIndustryBreakdown]
+    by_stage: List[StageBreakdown]
+    by_quarter: List[QuarterBreakdown]
+    by_sales_rep: List[SalesRepBreakdown]
+
+
+# ==================== POC ====================
+
+class PocStatusCount(BaseModel):
+    status: str
+    label: str
+    count: int
+    total_worth: Decimal
+
+
+class PocStageProgress(BaseModel):
+    """How many *running* POCs have cleared each stage. Reads as a funnel:
+    every running POC has cleared VM Provisioning, fewer have cleared
+    Deployment, and so on."""
+    stage: str
+    label: str
+    completed_count: int
+    pending_count: int
+    # Mean days from POC start to this stage completing, measured across ALL
+    # POCs that ever reached it (not just running ones) — so a stage can show
+    # a duration while completed_count, which counts only running POCs, is 0.
+    # None when no POC has reached the stage yet.
+    avg_days_to_complete: Optional[float] = None
+
+
+class PocCountryBreakdown(BaseModel):
+    country: str
+    running: int
+    successful: int
+    unsuccessful: int
+    total_worth: Decimal
+
+
+class PocSummaryResponse(BaseModel):
+    total_pocs: int
+    not_started: int
+    running: int
+    successful: int
+    unsuccessful: int
+    # Running POCs past their target end date.
+    overdue: int
+    # successful / (successful + unsuccessful) — closed POCs only, so an
+    # in-flight POC never drags the rate down. None until one has closed.
+    success_rate: Optional[float] = None
+    avg_duration_days: Optional[float] = None
+    running_worth: Decimal
+    won_worth: Decimal
+    by_status: List[PocStatusCount]
+    by_stage: List[PocStageProgress]
+    by_country: List[PocCountryBreakdown]
+
+
+# ==================== Deployment ====================
+
+class DeploymentMonthPoint(BaseModel):
+    month: str
+    started: int
+    completed: int
+
+
+class LicenseStatusCount(BaseModel):
+    status: str
+    label: str
+    count: int
+    device_count: int
+    node_count: int
+
+
+class ExpiringLicenseItem(BaseModel):
+    opportunity_id: int
+    customer_name: str
+    company_name: Optional[str] = None
+    country: Optional[str] = None
+    license_expires_at: str
+    days_until_expiry: int
+    device_count: Optional[int] = None
+    node_count: Optional[int] = None
+
+
+class DeploymentAnalyticsResponse(BaseModel):
+    # POC-side deployment activity
+    active_pocs: int
+    stage_funnel: List[PocStageProgress]
+    monthly_activity: List[DeploymentMonthPoint]
+    # Post-PO rollout
+    total_devices: int
+    total_nodes: int
+    active_licenses: int
+    licenses_by_status: List[LicenseStatusCount]
+    expiring_soon: List[ExpiringLicenseItem]
+
+
+# ==================== City funnel ====================
+
+class CityFunnelCell(BaseModel):
+    city: str
+    country: Optional[str] = None
+    # "Q1".."Q4", or "Unspecified" when time_frame is missing/unparseable.
+    quarter: str
+    stage: str
+    stage_label: str
+    opportunity_count: int
+    total_worth: Decimal
+    weighted_pipeline: Decimal
+
+
+class CityFunnelResponse(BaseModel):
+    cities: List[str]
+    quarters: List[str]
+    stages: List[str]
+    stage_labels: dict[str, str]
+    cells: List[CityFunnelCell]
+    total_worth: Decimal
+    weighted_pipeline: Decimal

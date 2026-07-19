@@ -5,6 +5,7 @@ from sqlalchemy.orm import joinedload
 from typing import Optional
 
 from app.models.doc_request import DocRequest, DocRequestStatus, DocRequestUrgency
+from app.utils.file_tokens import signed_file_url
 from app.models.user import User
 from app.models.company import Company
 from app.models.kb_document import KBDocument
@@ -117,7 +118,7 @@ async def get_doc_requests(
             status=r.status.value,
             fulfilled_by=r.fulfilled_by,
             fulfilled_at=r.fulfilled_at,
-            fulfilled_file_url=r.fulfilled_file_url,
+            fulfilled_file_url=signed_file_url(r.fulfilled_file_url),
             fulfilled_file_name=r.fulfilled_file_name,
             decline_reason=r.decline_reason,
             created_at=r.created_at,
@@ -129,7 +130,10 @@ async def get_doc_requests(
     return items, total
 
 
-async def get_doc_request_detail(db: AsyncSession, request_id: int) -> DocRequestResponse:
+async def load_doc_request_or_404(db: AsyncSession, request_id: int) -> DocRequest:
+    """Fetch the model so the caller can authorise before anything is
+    serialised — the response schema carries fulfilled_file_url, and
+    /uploads is publicly served, so leaking it leaks the file itself."""
     result = await db.execute(
         select(DocRequest)
         .options(
@@ -142,7 +146,10 @@ async def get_doc_request_detail(db: AsyncSession, request_id: int) -> DocReques
     r = result.scalar_one_or_none()
     if not r:
         raise NotFoundException(code="DOC_REQUEST_NOT_FOUND", message="Document request not found")
+    return r
 
+
+def serialize_doc_request(r: DocRequest) -> DocRequestResponse:
     return DocRequestResponse(
         id=r.id,
         company_id=r.company_id,
@@ -157,12 +164,18 @@ async def get_doc_request_detail(db: AsyncSession, request_id: int) -> DocReques
         fulfilled_by=r.fulfilled_by,
         fulfiller_name=r.fulfilled_by_user.full_name if r.fulfilled_by_user else None,
         fulfilled_at=r.fulfilled_at,
-        fulfilled_file_url=r.fulfilled_file_url,
+        fulfilled_file_url=signed_file_url(r.fulfilled_file_url),
         fulfilled_file_name=r.fulfilled_file_name,
         decline_reason=r.decline_reason,
         created_at=r.created_at,
         updated_at=r.updated_at,
     )
+
+
+async def get_doc_request_detail(db: AsyncSession, request_id: int) -> DocRequestResponse:
+    """Kept for callers that have already authorised the read. New code should
+    prefer load_doc_request_or_404 + an access check + serialize_doc_request."""
+    return serialize_doc_request(await load_doc_request_or_404(db, request_id))
 
 
 async def fulfill_doc_request(

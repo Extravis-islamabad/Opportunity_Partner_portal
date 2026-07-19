@@ -4,7 +4,13 @@ from typing import Optional
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user, get_admin_scope
+from app.core.deps import (
+    get_current_admin,
+    get_current_user,
+    get_admin_scope,
+    assert_can_view_user,
+    assert_can_manage_user,
+)
 from app.models.user import User
 from app.schemas.user import (
     UserCreateRequest,
@@ -30,6 +36,9 @@ async def create_user(
         if data.role == "admin":
             from app.core.exceptions import ForbiddenException
             raise ForbiddenException(message="Only superadmins can create admin accounts")
+        if data.role == "sales_rep":
+            from app.core.exceptions import ForbiddenException
+            raise ForbiddenException(message="Only superadmins can create sales rep accounts")
         if data.role == "partner":
             scope = await get_admin_scope(db, admin)
             if data.company_id not in (scope or []):
@@ -81,7 +90,15 @@ async def get_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await partner_service.get_partner_detail(db, user_id)
+    """A single user account.
+
+    Authorised per-record: superadmins see anyone, admins see users of the
+    companies they manage, everyone else sees only themselves. The list route
+    above is scoped, so without this check this route was the way around it.
+    """
+    target = await partner_service.load_user_or_404(db, user_id)
+    await assert_can_view_user(db, current_user, target)
+    return partner_service.serialize_user(target)
 
 
 @router.put("/{user_id}", response_model=UserResponse, status_code=200)
@@ -91,6 +108,11 @@ async def update_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # A channel manager may only edit users inside their managed companies;
+    # superadmins may edit anyone. Without this a channel-manager admin could
+    # deactivate a peer admin or the superadmin by id.
+    target = await partner_service.load_user_or_404(db, user_id)
+    await assert_can_manage_user(db, admin, target)
     return await partner_service.update_partner(db, user_id, data, admin)
 
 
@@ -114,6 +136,8 @@ async def deactivate_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    target = await partner_service.load_user_or_404(db, user_id)
+    await assert_can_manage_user(db, admin, target)
     await partner_service.deactivate_partner(db, user_id, admin)
     return MessageResponse(message="User deactivated successfully")
 
@@ -124,5 +148,7 @@ async def reactivate_user(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    target = await partner_service.load_user_or_404(db, user_id)
+    await assert_can_manage_user(db, admin, target)
     await partner_service.reactivate_partner(db, user_id, admin)
     return MessageResponse(message="User reactivated successfully")

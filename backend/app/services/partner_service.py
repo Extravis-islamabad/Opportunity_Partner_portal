@@ -164,7 +164,10 @@ async def get_partners(
     return items, total
 
 
-async def get_partner_detail(db: AsyncSession, user_id: int) -> UserResponse:
+async def load_user_or_404(db: AsyncSession, user_id: int) -> User:
+    """Fetch the User model so the caller can authorise against it before any
+    of it is serialised. get_partner_detail returns a response schema, which
+    is too late to make an access decision on."""
     result = await db.execute(
         select(User)
         .options(joinedload(User.company))
@@ -173,7 +176,10 @@ async def get_partner_detail(db: AsyncSession, user_id: int) -> UserResponse:
     user = result.scalar_one_or_none()
     if not user:
         raise NotFoundException(code="USER_NOT_FOUND", message="User not found")
+    return user
 
+
+def serialize_user(user: User) -> UserResponse:
     return UserResponse(
         id=user.id,
         full_name=user.full_name,
@@ -189,6 +195,12 @@ async def get_partner_detail(db: AsyncSession, user_id: int) -> UserResponse:
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
+
+
+async def get_partner_detail(db: AsyncSession, user_id: int) -> UserResponse:
+    """Kept for callers that have already authorised the read. New code should
+    prefer load_user_or_404 + assert_can_view_user + serialize_user."""
+    return serialize_user(await load_user_or_404(db, user_id))
 
 
 async def update_partner(

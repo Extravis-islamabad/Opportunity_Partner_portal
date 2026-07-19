@@ -15,18 +15,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user
+from app.core.deps import get_current_admin, get_current_user, get_admin_scope
+from app.core.exceptions import ForbiddenException
 from app.models.company import Company
+from app.models.customer_license import CustomerLicense
 from app.models.deal_registration import DealRegistration
 from app.models.opportunity import Opportunity
+from app.models.poc import Poc
 from app.models.user import User, UserRole
+from app.services import poc_service
 from app.services.export_service import (
     build_company_pdf,
     build_company_xlsx,
     build_deal_pdf,
     build_deal_xlsx,
+    build_license_pdf,
+    build_license_xlsx,
     build_opportunity_pdf,
     build_opportunity_xlsx,
+    build_poc_pdf,
+    build_poc_xlsx,
 )
 
 router = APIRouter(prefix="/exports", tags=["Exports"])
@@ -75,8 +83,19 @@ async def _fetch_opportunities(
             Opportunity.company_id == current_user.company_id,
             Opportunity.submitted_by == current_user.id,
         )
-    elif company_id:
-        query = query.where(Opportunity.company_id == company_id)
+    # Sales reps are scoped to the opportunities assigned to them.
+    elif current_user.role == UserRole.SALES_REP:
+        query = query.where(Opportunity.sales_rep_id == current_user.id)
+    else:
+        # Channel-manager admins are scoped to the companies they manage.
+        # `scope is None` means superadmin (global); an empty list means the
+        # admin manages nothing and must export nothing — hence the explicit
+        # `is not None` rather than a truthiness test.
+        scope = await get_admin_scope(db, current_user)
+        if scope is not None:
+            query = query.where(Opportunity.company_id.in_(scope))
+        if company_id:
+            query = query.where(Opportunity.company_id == company_id)
 
     if status:
         query = query.where(Opportunity.status == status)
@@ -114,9 +133,22 @@ async def _fetch_deals(
     )
 
     if current_user.role == UserRole.PARTNER:
-        query = query.where(DealRegistration.company_id == current_user.company_id)
-    elif company_id:
-        query = query.where(DealRegistration.company_id == company_id)
+        # Match the deal *list* (dashboard.list_deals), which scopes a partner
+        # to their own registrations — not the whole company. Exporting
+        # company-wide would leak colleagues' deals the partner can't see in
+        # the UI.
+        query = query.where(DealRegistration.registered_by == current_user.id)
+    elif current_user.role == UserRole.SALES_REP:
+        # Deal registrations are a partner/admin concern; reps have no scope
+        # here, so deny outright rather than fall through to "see everything".
+        raise ForbiddenException(message="Sales reps cannot export deal registrations")
+    else:
+        # Channel-manager admins are scoped to their managed companies.
+        scope = await get_admin_scope(db, current_user)
+        if scope is not None:
+            query = query.where(DealRegistration.company_id.in_(scope))
+        if company_id:
+            query = query.where(DealRegistration.company_id == company_id)
 
     if status:
         query = query.where(DealRegistration.status == status)
@@ -129,6 +161,7 @@ async def _fetch_deals(
 async def _fetch_companies(
     db: AsyncSession,
     *,
+    admin: User,
     country: Optional[str],
     region: Optional[str],
     search: Optional[str],
@@ -139,6 +172,12 @@ async def _fetch_companies(
         .options(joinedload(Company.channel_manager))
         .where(Company.deleted_at.is_(None))
     )
+
+    # Channel-manager admins export only companies they manage; superadmins
+    # (scope is None) export all. This mirrors the companies list route.
+    scope = await get_admin_scope(db, admin)
+    if scope is not None:
+        query = query.where(Company.id.in_(scope))
 
     if country:
         query = query.where(Company.country == country)
@@ -262,7 +301,7 @@ async def export_companies_pdf(
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     companies = await _fetch_companies(
-        db, country=country, region=region, search=search, status=status,
+        db, admin=admin, country=country, region=region, search=search, status=status,
     )
     subtitle_parts = []
     if status:
@@ -284,11 +323,165 @@ async def export_companies_xlsx(
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     companies = await _fetch_companies(
-        db, country=country, region=region, search=search, status=status,
+        db, admin=admin, country=country, region=region, search=search, status=status,
     )
     xlsx_bytes = build_company_xlsx(companies)
     return _stream(
         xlsx_bytes,
         "companies.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+# ------------------------------ POCs -----------------------------------------
+
+async def _fetch_pocs(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    status: Optional[str],
+    country: Optional[str],
+    search: Optional[str],
+) -> list[Poc]:
+    query = (
+        select(Poc)
+        .options(
+            joinedload(Poc.opportunity).joinedload(Opportunity.company),
+            joinedload(Poc.opportunity).joinedload(Opportunity.sales_rep),
+            joinedload(Poc.closed_by_user),
+        )
+        .join(Opportunity, Poc.opportunity_id == Opportunity.id)
+        .where(Poc.deleted_at.is_(None), Opportunity.deleted_at.is_(None))
+    )
+
+    # Same scoping as the POC list (pocs._list_scope): partners by company,
+    # sales reps by assignment, channel-manager admins by managed companies.
+    if current_user.role == UserRole.PARTNER:
+        query = query.where(Opportunity.company_id == current_user.company_id)
+    elif current_user.role == UserRole.SALES_REP:
+        query = query.where(Opportunity.sales_rep_id == current_user.id)
+    else:
+        scope = await get_admin_scope(db, current_user)
+        if scope is not None:
+            query = query.where(Opportunity.company_id.in_(scope))
+
+    if status:
+        query = query.where(Poc.status == status)
+    if country:
+        query = query.where(Opportunity.country == country)
+    if search:
+        query = query.where(Opportunity.customer_name.ilike(f"%{search}%"))
+
+    query = query.order_by(Poc.start_date.desc().nullslast()).limit(EXPORT_ROW_CAP)
+    result = await db.execute(query)
+    return list(result.unique().scalars().all())
+
+
+def _poc_subtitle(status, country, count) -> str:
+    parts = []
+    if status:
+        parts.append(f"status={status}")
+    if country:
+        parts.append(f"country={country}")
+    return " · ".join(parts) if parts else f"{count} rows"
+
+
+@router.get("/pocs.pdf")
+async def export_pocs_pdf(
+    status: Optional[str] = None,
+    country: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    pocs = await _fetch_pocs(db, current_user=current_user, status=status, country=country, search=search)
+    pdf_bytes = build_poc_pdf(pocs, subtitle=_poc_subtitle(status, country, len(pocs)))
+    return _stream(pdf_bytes, "pocs.pdf", "application/pdf")
+
+
+@router.get("/pocs.xlsx")
+async def export_pocs_xlsx(
+    status: Optional[str] = None,
+    country: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    pocs = await _fetch_pocs(db, current_user=current_user, status=status, country=country, search=search)
+    xlsx_bytes = build_poc_xlsx(pocs)
+    return _stream(
+        xlsx_bytes,
+        "pocs.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+# ------------------------------ Licences (post-PO) ---------------------------
+
+async def _fetch_licenses(
+    db: AsyncSession,
+    *,
+    current_user: User,
+    status: Optional[str],
+    search: Optional[str],
+) -> list[tuple]:
+    """Returns (CustomerLicense, derived_status_str) tuples.
+
+    Status is derived per row via poc_service.derive_license_status — the
+    stored column is a stale cache. When the caller filters by status we
+    filter on the derived value, not the column, for the same reason.
+    """
+    query = (
+        select(CustomerLicense)
+        .options(joinedload(CustomerLicense.opportunity).joinedload(Opportunity.company))
+        .join(Opportunity, CustomerLicense.opportunity_id == Opportunity.id)
+        .where(CustomerLicense.deleted_at.is_(None), Opportunity.deleted_at.is_(None))
+    )
+
+    if current_user.role == UserRole.PARTNER:
+        query = query.where(Opportunity.company_id == current_user.company_id)
+    elif current_user.role == UserRole.SALES_REP:
+        query = query.where(Opportunity.sales_rep_id == current_user.id)
+    else:
+        scope = await get_admin_scope(db, current_user)
+        if scope is not None:
+            query = query.where(Opportunity.company_id.in_(scope))
+
+    if search:
+        query = query.where(Opportunity.customer_name.ilike(f"%{search}%"))
+    if status:
+        query = query.where(poc_service.license_status_expr() == status)
+
+    query = query.order_by(CustomerLicense.license_expires_at.asc().nullslast()).limit(EXPORT_ROW_CAP)
+    result = await db.execute(query)
+    licences = result.unique().scalars().all()
+    return [(lic, poc_service.derive_license_status(lic).value) for lic in licences]
+
+
+@router.get("/licenses.pdf")
+async def export_licenses_pdf(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    rows = await _fetch_licenses(db, current_user=current_user, status=status, search=search)
+    subtitle = f"status={status}" if status else f"{len(rows)} rows"
+    pdf_bytes = build_license_pdf(rows, subtitle=subtitle)
+    return _stream(pdf_bytes, "licenses.pdf", "application/pdf")
+
+
+@router.get("/licenses.xlsx")
+async def export_licenses_xlsx(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    rows = await _fetch_licenses(db, current_user=current_user, status=status, search=search)
+    xlsx_bytes = build_license_xlsx(rows)
+    return _stream(
+        xlsx_bytes,
+        "licenses.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )

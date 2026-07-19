@@ -12,6 +12,8 @@ from app.models.deal_registration import DealRegistration
 from app.models.partner_tier import PartnerTierHistory
 from app.models.commission import Commission, CommissionStatement, TierCommissionRate
 from app.models.customer_ownership import CustomerOwnership
+from app.models.poc import Poc, PocStatus
+from app.models.customer_license import CustomerLicense, LicenseStatus
 
 __all__ = [
     "User",
@@ -31,4 +33,8 @@ __all__ = [
     "CommissionStatement",
     "TierCommissionRate",
     "CustomerOwnership",
+    "Poc",
+    "PocStatus",
+    "CustomerLicense",
+    "LicenseStatus",
 ]

@@ -104,6 +104,7 @@ async def list_opportunities(
     db: AsyncSession = Depends(get_db),
 ):
     submitted_by = None
+    sales_rep_id = None
     if current_user.role == UserRole.PARTNER:
         submitted_by = current_user.id
         company_id = current_user.company_id
@@ -114,9 +115,13 @@ async def list_opportunities(
     if current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
         channel_manager_id = current_user.id
 
+    # Sales reps only ever see the opportunities assigned to them.
+    if current_user.role == UserRole.SALES_REP:
+        sales_rep_id = current_user.id
+
     items, total = await opportunity_service.get_opportunities(
         db, page, page_size, status, company_id, country, region, search,
-        submitted_by, channel_manager_id,
+        submitted_by, channel_manager_id, sales_rep_id=sales_rep_id,
     )
     return {
         "items": [item.model_dump() for item in items],
@@ -137,6 +142,11 @@ async def get_opportunity(
 
     if current_user.role == UserRole.PARTNER and opp.submitted_by != current_user.id:
         raise ForbiddenException(message="You can only view your own opportunities")
+
+    # Sales reps are scoped to the opportunities assigned to them; without
+    # this they'd fall past the partner check and read the whole pipeline.
+    if current_user.role == UserRole.SALES_REP and opp.sales_rep_id != current_user.id:
+        raise ForbiddenException(message="You can only view opportunities assigned to you")
 
     if current_user.role == UserRole.ADMIN:
         opp = await opportunity_service.auto_mark_under_review(db, opp_id, current_user)

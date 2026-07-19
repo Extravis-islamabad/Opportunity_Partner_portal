@@ -23,18 +23,27 @@ const OpportunityListPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [productFilter, setProductFilter] = useState<string | undefined>();
+  const [industryFilter, setIndustryFilter] = useState<string | undefined>();
+  const [quarterFilter, setQuarterFilter] = useState<string | undefined>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['opportunities', page, search, statusFilter],
+    queryKey: ['opportunities', page, search, statusFilter, productFilter, industryFilter, quarterFilter],
     queryFn: async () => {
       const params: Record<string, string | number | undefined> = { page, page_size: 20 };
       if (search) params['search'] = search;
       if (statusFilter) params['status'] = statusFilter;
       const res = await opportunitiesApi.list(params);
-      return res.data;
+      const items = res.data.items as OpportunityListItem[];
+      const filtered = items.filter((o) =>
+        (!productFilter || o.product === productFilter) &&
+        (!industryFilter || o.industry === industryFilter) &&
+        (!quarterFilter || o.time_frame === quarterFilter),
+      );
+      return { ...res.data, items: filtered };
     },
   });
 
@@ -63,8 +72,29 @@ const OpportunityListPage: React.FC = () => {
       ),
     },
     { title: 'Customer', dataIndex: 'customer_name', key: 'customer' },
-    ...(isAdmin ? [{ title: 'Company', dataIndex: 'company_name' as const, key: 'company' }] : []),
+    ...(isAdmin ? [{ title: 'Partner', dataIndex: 'company_name' as const, key: 'company' }] : []),
+    {
+      title: 'Product', dataIndex: 'product', key: 'product',
+      render: (p: string | null) => p ? <Tag color="geekblue">{p}</Tag> : '—',
+    },
+    {
+      title: 'Industry', dataIndex: 'industry', key: 'industry',
+      render: (i: string | null) => i ?? '—',
+    },
+    {
+      title: 'Stage', dataIndex: 'stage_probability', key: 'stage',
+      render: (p: string | null) =>
+        p === null || p === undefined ? '—' : <Tag color="purple">{Math.round(Number(p) * 100)}%</Tag>,
+    },
+    {
+      title: 'Time Frame', dataIndex: 'time_frame', key: 'time_frame',
+      render: (t: string | null) => t ?? '—',
+    },
     { title: 'Worth (USD)', dataIndex: 'worth', key: 'worth', render: (v: string) => `$${Number(v).toLocaleString()}` },
+    ...(isAdmin ? [{
+      title: 'Sales Rep', dataIndex: 'sales_rep_name' as const, key: 'sales_rep',
+      render: (n: string | null) => n ?? '—',
+    }] : []),
     { title: 'Closing Date', dataIndex: 'closing_date', key: 'date', render: (d: string) => dayjs(d).format('MMM D, YYYY') },
     {
       title: 'AI', key: 'ai',
@@ -114,6 +144,34 @@ const OpportunityListPage: React.FC = () => {
             { value: 'draft', label: 'Draft' }, { value: 'pending_review', label: 'Pending Review' },
             { value: 'under_review', label: 'Under Review' }, { value: 'approved', label: 'Approved' },
             { value: 'rejected', label: 'Rejected' },
+          ]}
+        />
+        <Select placeholder="Product" allowClear style={{ width: 140 }} onChange={setProductFilter}
+          options={[
+            { value: 'MonetX', label: 'MonetX' },
+            { value: 'PatchX', label: 'PatchX' },
+            { value: 'SupportX', label: 'SupportX' },
+          ]}
+        />
+        <Select placeholder="Industry" allowClear style={{ width: 180 }} onChange={setIndustryFilter}
+          options={[
+            { value: 'FSI', label: 'FSI' },
+            { value: 'Healthcare', label: 'Healthcare' },
+            { value: 'Telco / ISP', label: 'Telco / ISP' },
+            { value: 'Manufacturing', label: 'Manufacturing' },
+            { value: 'Oil & Gas/ Power', label: 'Oil & Gas / Power' },
+            { value: 'Education', label: 'Education' },
+            { value: 'Government', label: 'Government' },
+            { value: 'Retail', label: 'Retail' },
+            { value: 'IT Services', label: 'IT Services' },
+          ]}
+        />
+        <Select placeholder="Quarter" allowClear style={{ width: 140 }} onChange={setQuarterFilter}
+          options={[
+            { value: 'Q1 - 2027', label: 'Q1 - 2027' },
+            { value: 'Q2 - 2027', label: 'Q2 - 2027' },
+            { value: 'Q3 - 2027', label: 'Q3 - 2027' },
+            { value: 'Q4 - 2027', label: 'Q4 - 2027' },
           ]}
         />
       </Space>

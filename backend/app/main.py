@@ -1,7 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -34,9 +33,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    docs_url="/api/docs" if settings.APP_DEBUG else None,
-    redoc_url="/api/redoc" if settings.APP_DEBUG else None,
-    openapi_url="/api/openapi.json" if settings.APP_DEBUG else None,
+    # docs_enabled is APP_DEBUG AND not production — a production box never
+    # exposes the interactive docs or the OpenAPI schema, even if APP_DEBUG
+    # was left on.
+    docs_url="/api/docs" if settings.docs_enabled else None,
+    redoc_url="/api/redoc" if settings.docs_enabled else None,
+    openapi_url="/api/openapi.json" if settings.docs_enabled else None,
     lifespan=lifespan,
 )
 
@@ -56,6 +58,9 @@ register_error_handlers(app)
 
 app.include_router(api_router)
 
+# Files are NOT served as anonymous static content. Uploads used to be
+# world-readable by URL; they're now streamed only through the authenticated,
+# signed-token endpoint at /api/v1/files/download (see endpoints/files.py).
+# We still ensure the directory exists for writes.
 upload_dir = Path(settings.UPLOAD_DIR)
 upload_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")

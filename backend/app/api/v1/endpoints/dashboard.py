@@ -4,9 +4,18 @@ from typing import Optional
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_current_admin, get_current_partner, get_admin_scope
+from app.core.deps import (
+    get_current_user,
+    get_current_admin,
+    get_current_partner,
+    get_admin_scope,
+    get_poc_editor,
+)
 from app.models.user import User, UserRole
 from app.schemas.dashboard import (
+    PocSummaryResponse,
+    DeploymentAnalyticsResponse,
+    CityFunnelResponse,
     DashboardStatsResponse,
     OpportunityStatusBreakdown,
     MonthlyOpportunityData,
@@ -18,6 +27,7 @@ from app.schemas.dashboard import (
     DealApproveRequest,
     DealRejectRequest,
     AnalyticsResponse,
+    TargetPlanAnalyticsResponse,
 )
 from app.services import dashboard_service, deal_service
 
@@ -63,15 +73,73 @@ async def admin_analytics(
     return await dashboard_service.get_admin_analytics(db, scope_company_ids=scope)
 
 
+@router.get("/admin/target-plan", response_model=TargetPlanAnalyticsResponse, status_code=200)
+async def target_plan_analytics(
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """2027 Target Plan analytics: pipeline by product, customer industry,
+    stage probability, quarter / time frame, and Extravis sales rep, plus
+    weighted-pipeline totals (worth * probability)."""
+    scope = await get_admin_scope(db, admin)
+    return await dashboard_service.get_target_plan_analytics(db, scope_company_ids=scope)
+
+
+async def _poc_scope(db: AsyncSession, user: User) -> dict:
+    """POC/deployment scoping by role: sales reps see only the opportunities
+    assigned to them; channel-manager admins see their companies; superadmins
+    see everything."""
+    if user.role == UserRole.SALES_REP:
+        return {"sales_rep_id": user.id}
+    return {"scope_company_ids": await get_admin_scope(db, user)}
+
+
+@router.get("/poc-summary", response_model=PocSummaryResponse, status_code=200)
+async def poc_summary(
+    user: User = Depends(get_poc_editor),
+    db: AsyncSession = Depends(get_db),
+):
+    """POC widgets: status counts, five-stage funnel, per-country split,
+    success rate and average duration."""
+    return await dashboard_service.get_poc_summary(db, **await _poc_scope(db, user))
+
+
+@router.get("/deployment", response_model=DeploymentAnalyticsResponse, status_code=200)
+async def deployment_analytics(
+    months: int = Query(12, ge=1, le=24),
+    user: User = Depends(get_poc_editor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deployment tab: POC stage throughput plus post-PO device/node rollout
+    and upcoming licence expiries."""
+    return await dashboard_service.get_deployment_analytics(
+        db, months=months, **await _poc_scope(db, user)
+    )
+
+
+@router.get("/admin/city-funnel", response_model=CityFunnelResponse, status_code=200)
+async def city_funnel(
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sales-funnel value by city and quarter (Q1–Q4), split by pipeline
+    stage. Quarter is parsed out of the opportunity's time_frame."""
+    scope = await get_admin_scope(db, admin)
+    return await dashboard_service.get_city_funnel(db, scope_company_ids=scope, year=year)
+
+
 @router.get("/company/{company_id}/performance", response_model=CompanyPerformance, status_code=200)
 async def company_performance(
     company_id: int,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.core.exceptions import ForbiddenException
     if current_user.role == UserRole.PARTNER and current_user.company_id != company_id:
-        from app.core.exceptions import ForbiddenException
         raise ForbiddenException(message="You can only view your own company performance")
+    if current_user.role == UserRole.SALES_REP:
+        raise ForbiddenException(message="Sales reps do not have access to company performance")
     return await dashboard_service.get_company_performance(db, company_id)
 
 
@@ -123,6 +191,11 @@ async def list_deals(
     scope = None
     if current_user.role == UserRole.PARTNER:
         registered_by = current_user.id
+    elif current_user.role == UserRole.SALES_REP:
+        # Reps have no scope over deal registrations; deny rather than let
+        # them fall through to the unscoped superadmin branch below.
+        from app.core.exceptions import ForbiddenException
+        raise ForbiddenException(message="Sales reps do not have access to deal registrations")
     elif current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
         # Channel manager: scope to deals for their managed companies
         scope = await get_admin_scope(db, current_user)

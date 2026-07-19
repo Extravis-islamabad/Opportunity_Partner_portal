@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { Descriptions, Card, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Modal, Input, Checkbox, Upload, List, message, Typography } from 'antd';
+import { Descriptions, Card, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Modal, Input, Checkbox, Upload, List, message, Typography, Popconfirm } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { opportunitiesApi, aiApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import AIScoreBadge from '@/components/ai/AIScoreBadge';
-import { StarFilled, WarningOutlined, UploadOutlined, FileOutlined, ThunderboltOutlined, ReloadOutlined } from '@ant-design/icons';
+import OpportunityPocPanel from '@/components/poc/OpportunityPocPanel';
+import { StarFilled, WarningOutlined, UploadOutlined, FileOutlined, ThunderboltOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 const statusColors: Record<string, string> = {
@@ -53,6 +54,11 @@ const OpportunityDetailPage: React.FC = () => {
   const noteMut = useMutation({
     mutationFn: () => opportunitiesApi.addNote(oppId, noteText),
     onSuccess: () => { setNoteModal(false); invalidate(); void message.success('Note added'); },
+  });
+  const deleteDocMut = useMutation({
+    mutationFn: (docId: number) => opportunitiesApi.deleteDocument(oppId, docId),
+    onSuccess: () => { invalidate(); void message.success('Document deleted'); },
+    onError: () => { void message.error('Could not delete the document'); },
   });
 
   const [summary, setSummary] = useState<string | null>(null);
@@ -144,6 +150,15 @@ const OpportunityDetailPage: React.FC = () => {
               <Descriptions.Item label="Country">{opp.country}</Descriptions.Item>
               <Descriptions.Item label="City">{opp.city}</Descriptions.Item>
               <Descriptions.Item label="Closing Date">{dayjs(opp.closing_date).format('MMM D, YYYY')}</Descriptions.Item>
+              {opp.product && <Descriptions.Item label="Product"><Tag color="geekblue">{opp.product}</Tag></Descriptions.Item>}
+              {opp.industry && <Descriptions.Item label="Industry">{opp.industry}</Descriptions.Item>}
+              {opp.stage_probability && (
+                <Descriptions.Item label="Stage">
+                  <Tag color="purple">{Math.round(Number(opp.stage_probability) * 100)}%</Tag>
+                </Descriptions.Item>
+              )}
+              {opp.time_frame && <Descriptions.Item label="Time Frame">{opp.time_frame}</Descriptions.Item>}
+              {opp.sales_rep_name && <Descriptions.Item label="Sales Rep">{opp.sales_rep_name}</Descriptions.Item>}
               <Descriptions.Item label="Submitted By">{opp.submitted_by_name}</Descriptions.Item>
               {opp.submitted_at && <Descriptions.Item label="Submitted At">{dayjs(opp.submitted_at).format('MMM D, YYYY HH:mm')}</Descriptions.Item>}
               {opp.reviewer_name && <Descriptions.Item label="Reviewed By">{opp.reviewer_name}</Descriptions.Item>}
@@ -154,6 +169,8 @@ const OpportunityDetailPage: React.FC = () => {
           <Card title="Requirements" style={{ marginTop: 16 }}>
             <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{opp.requirements}</Typography.Paragraph>
           </Card>
+
+          <OpportunityPocPanel opportunityId={opp.id} />
 
           {opp.rejection_reason && (
             <Card title="Rejection Reason" style={{ marginTop: 16 }}>
@@ -249,10 +266,30 @@ const OpportunityDetailPage: React.FC = () => {
           <Card title="Documents">
             {opp.documents.length > 0 ? (
               <List dataSource={opp.documents} renderItem={(doc) => (
-                <List.Item>
-                  <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
-                    <FileOutlined style={{ marginRight: 8 }} />{doc.file_name}
-                  </a>
+                <List.Item
+                  actions={
+                    (canEdit || opp.status === 'draft')
+                      ? [
+                          <Popconfirm
+                            key="del"
+                            title="Delete this document?"
+                            okText="Delete"
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => deleteDocMut.mutate(doc.id)}
+                          >
+                            <Button type="text" danger size="small" icon={<DeleteOutlined />} loading={deleteDocMut.isPending} />
+                          </Popconfirm>,
+                        ]
+                      : undefined
+                  }
+                >
+                  {doc.file_url ? (
+                    <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
+                      <FileOutlined style={{ marginRight: 8 }} />{doc.file_name}
+                    </a>
+                  ) : (
+                    <span><FileOutlined style={{ marginRight: 8 }} />{doc.file_name}</span>
+                  )}
                 </List.Item>
               )} />
             ) : <Empty description="No documents" image={Empty.PRESENTED_IMAGE_SIMPLE} />}

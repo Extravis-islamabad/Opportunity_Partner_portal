@@ -1,7 +1,16 @@
 import json
 from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from typing import Annotated, List, Any
+
+
+# Defaults that are safe for local dev but must never reach production. The
+# startup validator below refuses to boot with APP_ENV=production if any of
+# these is still in place.
+_INSECURE_DEFAULTS = {
+    "JWT_SECRET_KEY": "change-me-to-a-secure-random-string-min-32-chars",
+    "SUPERADMIN_PASSWORD": "change-me-immediately",
+}
 
 
 class Settings(BaseSettings):
@@ -109,6 +118,47 @@ class Settings(BaseSettings):
                     pass
             return [item.strip() for item in stripped.split(",") if item.strip()]
         return value
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.strip().lower() in ("production", "prod")
+
+    @property
+    def docs_enabled(self) -> bool:
+        # Never expose interactive docs / OpenAPI schema in production, even
+        # if APP_DEBUG was left on by mistake.
+        return self.APP_DEBUG and not self.is_production
+
+    @model_validator(mode="after")
+    def _enforce_production_safety(self) -> "Settings":
+        """Refuse to boot a production deployment with insecure defaults.
+
+        A default JWT secret lets anyone with the repo forge an admin token;
+        a default superadmin password is an open door. Failing loudly at
+        startup is far safer than silently running wide open.
+        """
+        if not self.is_production:
+            return self
+
+        problems: list[str] = []
+
+        if self.JWT_SECRET_KEY == _INSECURE_DEFAULTS["JWT_SECRET_KEY"]:
+            problems.append("JWT_SECRET_KEY is still the built-in default")
+        if len(self.JWT_SECRET_KEY) < 32:
+            problems.append("JWT_SECRET_KEY must be at least 32 characters")
+        if self.SUPERADMIN_PASSWORD == _INSECURE_DEFAULTS["SUPERADMIN_PASSWORD"]:
+            problems.append("SUPERADMIN_PASSWORD is still the built-in default")
+        if any(o.startswith("http://") and "localhost" not in o and "127.0.0.1" not in o
+               for o in self.CORS_ORIGINS):
+            problems.append("CORS_ORIGINS contains a non-local plaintext http:// origin")
+
+        if problems:
+            raise ValueError(
+                "Insecure configuration for APP_ENV=production:\n  - "
+                + "\n  - ".join(problems)
+                + "\nSet these via environment variables before deploying."
+            )
+        return self
 
     @property
     def max_file_size_bytes(self) -> int:

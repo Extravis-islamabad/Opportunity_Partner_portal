@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Table, Button, Input, Tag, Space, Select, Skeleton, Alert, Empty, Upload, Modal, Form, message, Popconfirm } from 'antd';
-import { UploadOutlined, SearchOutlined, DownloadOutlined, DeleteOutlined, PlusOutlined, FileOutlined } from '@ant-design/icons';
+import { UploadOutlined, SearchOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, PlusOutlined, FileOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { knowledgeBaseApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
@@ -16,6 +16,8 @@ const KnowledgeBasePage: React.FC = () => {
   const [uploadModal, setUploadModal] = useState(false);
   const [uploadForm] = Form.useForm();
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [editingDoc, setEditingDoc] = useState<KBDocumentResponse | null>(null);
+  const [editForm] = Form.useForm();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const queryClient = useQueryClient();
@@ -59,6 +61,34 @@ const KnowledgeBasePage: React.FC = () => {
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['kb-documents'] }); void message.success('Document deleted'); },
   });
 
+  const editMut = useMutation({
+    mutationFn: (values: { title: string; category: string; description?: string }) => {
+      const fd = new FormData();
+      fd.append('title', values.title);
+      fd.append('category', values.category);
+      fd.append('description', values.description ?? '');
+      return knowledgeBaseApi.update(editingDoc!.id, fd);
+    },
+    onSuccess: () => {
+      setEditingDoc(null);
+      editForm.resetFields();
+      void queryClient.invalidateQueries({ queryKey: ['kb-documents'] });
+      void message.success('Document updated');
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      void message.error(err.response?.data?.message ?? 'Failed to update');
+    },
+  });
+
+  const openEdit = (record: KBDocumentResponse) => {
+    setEditingDoc(record);
+    editForm.setFieldsValue({
+      title: record.title,
+      category: record.category,
+      description: record.description ?? '',
+    });
+  };
+
   const handleDownload = async (id: number) => {
     const res = await knowledgeBaseApi.download(id);
     window.open(res.data.file_url, '_blank');
@@ -74,6 +104,9 @@ const KnowledgeBasePage: React.FC = () => {
       title: 'Actions', key: 'actions', render: (_, record) => (
         <Space>
           <Button type="link" icon={<DownloadOutlined />} onClick={() => void handleDownload(record.id)}>Download</Button>
+          {isAdmin && (
+            <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>Edit</Button>
+          )}
           {isAdmin && (
             <Popconfirm title="Delete?" onConfirm={() => deleteMut.mutate(record.id)}>
               <Button type="link" danger icon={<DeleteOutlined />}>Delete</Button>
@@ -117,6 +150,17 @@ const KnowledgeBasePage: React.FC = () => {
           <Upload beforeUpload={(file) => { setUploadFile(file); return false; }} maxCount={1}>
             <Button icon={<UploadOutlined />}>Select File</Button>
           </Upload>
+        </Form>
+      </Modal>
+
+      <Modal title="Edit Document" open={editingDoc !== null} onCancel={() => setEditingDoc(null)}
+        onOk={() => editForm.submit()} confirmLoading={editMut.isPending} destroyOnClose>
+        <Form form={editForm} layout="vertical" onFinish={(v) => editMut.mutate(v)}>
+          <Form.Item name="title" label="Title" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="category" label="Category" rules={[{ required: true }]}>
+            <Select options={[{ value: 'MonetX' }, { value: 'SupportX' }, { value: 'GreenX' }, { value: 'Product Sheets' }, { value: 'Case Studies' }, { value: 'Technical Guides' }]} />
+          </Form.Item>
+          <Form.Item name="description" label="Description"><Input.TextArea rows={3} /></Form.Item>
         </Form>
       </Modal>
     </>

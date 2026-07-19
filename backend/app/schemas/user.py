@@ -6,7 +6,7 @@ from datetime import datetime
 class UserCreateRequest(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
     email: EmailStr
-    role: str = Field(..., pattern="^(admin|partner)$")
+    role: str = Field(..., pattern="^(admin|partner|sales_rep)$")
     job_title: Optional[str] = Field(None, max_length=255)
     phone: Optional[str] = Field(None, max_length=50)
     company_id: Optional[int] = None

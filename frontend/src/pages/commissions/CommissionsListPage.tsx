@@ -1,15 +1,26 @@
 import React, { useState } from 'react';
-import { Table, Tag, Space, Alert, Select, Button, Modal, Input, message } from 'antd';
-import { CheckOutlined, CloseOutlined, DollarOutlined } from '@ant-design/icons';
+import { Table, Tag, Space, Alert, Select, Button, Modal, Input, message, Card, Empty } from 'antd';
+import { CheckOutlined, CloseOutlined, DollarOutlined, FilePdfOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { commissionsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
 import TableSkeleton from '@/components/common/TableSkeleton';
-import type { CommissionRead, CommissionStatus } from '@/types';
+import type { CommissionRead, CommissionStatus, StatementPeriodSummary } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+}
 
 const statusColors: Record<CommissionStatus, string> = {
   pending: 'orange',
@@ -38,6 +49,25 @@ const CommissionsListPage: React.FC = () => {
       return res.data;
     },
   });
+
+  const { data: statements } = useQuery({
+    queryKey: ['commission-statements'],
+    queryFn: async () => (await commissionsApi.listStatements()).data,
+  });
+
+  const [downloadingPeriod, setDownloadingPeriod] = useState<string | null>(null);
+  const downloadStatement = async (s: StatementPeriodSummary) => {
+    const period = dayjs(s.period_start).format('YYYY-MM');
+    setDownloadingPeriod(`${s.company_id}-${period}`);
+    try {
+      const res = await commissionsApi.statementPdf(s.company_id, period);
+      triggerBlobDownload(res.data, `commission-statement-${period}.pdf`);
+    } catch {
+      void message.error('Could not download the statement');
+    } finally {
+      setDownloadingPeriod(null);
+    }
+  };
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status, notes }: { id: number; status: string; notes?: string }) =>
@@ -164,6 +194,54 @@ const CommissionsListPage: React.FC = () => {
           description="Commissions are automatically calculated when a registered deal is approved."
         />
       )}
+
+      <Card
+        title="Monthly Statements"
+        bordered={false}
+        style={{ borderRadius: 12, marginTop: 24 }}
+        styles={{ body: { paddingTop: 8 } }}
+      >
+        {statements && statements.length > 0 ? (
+          <Table
+            rowKey={(s) => `${s.company_id}-${s.period_start}`}
+            size="small"
+            pagination={false}
+            dataSource={statements}
+            columns={[
+              {
+                title: 'Period',
+                key: 'period',
+                render: (_: unknown, s: StatementPeriodSummary) => dayjs(s.period_start).format('MMMM YYYY'),
+              },
+              ...(isAdmin
+                ? [{ title: 'Company', dataIndex: 'company_name' as const, key: 'company', render: (v: string | null) => v ?? '—' }]
+                : []),
+              { title: 'Commissions', dataIndex: 'commission_count', key: 'count' },
+              { title: 'Total', dataIndex: 'total_amount', key: 'total', render: (v: string) => <strong>{fmtUsd(v)}</strong> },
+              {
+                title: '',
+                key: 'download',
+                align: 'right' as const,
+                render: (_: unknown, s: StatementPeriodSummary) => {
+                  const period = dayjs(s.period_start).format('YYYY-MM');
+                  return (
+                    <Button
+                      size="small"
+                      icon={<FilePdfOutlined />}
+                      loading={downloadingPeriod === `${s.company_id}-${period}`}
+                      onClick={() => downloadStatement(s)}
+                    >
+                      PDF
+                    </Button>
+                  );
+                },
+              },
+            ]}
+          />
+        ) : (
+          <Empty description="No statements available yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        )}
+      </Card>
 
       <Modal
         title={

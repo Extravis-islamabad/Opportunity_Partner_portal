@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Row,
   Col,
@@ -12,6 +12,9 @@ import {
   Avatar,
   Tooltip,
   Space,
+  Statistic,
+  Select,
+  Table,
 } from 'antd';
 import {
   BankOutlined,
@@ -34,6 +37,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   StarFilled,
+  RocketOutlined,
 } from '@ant-design/icons';
 import { Column, Bar, Radar } from '@ant-design/plots';
 import { useQuery } from '@tanstack/react-query';
@@ -55,6 +59,7 @@ import {
   BrandDeltaCard,
   formatChartUsd,
 } from '@/components/dashboard/BrandWidgets';
+import { PocStageFunnel, CityFunnelChart } from '@/components/dashboard/PocWidgets';
 import type {
   MonthlyOpportunityData,
   OverdueOpportunityItem,
@@ -64,6 +69,12 @@ import type {
   FunnelStage,
   TierDistribution,
   IndustryBreakdown,
+  TargetPlanAnalytics,
+  ProductBreakdown,
+  OppIndustryBreakdown,
+  StageBreakdown,
+  QuarterBreakdown,
+  SalesRepBreakdown,
 } from '@/types';
 
 const BRAND = {
@@ -173,10 +184,28 @@ const AdminDashboard: React.FC = () => {
     queryFn: async () => (await dashboardApi.getAdminAnalytics()).data,
   });
 
+  const { data: targetPlan } = useQuery<TargetPlanAnalytics>({
+    queryKey: ['target-plan-analytics'],
+    queryFn: async () => (await dashboardApi.getTargetPlanAnalytics()).data,
+  });
+
   const { data: dupQueue } = useQuery({
     queryKey: ['dup-review-count'],
     queryFn: async () => (await duplicatesApi.listReviewQueue({ page: 1, page_size: 1 })).data,
   });
+
+  const { data: pocSummary } = useQuery({
+    queryKey: ['poc-summary'],
+    queryFn: async () => (await dashboardApi.getPocSummary()).data,
+  });
+
+  const { data: cityFunnel } = useQuery({
+    queryKey: ['city-funnel'],
+    queryFn: async () => (await dashboardApi.getCityFunnel()).data,
+  });
+
+  // 'all' sums every quarter; the picker narrows to one.
+  const [funnelQuarter, setFunnelQuarter] = useState<string>('all');
 
   const approvalRate = stats && stats.total_opportunities > 0
     ? Math.round((stats.total_approved / stats.total_opportunities) * 100)
@@ -518,6 +547,269 @@ const AdminDashboard: React.FC = () => {
           />
         </Col>
       </Row>
+
+      {/* ---------------- POC tracking ------------------------------------- */}
+      {pocSummary && pocSummary.total_pocs > 0 && (
+        <>
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col xs={12} sm={8} lg={4}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Statistic title="POCs Running" value={pocSummary.running} prefix={<RocketOutlined />} valueStyle={{ color: BRAND.royal500 }} />
+              </Card>
+            </Col>
+            <Col xs={12} sm={8} lg={4}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Statistic title="POCs Won" value={pocSummary.successful} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#10b981' }} />
+              </Card>
+            </Col>
+            <Col xs={12} sm={8} lg={4}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Statistic title="POCs Lost" value={pocSummary.unsuccessful} prefix={<CloseCircleOutlined />} valueStyle={{ color: '#ef4444' }} />
+              </Card>
+            </Col>
+            <Col xs={12} sm={8} lg={4}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Statistic
+                  title="POC Success Rate"
+                  value={pocSummary.success_rate ?? 0}
+                  suffix="%"
+                  precision={1}
+                  valueStyle={{ color: pocSummary.success_rate === null ? '#94a3b8' : '#10b981' }}
+                />
+                <Typography.Text type="secondary" style={{ fontSize: 10 }}>of closed POCs</Typography.Text>
+              </Card>
+            </Col>
+            <Col xs={12} sm={8} lg={4}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Statistic title="Avg POC Duration" value={pocSummary.avg_duration_days ?? 0} suffix="d" precision={0} valueStyle={{ color: BRAND.violet500 }} />
+              </Card>
+            </Col>
+            <Col xs={12} sm={8} lg={4}>
+              <Card bordered={false} style={{ borderRadius: 12 }}>
+                <Statistic
+                  title="POC Pipeline"
+                  value={formatChartUsd(Number(pocSummary.running_worth))}
+                  valueStyle={{ color: BRAND.royal500, fontSize: 20 }}
+                />
+                <Typography.Text type="secondary" style={{ fontSize: 10 }}>worth in running POCs</Typography.Text>
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col xs={24} lg={12}>
+              <Card
+                title="POC stage funnel"
+                bordered={false}
+                style={{ borderRadius: 12 }}
+                extra={
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {pocSummary.running} running
+                  </Typography.Text>
+                }
+              >
+                <PocStageFunnel data={pocSummary.by_stage} />
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card title="POCs by country" bordered={false} style={{ borderRadius: 12 }}>
+                <Table
+                  rowKey="country"
+                  size="small"
+                  pagination={false}
+                  dataSource={pocSummary.by_country}
+                  columns={[
+                    { title: 'Country', dataIndex: 'country', key: 'country' },
+                    { title: 'Running', dataIndex: 'running', key: 'running' },
+                    { title: 'Won', dataIndex: 'successful', key: 'successful' },
+                    { title: 'Lost', dataIndex: 'unsuccessful', key: 'unsuccessful' },
+                    {
+                      title: 'Worth',
+                      dataIndex: 'total_worth',
+                      key: 'total_worth',
+                      render: (v: string) => formatChartUsd(Number(v)),
+                    },
+                  ]}
+                />
+              </Card>
+            </Col>
+          </Row>
+        </>
+      )}
+
+      {/* ---------------- Sales funnel value by city × quarter -------------- */}
+      {cityFunnel && cityFunnel.cells.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Card
+              title="Sales funnel value by city"
+              bordered={false}
+              style={{ borderRadius: 12 }}
+              extra={
+                <Select
+                  size="small"
+                  style={{ width: 150 }}
+                  value={funnelQuarter}
+                  onChange={setFunnelQuarter}
+                  options={[
+                    { value: 'all', label: 'All quarters' },
+                    ...cityFunnel.quarters.map((q) => ({ value: q, label: q })),
+                  ]}
+                />
+              }
+            >
+              <CityFunnelChart data={cityFunnel} quarter={funnelQuarter} />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* ---------------- 2027 Target Plan analytics ----------------------- */}
+      {targetPlan && targetPlan.total_opportunities > 0 && (
+        <>
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col xs={24} sm={8}>
+              <Card bordered={false} style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.royal500}, ${BRAND.violet500})`, color: '#fff' }}>
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Target Plan Opportunities</Typography.Text>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{targetPlan.total_opportunities}</div>
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>2027 pipeline</Typography.Text>
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card bordered={false} style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.navy}, ${BRAND.royal500})`, color: '#fff' }}>
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Total Worth</Typography.Text>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{formatChartUsd(Number(targetPlan.total_worth))}</div>
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>unweighted pipeline value</Typography.Text>
+              </Card>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Card bordered={false} style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.violet700}, ${BRAND.violet500})`, color: '#fff' }}>
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Weighted Pipeline</Typography.Text>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{formatChartUsd(Number(targetPlan.weighted_pipeline))}</div>
+                <Typography.Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>worth × stage probability</Typography.Text>
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col xs={24} lg={8}>
+              <Card title="Pipeline by Product" bordered={false} style={{ borderRadius: 12 }}>
+                {targetPlan.by_product.length > 0 ? (
+                  <Column
+                    data={targetPlan.by_product.map((p: ProductBreakdown) => ({
+                      product: p.product,
+                      Worth: Number(p.total_worth),
+                      Weighted: Number(p.weighted_pipeline),
+                    })).flatMap((p) => [
+                      { product: p.product, type: 'Worth', value: p.Worth },
+                      { product: p.product, type: 'Weighted', value: p.Weighted },
+                    ])}
+                    xField="product"
+                    yField="value"
+                    colorField="type"
+                    group
+                    height={260}
+                    scale={{ color: { range: [BRAND.royal500, BRAND.violet500] } }}
+                    axis={{ y: { labelFormatter: (v: number) => formatChartUsd(v) } }}
+                    legend={{ color: { position: 'top' as const } }}
+                  />
+                ) : <Empty description="No product data" />}
+              </Card>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Card title="Pipeline by Industry" bordered={false} style={{ borderRadius: 12 }}>
+                {targetPlan.by_industry.length > 0 ? (
+                  <Bar
+                    data={targetPlan.by_industry.map((i: OppIndustryBreakdown) => ({
+                      industry: i.industry,
+                      value: Number(i.total_worth),
+                    }))}
+                    xField="value"
+                    yField="industry"
+                    height={260}
+                    scale={{ color: { range: [BRAND.violet500] } }}
+                    colorField="industry"
+                    legend={false as const}
+                    axis={{ x: { labelFormatter: (v: number) => formatChartUsd(v) } }}
+                  />
+                ) : <Empty description="No industry data" />}
+              </Card>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Card title="Pipeline by Quarter (2027)" bordered={false} style={{ borderRadius: 12 }}>
+                {targetPlan.by_quarter.length > 0 ? (
+                  <Column
+                    data={targetPlan.by_quarter.flatMap((q: QuarterBreakdown) => [
+                      { quarter: q.time_frame, type: 'Worth', value: Number(q.total_worth) },
+                      { quarter: q.time_frame, type: 'Weighted', value: Number(q.weighted_pipeline) },
+                    ])}
+                    xField="quarter"
+                    yField="value"
+                    colorField="type"
+                    group
+                    height={260}
+                    scale={{ color: { range: [BRAND.royal500, BRAND.violet500] } }}
+                    axis={{ y: { labelFormatter: (v: number) => formatChartUsd(v) } }}
+                    legend={{ color: { position: 'top' as const } }}
+                  />
+                ) : <Empty description="No quarterly data" />}
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+            <Col xs={24} lg={12}>
+              <Card title="Pipeline Stage Funnel (6-bucket)" bordered={false} style={{ borderRadius: 12 }}>
+                {targetPlan.by_stage.length > 0 ? (
+                  <Bar
+                    data={targetPlan.by_stage.map((s: StageBreakdown) => ({
+                      stage: `${Math.round(s.probability * 100)}% — ${s.stage_label}`,
+                      count: s.opportunity_count,
+                      worth: Number(s.total_worth),
+                    }))}
+                    xField="count"
+                    yField="stage"
+                    height={300}
+                    scale={{ color: { range: [BRAND.royal500] } }}
+                    colorField="stage"
+                    legend={false as const}
+                  />
+                ) : <Empty description="No stage data" />}
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card title="Sales Rep Leaderboard" bordered={false} style={{ borderRadius: 12 }}>
+                {targetPlan.by_sales_rep.length > 0 ? (
+                  <div>
+                    {targetPlan.by_sales_rep.map((r: SalesRepBreakdown, idx: number) => {
+                      const max = Math.max(...targetPlan.by_sales_rep.map((x) => Number(x.weighted_pipeline)), 1);
+                      const pct = Math.max(2, (Number(r.weighted_pipeline) / max) * 100);
+                      return (
+                        <div key={r.sales_rep_id} style={{ padding: '12px 4px', borderBottom: idx === targetPlan.by_sales_rep.length - 1 ? 'none' : '1px solid #f0f0f0' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <Typography.Text strong>{r.sales_rep_name}</Typography.Text>
+                            <Typography.Text strong>{formatChartUsd(Number(r.weighted_pipeline))}</Typography.Text>
+                          </div>
+                          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                            {r.opportunity_count} opps • {formatChartUsd(Number(r.total_worth))} unweighted
+                          </Typography.Text>
+                          <div style={{ height: 4, borderRadius: 2, background: BRAND.royal50, marginTop: 6, overflow: 'hidden' }}>
+                            <div style={{
+                              width: `${pct}%`,
+                              height: '100%',
+                              background: `linear-gradient(90deg, ${BRAND.royal500}, ${BRAND.violet500})`,
+                            }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : <Empty description="No rep data" />}
+              </Card>
+            </Col>
+          </Row>
+        </>
+      )}
 
       {/* ---------------- Brand stat pill row ------------------------------- */}
       <Row gutter={[12, 12]} style={{ marginTop: 16 }}>

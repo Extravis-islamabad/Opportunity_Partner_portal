@@ -39,6 +39,7 @@ import { dashboardApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/common/PageHeader';
+import OnboardingChecklist from '@/components/onboarding/OnboardingChecklist';
 import {
   BrandDonut,
   BrandGauge,
@@ -334,6 +335,8 @@ const PartnerDashboard: React.FC = () => {
           </Tag>
         }
       />
+
+      <OnboardingChecklist />
 
       {stats.pending_doc_requests > 0 && (
         <Alert

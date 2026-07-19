@@ -5,6 +5,7 @@ from sqlalchemy.orm import joinedload
 from typing import Optional
 
 from app.models.kb_document import KBDocument, KBDownloadLog
+from app.utils.file_tokens import signed_file_url
 from app.models.user import User
 from app.schemas.knowledge_base import (
     KBDocumentCreateRequest,
@@ -40,7 +41,7 @@ async def create_kb_document(
         category=doc.category,
         description=doc.description,
         file_name=doc.file_name,
-        file_url=doc.file_url,
+        file_url=signed_file_url(doc.file_url),
         file_size=doc.file_size,
         content_type=doc.content_type,
         version=doc.version,
@@ -98,7 +99,7 @@ async def get_kb_documents(
             category=d.category,
             description=d.description,
             file_name=d.file_name,
-            file_url=d.file_url,
+            file_url=signed_file_url(d.file_url),
             file_size=d.file_size,
             content_type=d.content_type,
             version=d.version,
@@ -133,7 +134,7 @@ async def get_kb_document_detail(db: AsyncSession, doc_id: int) -> KBDocumentRes
         category=doc.category,
         description=doc.description,
         file_name=doc.file_name,
-        file_url=doc.file_url,
+        file_url=signed_file_url(doc.file_url),
         file_size=doc.file_size,
         content_type=doc.content_type,
         version=doc.version,
@@ -167,7 +168,7 @@ async def update_kb_document(
             category=doc.category,
             description=doc.description,
             file_name=doc.file_name,
-            file_url=doc.file_url,
+            file_url=signed_file_url(doc.file_url),
             file_size=doc.file_size,
             content_type=doc.content_type,
             version=doc.version,

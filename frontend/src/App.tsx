@@ -30,6 +30,11 @@ import DealsPage from '@/pages/deals/DealsPage';
 import CommissionsListPage from '@/pages/commissions/CommissionsListPage';
 import ScorecardPage from '@/pages/scorecard/ScorecardPage';
 import LeaderboardPage from '@/pages/scorecard/LeaderboardPage';
+import PocListPage from '@/pages/poc/PocListPage';
+import DeploymentPage from '@/pages/deployment/DeploymentPage';
+import OpportunityEditPage from '@/pages/opportunities/OpportunityEditPage';
+import AuditLogsPage from '@/pages/audit/AuditLogsPage';
+import BulkImportPage from '@/pages/admin/BulkImportPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,21 +77,35 @@ const App: React.FC = () => {
                 <Route path="/companies/:id" element={<ProtectedRoute requiredRole="admin"><CompanyDetailPage /></ProtectedRoute>} />
                 {/* User management is superadmin-only */}
                 <Route path="/users" element={<ProtectedRoute requiredRole="superadmin"><UserListPage /></ProtectedRoute>} />
+                {/* Audit log + bulk import are superadmin-only tools */}
+                <Route path="/audit-logs" element={<ProtectedRoute requiredRole="superadmin"><AuditLogsPage /></ProtectedRoute>} />
+                <Route path="/admin/bulk-import" element={<ProtectedRoute requiredRole="superadmin"><BulkImportPage /></ProtectedRoute>} />
 
-                {/* All authenticated users */}
+                {/* Pipeline — visible to all authenticated roles, each
+                    scoped by the backend (partners own, sales reps assigned,
+                    channel managers their companies). */}
                 <Route path="/opportunities" element={<OpportunityListPage />} />
                 <Route path="/opportunities/create" element={<ProtectedRoute requiredRole="partner"><OpportunityCreatePage /></ProtectedRoute>} />
-                {/* Admin/channel-manager review queue — declared BEFORE :id so it doesn't get caught by the param route */}
+                {/* Static paths declared BEFORE :id so they don't get caught by the param route */}
                 <Route path="/opportunities/duplicates" element={<ProtectedRoute requiredRole="admin"><DuplicateReviewPage /></ProtectedRoute>} />
+                <Route path="/opportunities/:id/edit" element={<ProtectedRoute requiredRole="partner"><OpportunityEditPage /></ProtectedRoute>} />
                 <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
+                {/* POC visible to all (partners read-only); Deployment is
+                    internal — admins and sales reps only. */}
+                <Route path="/poc" element={<PocListPage />} />
+                <Route path="/deployment" element={<ProtectedRoute requiredRole="poc_editor"><DeploymentPage /></ProtectedRoute>} />
+                {/* Learning + KB open to all authenticated roles. */}
                 <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
                 <Route path="/lms" element={<LmsPage />} />
                 <Route path="/lms/courses/:id" element={<CourseDetailPage />} />
-                <Route path="/doc-requests" element={<DocRequestPage />} />
-                <Route path="/deals" element={<DealsPage />} />
-                <Route path="/commissions" element={<CommissionsListPage />} />
-                <Route path="/scorecard" element={<ScorecardPage />} />
-                <Route path="/leaderboard" element={<LeaderboardPage />} />
+                {/* Partner/admin workflows — sales reps are denied by the
+                    backend, so gate the routes to match. */}
+                <Route path="/doc-requests" element={<ProtectedRoute allow={['admin', 'partner']}><DocRequestPage /></ProtectedRoute>} />
+                <Route path="/deals" element={<ProtectedRoute allow={['admin', 'partner']}><DealsPage /></ProtectedRoute>} />
+                <Route path="/commissions" element={<ProtectedRoute allow={['admin', 'partner']}><CommissionsListPage /></ProtectedRoute>} />
+                <Route path="/scorecard" element={<ProtectedRoute requiredRole="partner"><ScorecardPage /></ProtectedRoute>} />
+                <Route path="/leaderboard" element={<ProtectedRoute allow={['admin', 'partner']}><LeaderboardPage /></ProtectedRoute>} />
+                {/* Personal — every authenticated user. */}
                 <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
               </Route>

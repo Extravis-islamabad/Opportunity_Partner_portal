@@ -12,6 +12,7 @@ import {
   Typography,
   Space,
   Spin,
+  Select,
 } from 'antd';
 import {
   WarningOutlined,
@@ -231,6 +232,12 @@ const OpportunityCreatePage: React.FC = () => {
       closing_date: (values['closing_date'] as dayjs.Dayjs).format('YYYY-MM-DD'),
       requirements: values['requirements'] as string,
       status: values['submit'] ? 'pending_review' : 'draft',
+      industry: (values['industry'] as string) || undefined,
+      product: (values['product'] as string) || undefined,
+      stage_probability: typeof values['stage_probability'] === 'number'
+        ? (values['stage_probability'] as number)
+        : undefined,
+      time_frame: (values['time_frame'] as string) || undefined,
     };
     mutation.mutate(data);
   };
@@ -287,6 +294,60 @@ const OpportunityCreatePage: React.FC = () => {
           </Form.Item>
           <Form.Item name="worth" label="Opportunity Worth (USD)" rules={[{ required: true, message: 'Required' }]}>
             <InputNumber style={{ width: '100%' }} min={0.01} precision={2} placeholder="0.00" prefix="$" />
+          </Form.Item>
+          <Form.Item name="industry" label="Customer Industry">
+            <Select
+              allowClear
+              placeholder="Select industry"
+              options={[
+                { value: 'FSI', label: 'FSI' },
+                { value: 'Healthcare', label: 'Healthcare' },
+                { value: 'Telco / ISP', label: 'Telco / ISP' },
+                { value: 'Manufacturing', label: 'Manufacturing' },
+                { value: 'Oil & Gas/ Power', label: 'Oil & Gas / Power' },
+                { value: 'Education', label: 'Education' },
+                { value: 'Government', label: 'Government' },
+                { value: 'Retail', label: 'Retail' },
+                { value: 'IT Services', label: 'IT Services' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="product" label="Product">
+            <Select
+              allowClear
+              placeholder="Select product"
+              options={[
+                { value: 'MonetX', label: 'MonetX' },
+                { value: 'PatchX', label: 'PatchX' },
+                { value: 'SupportX', label: 'SupportX' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="stage_probability" label="Pipeline Stage">
+            <Select
+              allowClear
+              placeholder="Select stage"
+              options={[
+                { value: 0.1, label: '0.10 — Raw Lead' },
+                { value: 0.3, label: '0.30 — POC Engaged / Tender Specs' },
+                { value: 0.6, label: '0.60 — POC Successful / Budget Approved' },
+                { value: 0.7, label: '0.70 — Price Submitted / Negotiation' },
+                { value: 0.9, label: '0.90 — PO Received' },
+                { value: 1.0, label: '1.00 — Payment Received' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="time_frame" label="Expected Time Frame">
+            <Select
+              allowClear
+              placeholder="Select quarter"
+              options={[
+                { value: 'Q1 - 2027', label: 'Q1 - 2027' },
+                { value: 'Q2 - 2027', label: 'Q2 - 2027' },
+                { value: 'Q3 - 2027', label: 'Q3 - 2027' },
+                { value: 'Q4 - 2027', label: 'Q4 - 2027' },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="closing_date" label="Expected Closing Date" rules={[{ required: true, message: 'Required' }]}>
             <DatePicker style={{ width: '100%' }} disabledDate={(d) => d.isBefore(dayjs(), 'day')} />
