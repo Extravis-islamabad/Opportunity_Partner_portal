@@ -4,10 +4,27 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 import structlog
 
+from app.core.exceptions import AppException
+
 logger = structlog.get_logger()
 
 
 def register_error_handlers(app: FastAPI) -> None:
+
+    @app.exception_handler(AppException)
+    async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+        # Flatten to the same top-level {code, message, details} shape the
+        # other handlers use. Without this, HTTPException's default handler
+        # nests everything under "detail" and the frontend (which reads
+        # response.data.message) falls back to its generic error strings.
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "code": exc.code,
+                "message": exc.error_message,
+                "details": exc.details,
+            },
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
