@@ -211,22 +211,22 @@ const PocListPage: React.FC = () => {
       {summary && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={12} sm={8} lg={4}>
-            <Card bordered={false} style={{ borderRadius: 12 }}>
+            <Card variant="borderless" style={{ borderRadius: 12 }}>
               <Statistic title="Running" value={summary.running} valueStyle={{ color: '#3750ed' }} prefix={<RocketOutlined />} />
             </Card>
           </Col>
           <Col xs={12} sm={8} lg={4}>
-            <Card bordered={false} style={{ borderRadius: 12 }}>
+            <Card variant="borderless" style={{ borderRadius: 12 }}>
               <Statistic title="Successful" value={summary.successful} valueStyle={{ color: '#10b981' }} prefix={<CheckCircleOutlined />} />
             </Card>
           </Col>
           <Col xs={12} sm={8} lg={4}>
-            <Card bordered={false} style={{ borderRadius: 12 }}>
+            <Card variant="borderless" style={{ borderRadius: 12 }}>
               <Statistic title="Unsuccessful" value={summary.unsuccessful} valueStyle={{ color: '#ef4444' }} prefix={<CloseCircleOutlined />} />
             </Card>
           </Col>
           <Col xs={12} sm={8} lg={4}>
-            <Card bordered={false} style={{ borderRadius: 12 }}>
+            <Card variant="borderless" style={{ borderRadius: 12 }}>
               <Statistic
                 title="Success Rate"
                 value={summary.success_rate ?? 0}
@@ -238,7 +238,7 @@ const PocListPage: React.FC = () => {
             </Card>
           </Col>
           <Col xs={12} sm={8} lg={4}>
-            <Card bordered={false} style={{ borderRadius: 12 }}>
+            <Card variant="borderless" style={{ borderRadius: 12 }}>
               <Statistic
                 title="Avg Duration"
                 value={summary.avg_duration_days ?? 0}
@@ -249,7 +249,7 @@ const PocListPage: React.FC = () => {
             </Card>
           </Col>
           <Col xs={12} sm={8} lg={4}>
-            <Card bordered={false} style={{ borderRadius: 12 }}>
+            <Card variant="borderless" style={{ borderRadius: 12 }}>
               <Statistic
                 title="Overdue"
                 value={summary.overdue}
@@ -262,12 +262,12 @@ const PocListPage: React.FC = () => {
       )}
 
       {summary && summary.running > 0 && (
-        <Card title="Stage funnel — running POCs" bordered={false} style={{ borderRadius: 12, marginTop: 16 }}>
+        <Card title="Stage funnel — running POCs" variant="borderless" style={{ borderRadius: 12, marginTop: 16 }}>
           <PocStageFunnel data={summary.by_stage} />
         </Card>
       )}
 
-      <Card bordered={false} style={{ borderRadius: 12, marginTop: 16 }}>
+      <Card variant="borderless" style={{ borderRadius: 12, marginTop: 16 }}>
         <Space style={{ marginBottom: 16 }} wrap>
           <Input.Search
             placeholder="Search customer"

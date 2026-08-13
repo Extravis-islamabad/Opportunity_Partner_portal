@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     ai,
     pocs,
     files,
+    sales_activities,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -45,3 +46,4 @@ api_router.include_router(commissions.router)
 api_router.include_router(ai.router)
 api_router.include_router(pocs.router)
 api_router.include_router(files.router)
+api_router.include_router(sales_activities.router)

@@ -197,7 +197,7 @@ const CommissionsListPage: React.FC = () => {
 
       <Card
         title="Monthly Statements"
-        bordered={false}
+        variant="borderless"
         style={{ borderRadius: 12, marginTop: 24 }}
         styles={{ body: { paddingTop: 8 } }}
       >

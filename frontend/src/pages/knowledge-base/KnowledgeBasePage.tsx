@@ -154,7 +154,7 @@ const KnowledgeBasePage: React.FC = () => {
       </Modal>
 
       <Modal title="Edit Document" open={editingDoc !== null} onCancel={() => setEditingDoc(null)}
-        onOk={() => editForm.submit()} confirmLoading={editMut.isPending} destroyOnClose>
+        onOk={() => editForm.submit()} confirmLoading={editMut.isPending} destroyOnHidden>
         <Form form={editForm} layout="vertical" onFinish={(v) => editMut.mutate(v)}>
           <Form.Item name="title" label="Title" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="category" label="Category" rules={[{ required: true }]}>

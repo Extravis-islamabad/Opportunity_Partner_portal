@@ -77,22 +77,22 @@ const SalesRepDashboard: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={pocLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={pocLoading}>
             <Statistic title="Running POCs" value={poc?.running ?? 0} prefix={<RocketOutlined />} valueStyle={{ color: '#3750ed' }} />
           </Card>
         </Col>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={pocLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={pocLoading}>
             <Statistic title="Successful" value={poc?.successful ?? 0} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#10b981' }} />
           </Card>
         </Col>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={pocLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={pocLoading}>
             <Statistic title="Unsuccessful" value={poc?.unsuccessful ?? 0} prefix={<CloseCircleOutlined />} valueStyle={{ color: '#ef4444' }} />
           </Card>
         </Col>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={pocLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={pocLoading}>
             <Statistic
               title="Overdue POCs"
               value={poc?.overdue ?? 0}
@@ -105,7 +105,7 @@ const SalesRepDashboard: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={8}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={pocLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={pocLoading}>
             <Statistic
               title="POC Success Rate"
               value={poc?.success_rate ?? 0}
@@ -118,7 +118,7 @@ const SalesRepDashboard: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} lg={8}>
-          <Card bordered={false} style={{ borderRadius: 12 }}>
+          <Card variant="borderless" style={{ borderRadius: 12 }}>
             <Statistic
               title="Devices Deployed"
               value={deployment?.total_devices ?? 0}
@@ -128,7 +128,7 @@ const SalesRepDashboard: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} lg={8}>
-          <Card bordered={false} style={{ borderRadius: 12 }}>
+          <Card variant="borderless" style={{ borderRadius: 12 }}>
             <Statistic
               title="Pipeline in POC"
               value={formatChartUsd(Number(poc?.running_worth ?? 0))}
@@ -141,12 +141,12 @@ const SalesRepDashboard: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={10}>
-          <Card title="My POC stage funnel" bordered={false} style={{ borderRadius: 12 }} loading={pocLoading}>
+          <Card title="My POC stage funnel" variant="borderless" style={{ borderRadius: 12 }} loading={pocLoading}>
             {poc ? <PocStageFunnel data={poc.by_stage} /> : null}
           </Card>
         </Col>
         <Col xs={24} lg={14}>
-          <Card title="My opportunities" bordered={false} style={{ borderRadius: 12 }}>
+          <Card title="My opportunities" variant="borderless" style={{ borderRadius: 12 }}>
             <Table
               rowKey="id"
               size="small"

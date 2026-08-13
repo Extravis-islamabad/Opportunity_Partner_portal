@@ -146,24 +146,24 @@ const DeploymentPage: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             <Statistic title="Active POCs" value={data?.active_pocs ?? 0} prefix={<RocketOutlined />} valueStyle={{ color: '#3750ed' }} />
           </Card>
         </Col>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             <Statistic title="Devices Deployed" value={data?.total_devices ?? 0} prefix={<ClusterOutlined />} valueStyle={{ color: '#a064f3' }} />
             <Text type="secondary" style={{ fontSize: 10 }}>across live licences</Text>
           </Card>
         </Col>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             <Statistic title="Nodes Deployed" value={data?.total_nodes ?? 0} prefix={<ClusterOutlined />} valueStyle={{ color: '#7a2280' }} />
             <Text type="secondary" style={{ fontSize: 10 }}>across live licences</Text>
           </Card>
         </Col>
         <Col xs={12} lg={6}>
-          <Card bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             <Statistic title="Active Licences" value={data?.active_licenses ?? 0} prefix={<SafetyCertificateOutlined />} valueStyle={{ color: '#10b981' }} />
           </Card>
         </Col>
@@ -171,12 +171,12 @@ const DeploymentPage: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={12}>
-          <Card title="POC stage funnel" bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card title="POC stage funnel" variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             {data ? <PocStageFunnel data={data.stage_funnel} /> : null}
           </Card>
         </Col>
         <Col xs={24} lg={12}>
-          <Card title="POC activity — started vs completed" bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card title="POC activity — started vs completed" variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             {data ? <MonthlyActivity data={data.monthly_activity} /> : null}
           </Card>
         </Col>
@@ -184,7 +184,7 @@ const DeploymentPage: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={10}>
-          <Card title="Licences by status" bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card title="Licences by status" variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             {totalLicensed === 0 ? (
               <Empty description="No licences recorded yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             ) : (
@@ -211,7 +211,7 @@ const DeploymentPage: React.FC = () => {
           </Card>
         </Col>
         <Col xs={24} lg={14}>
-          <Card title="Licences expiring in the next 90 days" bordered={false} style={{ borderRadius: 12 }} loading={isLoading}>
+          <Card title="Licences expiring in the next 90 days" variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             <Table
               rowKey="opportunity_id"
               size="small"

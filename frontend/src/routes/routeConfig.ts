@@ -62,6 +62,13 @@ export const ROUTES: RouteDescriptor[] = [
     keywords: ['deployment', 'devices', 'nodes', 'licence', 'license', 'rollout', 'activation', 'expiry'],
   },
   {
+    path: '/activities',
+    label: 'Activity Log',
+    section: 'Pipeline',
+    roles: ['admin', 'sales_rep'],
+    keywords: ['activity', 'daily', 'calls', 'meetings', 'demos', 'log', 'calendar'],
+  },
+  {
     path: '/audit-logs',
     label: 'Audit Logs',
     section: 'Administration',
@@ -81,6 +88,20 @@ export const ROUTES: RouteDescriptor[] = [
     section: 'Pipeline',
     roles: ['partner'],
     keywords: ['create', 'add', 'new'],
+  },
+  {
+    path: '/opportunities/duplicates',
+    label: 'Duplicate Review',
+    section: 'Pipeline',
+    roles: ['admin'],
+    keywords: ['duplicate', 'dedupe', 'merge', 'review', 'conflict'],
+  },
+  {
+    path: '/companies/create',
+    label: 'New Company',
+    section: 'Administration',
+    roles: ['superadmin'],
+    keywords: ['create', 'add', 'company', 'partner company'],
   },
   {
     // Deal registration is a partner/admin workflow; sales reps are denied

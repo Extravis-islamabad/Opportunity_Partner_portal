@@ -96,7 +96,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          bordered={false}
+          variant="borderless"
         />
       </div>
       <div style={{ maxHeight: 400, overflowY: 'auto' }}>

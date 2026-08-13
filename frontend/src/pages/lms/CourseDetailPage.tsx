@@ -237,7 +237,7 @@ const ModuleEditorModal: React.FC<ModuleEditorProps> = ({ open, initial, onCance
       open={open}
       onCancel={onCancel}
       onOk={() => form.submit()}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form
         form={form}

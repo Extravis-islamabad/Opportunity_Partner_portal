@@ -7,7 +7,7 @@ fallback, summarize/rescore return 503 with a clear message.
 import hashlib
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +16,7 @@ from sqlalchemy.orm import joinedload
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user, assert_can_access_opportunity
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import NotFoundException, ServiceUnavailableException
 from app.core.rate_limit import limiter
 from app.core.redis import redis_client
 from app.models.kb_document import KBDocument
@@ -177,9 +177,9 @@ async def summarize_opportunity(
     db: AsyncSession = Depends(get_db),
 ) -> OpportunitySummaryResponse:
     if not settings.ai_is_configured:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI features are disabled. Configure GROQ_API_KEY to enable.",
+        raise ServiceUnavailableException(
+            code="AI_DISABLED",
+            message="AI features are disabled. Configure GROQ_API_KEY to enable.",
         )
 
     result = await db.execute(
@@ -209,9 +209,9 @@ async def summarize_opportunity(
 
     summary = await ai_service.summarize_opportunity(opp)
     if summary is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI service is currently unavailable. Please try again shortly.",
+        raise ServiceUnavailableException(
+            code="AI_UNAVAILABLE",
+            message="AI service is currently unavailable. Please try again shortly.",
         )
 
     try:
@@ -239,9 +239,9 @@ async def rescore_opportunity(
     db: AsyncSession = Depends(get_db),
 ) -> RescoreResponse:
     if not settings.ai_is_configured:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI features are disabled. Configure GROQ_API_KEY to enable.",
+        raise ServiceUnavailableException(
+            code="AI_DISABLED",
+            message="AI features are disabled. Configure GROQ_API_KEY to enable.",
         )
 
     result = await db.execute(
@@ -258,9 +258,9 @@ async def rescore_opportunity(
 
     score_result = await ai_service.score_opportunity(opp)
     if score_result is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI scoring failed. Please try again shortly.",
+        raise ServiceUnavailableException(
+            code="AI_UNAVAILABLE",
+            message="AI scoring failed. Please try again shortly.",
         )
 
     from datetime import datetime, timezone

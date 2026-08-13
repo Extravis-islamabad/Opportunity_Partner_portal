@@ -62,6 +62,8 @@ export interface UserResponse {
   company_id: number | null;
   company_name: string | null;
   is_superadmin: boolean;
+  is_channel_manager: boolean;
+  managed_company_count: number;
   last_login_at: string | null;
   created_at: string;
   updated_at: string;
@@ -872,6 +874,64 @@ export interface BulkImportResult {
   // Only returned by the opportunities importer (bulk_import_opportunities.py)
   companies_touched?: number;
   admins_touched?: number;
+}
+
+// ==================== Sales activity log ====================
+export type ActivityType =
+  | 'call'
+  | 'meeting'
+  | 'demo'
+  | 'email'
+  | 'site_visit'
+  | 'follow_up'
+  | 'training'
+  | 'other';
+
+export interface ActivityCreateRequest {
+  activity_date: string; // YYYY-MM-DD
+  activity_type: ActivityType;
+  customer_name?: string | null;
+  opportunity_id?: number | null;
+  duration_minutes?: number | null;
+  notes?: string | null;
+}
+
+export interface ActivityResponse {
+  id: number;
+  user_id: number;
+  user_name: string | null;
+  activity_date: string;
+  activity_type: ActivityType;
+  activity_type_label: string;
+  customer_name: string | null;
+  opportunity_id: number | null;
+  opportunity_name: string | null;
+  duration_minutes: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActivityTypeTotal {
+  activity_type: ActivityType;
+  label: string;
+  count: number;
+}
+
+export interface ActivityDay {
+  date: string;
+  weekday: number; // 0 = Monday … 6 = Sunday
+  items: ActivityResponse[];
+}
+
+export interface ActivityMonthResponse {
+  user_id: number;
+  user_name: string | null;
+  month: string; // YYYY-MM
+  days: ActivityDay[];
+  totals_by_type: ActivityTypeTotal[];
+  total_activities: number;
+  total_duration_minutes: number;
 }
 
 // ==================== Onboarding ====================

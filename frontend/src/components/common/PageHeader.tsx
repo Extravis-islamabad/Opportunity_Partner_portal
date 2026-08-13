@@ -20,13 +20,12 @@ const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, breadcrumbs, e
   return (
     <div style={{ marginBottom: 24 }}>
       {breadcrumbs && breadcrumbs.length > 0 && (
-        <Breadcrumb style={{ marginBottom: 8 }}>
-          {breadcrumbs.map((item, index) => (
-            <Breadcrumb.Item key={index}>
-              {item.path ? <Link to={item.path}>{item.label}</Link> : item.label}
-            </Breadcrumb.Item>
-          ))}
-        </Breadcrumb>
+        <Breadcrumb
+          style={{ marginBottom: 8 }}
+          items={breadcrumbs.map((item) => ({
+            title: item.path ? <Link to={item.path}>{item.label}</Link> : item.label,
+          }))}
+        />
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Space direction="vertical" size={0}>

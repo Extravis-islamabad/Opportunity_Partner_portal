@@ -26,6 +26,7 @@ import {
   DeploymentUnitOutlined,
   UploadOutlined,
   HistoryOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -95,6 +96,7 @@ const AppLayout: React.FC = () => {
     { key: '/opportunities/duplicates', icon: <ExclamationCircleOutlined />, label: 'Duplicate Review' },
     { key: '/poc', icon: <RocketOutlined />, label: 'POC Tracking' },
     { key: '/deployment', icon: <DeploymentUnitOutlined />, label: 'Deployment' },
+    { key: '/activities', icon: <CalendarOutlined />, label: 'Activity Log' },
     { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
     { key: '/commissions', icon: <DollarOutlined />, label: 'Commissions' },
     { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
@@ -128,6 +130,7 @@ const AppLayout: React.FC = () => {
   // requests — all 403 for them) nor the admin ones.
   const salesRepMenuItems: MenuProps['items'] = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
+    { key: '/activities', icon: <CalendarOutlined />, label: 'My Activity Log' },
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'My Opportunities' },
     { key: '/poc', icon: <RocketOutlined />, label: 'POC Tracking' },
     { key: '/deployment', icon: <DeploymentUnitOutlined />, label: 'Deployment' },
@@ -137,7 +140,14 @@ const AppLayout: React.FC = () => {
 
   const menuItems = isAdmin ? adminMenuItems : isSalesRep ? salesRepMenuItems : partnerMenuItems;
 
-  const selectedKey = '/' + location.pathname.split('/')[1];
+  // Highlight the most specific menu item whose key prefixes the current
+  // path, so '/opportunities/duplicates' selects Duplicate Review (not
+  // Opportunities) and '/admin/bulk-import' selects Bulk Import.
+  const selectedKey =
+    menuItems
+      .map((item) => String(item?.key ?? ''))
+      .filter((key) => key && (location.pathname === key || location.pathname.startsWith(key + '/')))
+      .sort((a, b) => b.length - a.length)[0] ?? '/' + location.pathname.split('/')[1];
 
   const userMenuItems: MenuProps['items'] = [
     { key: 'profile', icon: <UserOutlined />, label: 'Profile' },

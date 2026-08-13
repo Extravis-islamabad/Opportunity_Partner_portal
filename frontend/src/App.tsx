@@ -32,6 +32,7 @@ import ScorecardPage from '@/pages/scorecard/ScorecardPage';
 import LeaderboardPage from '@/pages/scorecard/LeaderboardPage';
 import PocListPage from '@/pages/poc/PocListPage';
 import DeploymentPage from '@/pages/deployment/DeploymentPage';
+import ActivityLogPage from '@/pages/activities/ActivityLogPage';
 import OpportunityEditPage from '@/pages/opportunities/OpportunityEditPage';
 import AuditLogsPage from '@/pages/audit/AuditLogsPage';
 import BulkImportPage from '@/pages/admin/BulkImportPage';
@@ -50,7 +51,7 @@ const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
             <Routes>
               {/* Public routes */}
@@ -94,6 +95,8 @@ const App: React.FC = () => {
                     internal — admins and sales reps only. */}
                 <Route path="/poc" element={<PocListPage />} />
                 <Route path="/deployment" element={<ProtectedRoute requiredRole="poc_editor"><DeploymentPage /></ProtectedRoute>} />
+                {/* Daily activity log — reps write their own, admins review. */}
+                <Route path="/activities" element={<ProtectedRoute allow={['admin', 'sales_rep']}><ActivityLogPage /></ProtectedRoute>} />
                 {/* Learning + KB open to all authenticated roles. */}
                 <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
                 <Route path="/lms" element={<LmsPage />} />

@@ -141,7 +141,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
       {/* ---------------- POC ---------------- */}
       <Card
         title={<span><RocketOutlined style={{ color: '#3750ed', marginRight: 8 }} />Proof of Concept</span>}
-        bordered={false}
+        variant="borderless"
         style={{ borderRadius: 12, marginTop: 16 }}
         loading={isLoading}
         extra={
@@ -216,7 +216,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
       {/* ---------------- Post-PO customer tracking ---------------- */}
       <Card
         title={<span><SafetyCertificateOutlined style={{ color: '#10b981', marginRight: 8 }} />Customer Tracking (post-PO)</span>}
-        bordered={false}
+        variant="borderless"
         style={{ borderRadius: 12, marginTop: 16 }}
         extra={
           canEdit && (
@@ -286,7 +286,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
                 )}
               </Descriptions.Item>
               {license.notes && (
-                <Descriptions.Item label="Notes" span={2}>{license.notes}</Descriptions.Item>
+                <Descriptions.Item label="Notes" span={{ xs: 1, sm: 2 }}>{license.notes}</Descriptions.Item>
               )}
             </Descriptions>
           </>

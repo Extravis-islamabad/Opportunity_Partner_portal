@@ -17,11 +17,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 from app.core.database import Base
-from app.models import (
-    User, Company, Opportunity, OppDocument, KBDocument, KBDownloadLog,
-    Course, Enrollment, DocRequest, Notification, AuditLog,
-    DealRegistration, PartnerTierHistory,
-)
+# Import the models package (not a hand-maintained name list) so every mapped
+# class registers on Base.metadata — a new model only needs adding to
+# app/models/__init__.py for autogenerate to see its table.
+import app.models  # noqa: F401
 
 target_metadata = Base.metadata
 

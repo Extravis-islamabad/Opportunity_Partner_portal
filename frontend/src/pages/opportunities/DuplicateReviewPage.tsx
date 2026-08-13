@@ -54,7 +54,7 @@ const OppCard: React.FC<{ opp: DuplicateOppSummary; label: string; color: string
   const navigate = useNavigate();
   return (
     <Card
-      bordered={false}
+      variant="borderless"
       hoverable
       onClick={() => navigate(`/opportunities/${opp.id}`)}
       style={{
@@ -146,7 +146,7 @@ const DuplicateReviewPage: React.FC = () => {
             {data.items.map((item: DuplicateReviewItem) => (
               <Card
                 key={item.opportunity.id}
-                bordered={false}
+                variant="borderless"
                 style={{
                   borderRadius: 14,
                   background: `linear-gradient(135deg, ${BRAND.royal50} 0%, ${BRAND.violet100} 100%)`,
@@ -177,7 +177,7 @@ const DuplicateReviewPage: React.FC = () => {
                       <OppCard opp={item.matched_against} label="POSSIBLE MATCH" color={BRAND.violet500} />
                     ) : (
                       <Card
-                        bordered={false}
+                        variant="borderless"
                         style={{ borderRadius: 12, border: `2px dashed ${BRAND.violet500}`, background: '#ffffff' }}
                         styles={{ body: { padding: 30, textAlign: 'center' } }}
                       >

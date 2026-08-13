@@ -124,7 +124,7 @@ interface KpiCardProps {
 
 const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon, gradient, trend, onClick }) => (
   <Card
-    bordered={false}
+    variant="borderless"
     hoverable={!!onClick}
     onClick={onClick}
     style={{
@@ -564,7 +564,7 @@ const AdminDashboard: React.FC = () => {
           <Col span={24}>
             <Card
               title="My Companies"
-              bordered={false}
+              variant="borderless"
               style={{ borderRadius: 12 }}
               extra={
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -626,22 +626,22 @@ const AdminDashboard: React.FC = () => {
         <>
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
             <Col xs={12} sm={8} lg={4}>
-              <Card bordered={false} style={{ borderRadius: 12 }}>
+              <Card variant="borderless" style={{ borderRadius: 12 }}>
                 <Statistic title="POCs Running" value={pocSummary.running} prefix={<RocketOutlined />} valueStyle={{ color: BRAND.royal500 }} />
               </Card>
             </Col>
             <Col xs={12} sm={8} lg={4}>
-              <Card bordered={false} style={{ borderRadius: 12 }}>
+              <Card variant="borderless" style={{ borderRadius: 12 }}>
                 <Statistic title="POCs Won" value={pocSummary.successful} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#10b981' }} />
               </Card>
             </Col>
             <Col xs={12} sm={8} lg={4}>
-              <Card bordered={false} style={{ borderRadius: 12 }}>
+              <Card variant="borderless" style={{ borderRadius: 12 }}>
                 <Statistic title="POCs Lost" value={pocSummary.unsuccessful} prefix={<CloseCircleOutlined />} valueStyle={{ color: '#ef4444' }} />
               </Card>
             </Col>
             <Col xs={12} sm={8} lg={4}>
-              <Card bordered={false} style={{ borderRadius: 12 }}>
+              <Card variant="borderless" style={{ borderRadius: 12 }}>
                 <Statistic
                   title="POC Success Rate"
                   value={pocSummary.success_rate ?? 0}
@@ -653,12 +653,12 @@ const AdminDashboard: React.FC = () => {
               </Card>
             </Col>
             <Col xs={12} sm={8} lg={4}>
-              <Card bordered={false} style={{ borderRadius: 12 }}>
+              <Card variant="borderless" style={{ borderRadius: 12 }}>
                 <Statistic title="Avg POC Duration" value={pocSummary.avg_duration_days ?? 0} suffix="d" precision={0} valueStyle={{ color: BRAND.violet500 }} />
               </Card>
             </Col>
             <Col xs={12} sm={8} lg={4}>
-              <Card bordered={false} style={{ borderRadius: 12 }}>
+              <Card variant="borderless" style={{ borderRadius: 12 }}>
                 <Statistic
                   title="POC Pipeline"
                   value={formatChartUsd(Number(pocSummary.running_worth))}
@@ -673,7 +673,7 @@ const AdminDashboard: React.FC = () => {
             <Col xs={24} lg={12}>
               <Card
                 title="POC stage funnel"
-                bordered={false}
+                variant="borderless"
                 style={{ borderRadius: 12 }}
                 extra={
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -685,7 +685,7 @@ const AdminDashboard: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} lg={12}>
-              <Card title="POCs by country" bordered={false} style={{ borderRadius: 12 }}>
+              <Card title="POCs by country" variant="borderless" style={{ borderRadius: 12 }}>
                 <Table
                   rowKey="country"
                   size="small"
@@ -716,7 +716,7 @@ const AdminDashboard: React.FC = () => {
           <Col span={24}>
             <Card
               title="Sales funnel value by city"
-              bordered={false}
+              variant="borderless"
               style={{ borderRadius: 12 }}
               extra={
                 <Select
@@ -742,21 +742,21 @@ const AdminDashboard: React.FC = () => {
         <>
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
             <Col xs={24} sm={8}>
-              <Card bordered={false} style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.royal500}, ${BRAND.violet500})`, color: '#fff' }}>
+              <Card variant="borderless" style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.royal500}, ${BRAND.violet500})`, color: '#fff' }}>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Target Plan Opportunities</Typography.Text>
                 <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{targetPlan.total_opportunities}</div>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>2027 pipeline</Typography.Text>
               </Card>
             </Col>
             <Col xs={24} sm={8}>
-              <Card bordered={false} style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.navy}, ${BRAND.royal500})`, color: '#fff' }}>
+              <Card variant="borderless" style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.navy}, ${BRAND.royal500})`, color: '#fff' }}>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Total Worth</Typography.Text>
                 <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{formatChartUsd(Number(targetPlan.total_worth))}</div>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>unweighted pipeline value</Typography.Text>
               </Card>
             </Col>
             <Col xs={24} sm={8}>
-              <Card bordered={false} style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.violet700}, ${BRAND.violet500})`, color: '#fff' }}>
+              <Card variant="borderless" style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.violet700}, ${BRAND.violet500})`, color: '#fff' }}>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Weighted Pipeline</Typography.Text>
                 <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{formatChartUsd(Number(targetPlan.weighted_pipeline))}</div>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>worth × stage probability</Typography.Text>
@@ -766,7 +766,7 @@ const AdminDashboard: React.FC = () => {
 
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
             <Col xs={24} lg={8}>
-              <Card title="Pipeline by Product" bordered={false} style={{ borderRadius: 12 }}>
+              <Card title="Pipeline by Product" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_product.length > 0 ? (
                   <Column
                     data={targetPlan.by_product.map((p: ProductBreakdown) => ({
@@ -790,7 +790,7 @@ const AdminDashboard: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} lg={8}>
-              <Card title="Pipeline by Industry" bordered={false} style={{ borderRadius: 12 }}>
+              <Card title="Pipeline by Industry" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_industry.length > 0 ? (
                   <Bar
                     data={targetPlan.by_industry.map((i: OppIndustryBreakdown) => ({
@@ -809,7 +809,7 @@ const AdminDashboard: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} lg={8}>
-              <Card title="Pipeline by Quarter (2027)" bordered={false} style={{ borderRadius: 12 }}>
+              <Card title="Pipeline by Quarter (2027)" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_quarter.length > 0 ? (
                   <Column
                     data={targetPlan.by_quarter.flatMap((q: QuarterBreakdown) => [
@@ -832,7 +832,7 @@ const AdminDashboard: React.FC = () => {
 
           <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
             <Col xs={24} lg={12}>
-              <Card title="Pipeline Stage Funnel (6-bucket)" bordered={false} style={{ borderRadius: 12 }}>
+              <Card title="Pipeline Stage Funnel (6-bucket)" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_stage.length > 0 ? (
                   <Bar
                     data={targetPlan.by_stage.map((s: StageBreakdown) => ({
@@ -851,7 +851,7 @@ const AdminDashboard: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} lg={12}>
-              <Card title="Sales Rep Leaderboard" bordered={false} style={{ borderRadius: 12 }}>
+              <Card title="Sales Rep Leaderboard" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_sales_rep.length > 0 ? (
                   <div>
                     {targetPlan.by_sales_rep.map((r: SalesRepBreakdown, idx: number) => {
@@ -956,7 +956,7 @@ const AdminDashboard: React.FC = () => {
               </Space>
             }
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>Last 12 months • hover for details</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {stackedBarsData.length > 0 ? (
@@ -974,7 +974,7 @@ const AdminDashboard: React.FC = () => {
                 <span>Tier Distribution</span>
               </Space>
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             {tierDonutData.length > 0 ? (
@@ -1012,7 +1012,7 @@ const AdminDashboard: React.FC = () => {
                 <span>Pipeline by Region</span>
               </Space>
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {regionColumnData.length > 0 ? (
@@ -1031,7 +1031,7 @@ const AdminDashboard: React.FC = () => {
               </Space>
             }
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>opportunity stages</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             <BrandFunnel data={(analytics?.funnel ?? []) as FunnelStage[]} height={280} />
@@ -1049,7 +1049,7 @@ const AdminDashboard: React.FC = () => {
                 <span>Top Industries by Opportunities</span>
               </Space>
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {industryBarData.length > 0 ? (
@@ -1068,7 +1068,7 @@ const AdminDashboard: React.FC = () => {
               </Space>
             }
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>last 6 months</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {timelineMetricData.length > 0 ? (
@@ -1090,7 +1090,7 @@ const AdminDashboard: React.FC = () => {
                 <span>Region Performance</span>
               </Space>
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {analytics?.regions && analytics.regions.length > 0 ? (
@@ -1115,7 +1115,7 @@ const AdminDashboard: React.FC = () => {
               </Space>
             }
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>monthly intensity</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             <BrandHeatCells data={heatmapData} columns={6} />
@@ -1142,7 +1142,7 @@ const AdminDashboard: React.FC = () => {
                 <span>Performance KPIs</span>
               </Space>
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             <div style={{ paddingTop: 12 }}>
@@ -1163,7 +1163,7 @@ const AdminDashboard: React.FC = () => {
               </Space>
             }
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>bubble size = opportunity count</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             {bubbleData.length > 0 ? (
@@ -1185,7 +1185,7 @@ const AdminDashboard: React.FC = () => {
                 <span>Top Performing Companies</span>
               </Space>
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
             extra={
               <Button type="link" onClick={() => navigate('/companies')}>
@@ -1274,7 +1274,7 @@ const AdminDashboard: React.FC = () => {
                 </Tag>
               )
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {radarData.length > 0 ? (
@@ -1297,7 +1297,7 @@ const AdminDashboard: React.FC = () => {
               </Space>
             }
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>last {analytics?.recent_activity?.length ?? 0} actions</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
             styles={{ body: { padding: '12px 0' } }}
           >
@@ -1351,7 +1351,7 @@ const AdminDashboard: React.FC = () => {
                   <Tag color="red">{stats.overdue_count}</Tag>
                 </Space>
               }
-              bordered={false}
+              variant="borderless"
               style={{ borderRadius: 12 }}
             >
               {(stats.overdue_opportunities as OverdueOpportunityItem[]).map((o) => {

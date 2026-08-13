@@ -109,17 +109,16 @@ async def get_partners(
         query = query.where(User.role == role)
         count_query = count_query.where(User.role == role)
 
-    # Channel-manager scope: restrict to partner users in managed companies.
-    # Other admins (peers, the superadmin) are filtered out.
+    # Channel-manager scope: partner users in managed companies, plus sales
+    # reps (reps are global — no company_id — and every admin may review
+    # their activity logs). Other admins (peers, the superadmin) stay hidden.
     if scope_company_ids is not None:
-        query = query.where(
-            User.company_id.in_(scope_company_ids),
-            User.role == UserRole.PARTNER,
+        scope_filter = (
+            (User.company_id.in_(scope_company_ids) & (User.role == UserRole.PARTNER))
+            | (User.role == UserRole.SALES_REP)
         )
-        count_query = count_query.where(
-            User.company_id.in_(scope_company_ids),
-            User.role == UserRole.PARTNER,
-        )
+        query = query.where(scope_filter)
+        count_query = count_query.where(scope_filter)
 
     if company_id:
         query = query.where(User.company_id == company_id)

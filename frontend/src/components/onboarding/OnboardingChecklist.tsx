@@ -49,7 +49,7 @@ const OnboardingChecklist: React.FC = () => {
           <span>Getting Started</span>
         </Space>
       }
-      bordered={false}
+      variant="borderless"
       style={{ borderRadius: 12 }}
       styles={{ header: { borderBottom: `1px solid ${BRAND.royal50}` } }}
     >

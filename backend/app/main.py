@@ -1,11 +1,11 @@
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi import _rate_limit_exceeded_handler
 
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -75,8 +75,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """slowapi's default handler returns {"error": ...}, which the frontend
+    (reading response.data.message) can't display — a throttled login showed
+    the generic "Login failed" instead of the real reason. Flatten to the
+    same {code, message, details} shape every other error uses, keeping
+    slowapi's Retry-After / X-RateLimit headers."""
+    response = JSONResponse(
+        status_code=429,
+        content={
+            "code": "RATE_LIMIT_EXCEEDED",
+            "message": f"Too many requests — limit is {exc.detail}. Please wait a moment and try again.",
+            "details": {},
+        },
+    )
+    view_rate_limit = getattr(request.state, "view_rate_limit", None)
+    if view_rate_limit:
+        response = request.app.state.limiter._inject_headers(response, view_rate_limit)
+    return response
+
+
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 app.add_middleware(

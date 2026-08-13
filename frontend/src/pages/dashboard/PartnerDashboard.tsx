@@ -94,7 +94,7 @@ interface KpiCardProps {
 
 const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon, gradient, hint, onClick }) => (
   <Card
-    bordered={false}
+    variant="borderless"
     hoverable={!!onClick}
     onClick={onClick}
     style={{
@@ -412,7 +412,7 @@ const PartnerDashboard: React.FC = () => {
         <Col xs={24} md={8}>
           <Card
             title={<Space><RiseOutlined style={{ color: BRAND.royal500 }} /><span>Win Rate</span></Space>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             <div style={{ paddingTop: 16 }}>
@@ -423,7 +423,7 @@ const PartnerDashboard: React.FC = () => {
         <Col xs={24} md={8}>
           <Card
             title={<Space><ThunderboltFilled style={{ color: BRAND.violet500 }} /><span>Pipeline vs Target</span></Space>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 16 }}>
@@ -439,7 +439,7 @@ const PartnerDashboard: React.FC = () => {
         <Col xs={24} md={8}>
           <Card
             title={<Space><AreaChartOutlined style={{ color: BRAND.royal500 }} /><span>Opportunity Status</span></Space>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             <div style={{ paddingTop: 12 }}>
@@ -473,7 +473,7 @@ const PartnerDashboard: React.FC = () => {
           <Card
             title={<Space><AreaChartOutlined style={{ color: BRAND.royal500 }} /><span>My Pipeline Breakdown</span></Space>}
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>last 6 months • hover for details</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {stackedBarsData.length > 0 ? (
@@ -488,7 +488,7 @@ const PartnerDashboard: React.FC = () => {
         <Col xs={24} lg={10}>
           <Card
             title={<Space><FundProjectionScreenOutlined style={{ color: BRAND.violet500 }} /><span>Status Breakdown</span></Space>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             <Column {...columnConfig} />
@@ -502,7 +502,7 @@ const PartnerDashboard: React.FC = () => {
           <Card
             title={<Space><RiseOutlined style={{ color: BRAND.royal500 }} /><span>Monthly Approvals — Trend</span></Space>}
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>month-over-month change</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             {timelineData.length > 0 ? (
@@ -515,7 +515,7 @@ const PartnerDashboard: React.FC = () => {
         <Col xs={24} lg={10}>
           <Card
             title={<Space><RiseOutlined style={{ color: BRAND.violet500 }} /><span>My KPIs</span></Space>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             <div style={{ paddingTop: 12 }}>
@@ -531,7 +531,7 @@ const PartnerDashboard: React.FC = () => {
           <Card
             title={<Space><ReadOutlined style={{ color: BRAND.royal500 }} /><span>Training Progress</span></Space>}
             extra={<Button type="link" size="small" onClick={() => navigate('/lms')}>Courses <ArrowRightOutlined /></Button>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             {stats.lms_courses_enrolled > 0 ? (
@@ -559,7 +559,7 @@ const PartnerDashboard: React.FC = () => {
         <Col xs={24} lg={14}>
           <Card
             title={<Space><TrophyOutlined style={{ color: tierColors[stats.company_tier] }} /><span>Tier Progress</span></Space>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
             {stats.tier_progress?.next_tier ? (
@@ -634,7 +634,7 @@ const PartnerDashboard: React.FC = () => {
           <Card
             title={<Space><TrophyOutlined style={{ color: BRAND.violet500 }} /><span>Achievements</span></Space>}
             extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{achievements.filter((a) => a.unlocked).length} / {achievements.length} unlocked</Typography.Text>}
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             <Row gutter={[12, 12]}>
@@ -653,14 +653,14 @@ const PartnerDashboard: React.FC = () => {
         <Col span={24}>
           <Card
             title="Quick Actions"
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 12 }}
           >
             <Row gutter={[12, 12]}>
               <Col xs={12} sm={6}>
                 <Card
                   hoverable
-                  bordered={false}
+                  variant="borderless"
                   onClick={() => navigate('/opportunities/create')}
                   style={{
                     background: `linear-gradient(135deg, ${BRAND.royal50} 0%, ${BRAND.violet100} 100%)`,
@@ -678,7 +678,7 @@ const PartnerDashboard: React.FC = () => {
               <Col xs={12} sm={6}>
                 <Card
                   hoverable
-                  bordered={false}
+                  variant="borderless"
                   onClick={() => navigate('/deals')}
                   style={{
                     background: `linear-gradient(135deg, ${BRAND.violet100} 0%, ${BRAND.royal50} 100%)`,
@@ -696,7 +696,7 @@ const PartnerDashboard: React.FC = () => {
               <Col xs={12} sm={6}>
                 <Card
                   hoverable
-                  bordered={false}
+                  variant="borderless"
                   onClick={() => navigate('/knowledge-base')}
                   style={{
                     background: `linear-gradient(135deg, ${BRAND.royal50} 0%, ${BRAND.violet100} 100%)`,
@@ -714,7 +714,7 @@ const PartnerDashboard: React.FC = () => {
               <Col xs={12} sm={6}>
                 <Card
                   hoverable
-                  bordered={false}
+                  variant="borderless"
                   onClick={() => navigate('/doc-requests')}
                   style={{
                     background: `linear-gradient(135deg, ${BRAND.violet100} 0%, ${BRAND.royal50} 100%)`,

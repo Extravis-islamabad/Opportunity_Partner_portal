@@ -47,3 +47,8 @@ class ConflictException(AppException):
 class UnprocessableException(AppException):
     def __init__(self, code: str = "UNPROCESSABLE_ENTITY", message: str = "Validation failed", details: Optional[Dict[str, Any]] = None):
         super().__init__(status.HTTP_422_UNPROCESSABLE_ENTITY, code, message, details)
+
+
+class ServiceUnavailableException(AppException):
+    def __init__(self, code: str = "SERVICE_UNAVAILABLE", message: str = "Service temporarily unavailable", details: Optional[Dict[str, Any]] = None):
+        super().__init__(status.HTTP_503_SERVICE_UNAVAILABLE, code, message, details)

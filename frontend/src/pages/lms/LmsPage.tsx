@@ -194,7 +194,7 @@ const LmsPage: React.FC = () => {
               <Col xs={24} sm={12} lg={8} key={course.id}>
                 <Card
                   hoverable
-                  bordered={false}
+                  variant="borderless"
                   onClick={() => navigate(`/lms/courses/${course.id}`)}
                   style={{
                     borderRadius: 14,
@@ -362,7 +362,7 @@ const LmsPage: React.FC = () => {
       {isAdmin && (
         <Card
           title="Certificate Requests"
-          bordered={false}
+          variant="borderless"
           style={{
             marginTop: 24,
             borderRadius: 14,

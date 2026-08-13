@@ -47,6 +47,9 @@ import type {
   AuditLogListResponse,
   BulkImportResult,
   OnboardingChecklist,
+  ActivityCreateRequest,
+  ActivityMonthResponse,
+  ActivityResponse,
 } from '@/types';
 
 // ==================== Auth ====================
@@ -115,7 +118,9 @@ export const opportunitiesApi = {
     apiClient.get<PaginatedResponse<OpportunityListItem>>('/opportunities', { params }),
   get: (id: number) =>
     apiClient.get<OpportunityResponse>(`/opportunities/${id}`),
-  update: (id: number, data: Partial<OpportunityCreateRequest>) =>
+  // 'status' is excluded: the backend's OpportunityUpdateRequest has no such
+  // field (status only changes via the submit/approve/reject/review actions).
+  update: (id: number, data: Partial<Omit<OpportunityCreateRequest, 'status'>>) =>
     apiClient.put<OpportunityResponse>(`/opportunities/${id}`, data),
   submit: (id: number) =>
     apiClient.post<OpportunityResponse>(`/opportunities/${id}/submit`),
@@ -485,4 +490,18 @@ export const bulkImportApi = {
 export const onboardingApi = {
   getChecklist: () => apiClient.get<OnboardingChecklist>('/onboarding/checklist'),
   complete: () => apiClient.post<MessageResponse>('/onboarding/complete'),
+};
+
+// ==================== Sales activity log (rep + admin) ====================
+export const activitiesApi = {
+  getMonth: (month: string, userId?: number) =>
+    apiClient.get<ActivityMonthResponse>('/activities/month', {
+      params: { month, user_id: userId },
+    }),
+  create: (data: ActivityCreateRequest) =>
+    apiClient.post<ActivityResponse>('/activities', data),
+  update: (id: number, data: Partial<ActivityCreateRequest>) =>
+    apiClient.put<ActivityResponse>(`/activities/${id}`, data),
+  remove: (id: number) =>
+    apiClient.delete<MessageResponse>(`/activities/${id}`),
 };
