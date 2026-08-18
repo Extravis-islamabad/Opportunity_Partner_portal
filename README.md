@@ -80,6 +80,12 @@ partner_portal/
 - **Audit Logs** — full action audit trail
 - **Dashboard** — KPIs and charts for portal activity
 
+## Documentation
+
+- **[User Manual](./docs/USER_MANUAL.md)** — roles and permissions, the opportunity
+  approval workflow, POC and deployment lifecycles, deal registration, commissions,
+  and a full error-code reference.
+
 ## Quick Start (Docker)
 
 The fastest way to get everything running:
