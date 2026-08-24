@@ -60,7 +60,9 @@ import {
   formatChartUsd,
 } from '@/components/dashboard/BrandWidgets';
 import { PocStageFunnel, CityFunnelChart } from '@/components/dashboard/PocWidgets';
+import { companyTypeMeta } from '@/utils/companyType';
 import type {
+  CompanyType,
   MonthlyOpportunityData,
   OverdueOpportunityItem,
   RegionBreakdown,
@@ -363,7 +365,8 @@ const AdminDashboard: React.FC = () => {
     return [
       { metric: 'Deals Won', value: won },
       { metric: 'Revenue', value: worth },
-      { metric: 'Tier', value: topCompanyForRadar.tier === 'platinum' ? 100 : topCompanyForRadar.tier === 'gold' ? 70 : 40 },
+      // A customer company has no tier; score it neutral rather than silver.
+      { metric: 'Tier', value: topCompanyForRadar.tier === 'platinum' ? 100 : topCompanyForRadar.tier === 'gold' ? 70 : topCompanyForRadar.tier ? 40 : 0 },
       { metric: 'Engagement', value: 85 },
       { metric: 'Training', value: 78 },
       { metric: 'Activity', value: 92 },
@@ -591,10 +594,21 @@ const AdminDashboard: React.FC = () => {
                     render: (name: string) => <Typography.Text strong>{name}</Typography.Text>,
                   },
                   {
+                    title: 'Type',
+                    dataIndex: 'company_type',
+                    key: 'company_type',
+                    render: (type: CompanyType) => {
+                      const meta = companyTypeMeta(type);
+                      return meta ? <Tag color={meta.color}>{meta.label}</Tag> : '—';
+                    },
+                  },
+                  {
                     title: 'Tier',
                     dataIndex: 'tier',
                     key: 'tier',
-                    render: (tier: string) => <Tag color="blue">{tier}</Tag>,
+                    // Null for a customer company.
+                    render: (tier: string | null) =>
+                      tier ? <Tag color="blue">{tier}</Tag> : <Typography.Text type="secondary">—</Typography.Text>,
                   },
                   { title: 'Partners', dataIndex: 'partner_count', key: 'partner_count', align: 'right' as const },
                   {
@@ -1233,9 +1247,22 @@ const AdminDashboard: React.FC = () => {
                           </Typography.Text>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                          <Tag color={tierColors[c.tier]} style={{ fontSize: 10, margin: 0, borderRadius: 4 }}>
-                            {c.tier.toUpperCase()}
-                          </Tag>
+                          {/* Tier tag only for programme members; a customer
+                              can rank on pipeline but carries no tier. */}
+                          {c.tier ? (
+                            <Tag color={tierColors[c.tier]} style={{ fontSize: 10, margin: 0, borderRadius: 4 }}>
+                              {c.tier.toUpperCase()}
+                            </Tag>
+                          ) : (
+                            (() => {
+                              const meta = companyTypeMeta(c.company_type);
+                              return meta ? (
+                                <Tag color={meta.color} style={{ fontSize: 10, margin: 0, borderRadius: 4 }}>
+                                  {meta.label.toUpperCase()}
+                                </Tag>
+                              ) : null;
+                            })()
+                          )}
                           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
                             {c.region} • {c.opportunities_won} won
                           </Typography.Text>

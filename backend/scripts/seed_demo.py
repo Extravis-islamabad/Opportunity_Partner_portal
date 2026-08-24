@@ -134,7 +134,10 @@ async def main() -> None:
         for name, country, region, city, industry, email, tier, cm in companies_spec:
             c = Company(name=name, country=country, region=region, city=city,
                         industry=industry, contact_email=email, status="active",
-                        tier=tier, channel_manager_id=cm.id)
+                        tier=tier, channel_manager_id=cm.id,
+                        # Demo companies are channel partners; the customer
+                        # classification is exercised by app.core.seed_demo.
+                        company_type="partner")
             companies.append(c)
         db.add_all(companies)
         await db.flush()

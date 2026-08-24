@@ -9,13 +9,19 @@
  */
 
 export type UserRole = 'admin' | 'partner' | 'sales_rep';
+export type CompanyType = 'customer' | 'distributor' | 'partner';
 
 /**
- * Access keys a route can require. Mirrors ProtectedRoute: 'superadmin' is a
- * capability derived from user.is_superadmin, not a role of its own — a
- * channel-manager admin has 'admin' but NOT 'superadmin'.
+ * Access keys a route can require. Mirrors ProtectedRoute: everything past the
+ * three roles is derived, not a role of its own — a channel-manager admin has
+ * 'admin' but NOT 'superadmin', and a partner at a customer company has
+ * 'partner' but NOT 'channel_member'.
  */
-export type RouteCapability = UserRole | 'superadmin';
+export type RouteCapability =
+  | UserRole
+  | 'superadmin'
+  | 'channel_member'
+  | 'own_scorecard';
 
 export interface RouteDescriptor {
   path: string;
@@ -27,12 +33,28 @@ export interface RouteDescriptor {
 }
 
 /**
- * The capability set for a user: their role, plus 'superadmin' when flagged.
- * Use this (not raw role equality) when filtering routes, so superadmin-only
- * pages never surface for channel-manager admins.
+ * The capability set for a user: their role, plus 'superadmin' when flagged,
+ * plus the partner-programme capabilities when they apply. Use this (not raw
+ * role equality) when filtering routes, so superadmin-only pages never surface
+ * for channel-manager admins and partner-programme pages never surface for a
+ * customer company's users.
+ *
+ * Kept in step with ProtectedRoute.effectiveAccess — that one gates the route,
+ * this one gates what the command palette offers.
  */
-export function capabilitiesFor(role: UserRole, isSuperadmin: boolean): RouteCapability[] {
-  return isSuperadmin ? [role, 'superadmin'] : [role];
+export function capabilitiesFor(
+  role: UserRole,
+  isSuperadmin: boolean,
+  companyType?: CompanyType | null,
+): RouteCapability[] {
+  const caps: RouteCapability[] = [role];
+  if (isSuperadmin) caps.push('superadmin');
+  if (role === 'admin') {
+    caps.push('channel_member');
+  } else if (role === 'partner' && (companyType === 'partner' || companyType === 'distributor')) {
+    caps.push('channel_member', 'own_scorecard');
+  }
+  return caps;
 }
 
 export const ROUTES: RouteDescriptor[] = [
@@ -104,33 +126,34 @@ export const ROUTES: RouteDescriptor[] = [
     keywords: ['create', 'add', 'company', 'partner company'],
   },
   {
-    // Deal registration is a partner/admin workflow; sales reps are denied
-    // by the backend, so keep it out of their command palette too.
+    // Deal registration is a partner-programme workflow. Sales reps and
+    // customer companies are both denied by the backend, so keep it out of
+    // their command palette too.
     path: '/deals',
     label: 'Deal Registration',
     section: 'Pipeline',
-    roles: ['admin', 'partner'],
+    roles: ['channel_member'],
     keywords: ['deal', 'exclusivity', 'register'],
   },
   {
     path: '/commissions',
     label: 'Commissions',
     section: 'Earnings',
-    roles: ['admin', 'partner'],
+    roles: ['channel_member'],
     keywords: ['payout', 'money', 'earnings'],
   },
   {
     path: '/scorecard',
     label: 'My Scorecard',
     section: 'Earnings',
-    roles: ['partner'],
+    roles: ['own_scorecard'],
     keywords: ['tier', 'progress', 'badges'],
   },
   {
     path: '/leaderboard',
     label: 'Leaderboard',
     section: 'Earnings',
-    roles: ['admin', 'partner'],
+    roles: ['channel_member'],
     keywords: ['rankings', 'top partners', 'trophy'],
   },
   {

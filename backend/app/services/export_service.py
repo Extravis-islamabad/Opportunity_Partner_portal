@@ -259,7 +259,7 @@ def build_deal_xlsx(deals: Iterable[DealRegistration]) -> bytes:
 # ------------------------------ Companies ------------------------------------
 
 COMPANY_HEADERS = [
-    "ID", "Name", "Country", "Region", "City", "Industry",
+    "ID", "Name", "Type", "Country", "Region", "City", "Industry",
     "Contact Email", "Tier", "Status", "Created",
 ]
 
@@ -268,12 +268,14 @@ def _company_row(c: Company) -> list[str]:
     return [
         c.id,
         c.name,
+        c.company_type.value.title() if c.company_type else "",
         c.country,
         c.region,
         c.city,
         c.industry,
         c.contact_email,
-        c.tier.value.title() if c.tier else "",
+        # Blank rather than "Silver" for a customer — it has no tier.
+        c.tier.value.title() if (c.tier and c.is_channel_partner) else "",
         c.status.value.title() if c.status else "",
         c.created_at.strftime("%Y-%m-%d") if c.created_at else "",
     ]
@@ -305,7 +307,12 @@ def build_company_pdf(companies: Iterable[Company], subtitle: str | None = None)
         styles = getSampleStyleSheet()
         elements.append(Paragraph("No companies match the current filters.", styles["Italic"]))
     else:
-        col_widths = [14 * mm, 48 * mm, 24 * mm, 24 * mm, 24 * mm, 38 * mm, 48 * mm, 20 * mm, 22 * mm, 22 * mm]
+        # 11 columns; trimmed from the wider text fields to make room for Type
+        # without overflowing the landscape A4 content width.
+        col_widths = [
+            12 * mm, 42 * mm, 22 * mm, 22 * mm, 22 * mm, 22 * mm,
+            34 * mm, 44 * mm, 18 * mm, 20 * mm, 20 * mm,
+        ]
         elements.append(_pdf_table(COMPANY_HEADERS, rows, col_widths))
 
     doc.build(elements)

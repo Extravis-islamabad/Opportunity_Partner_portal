@@ -152,8 +152,10 @@ async def get_me(
     db: AsyncSession = Depends(get_db),
 ):
     company_name = None
+    company_type = None
     if current_user.company:
         company_name = current_user.company.name
+        company_type = current_user.company.company_type.value
 
     # Channel-manager flags for admin users
     managed_count = 0
@@ -178,6 +180,7 @@ async def get_me(
         status=current_user.status.value,
         company_id=current_user.company_id,
         company_name=company_name,
+        company_type=company_type,
         is_superadmin=current_user.is_superadmin,
         is_channel_manager=is_cm,
         managed_company_count=managed_count,

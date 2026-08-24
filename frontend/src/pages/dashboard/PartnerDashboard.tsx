@@ -53,6 +53,7 @@ import {
   formatChartUsd,
 } from '@/components/dashboard/BrandWidgets';
 import type { MonthlyOpportunityData } from '@/types';
+import { isChannelCompanyType } from '@/utils/companyType';
 
 const BRAND = {
   royal500: '#3750ed',
@@ -128,6 +129,10 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon, gradient, hint, o
 const PartnerDashboard: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  // A customer company has no tier and no deal registration, so the tier
+  // badge, the Tier Progress card, the Tier Climber badge and the Register
+  // Deal shortcut are all withheld. The backend denies the same things.
+  const isChannelCompany = isChannelCompanyType(user?.company_type);
 
   const { data: stats, isLoading, error } = useQuery({
     queryKey: ['partner-dashboard-stats'],
@@ -229,6 +234,10 @@ const PartnerDashboard: React.FC = () => {
   }
   if (!stats) return <Empty description="No dashboard data" />;
 
+  // Null for a customer company; bound here so the Tier Progress card can be
+  // narrowed to a non-null tier in JSX.
+  const currentTier = stats.company_tier;
+
   // Status breakdown column chart
   const statusColumnData = [
     { status: 'Approved', value: stats.my_approved, color: '#10b981' },
@@ -307,12 +316,14 @@ const PartnerDashboard: React.FC = () => {
       description: '$1M in pipeline',
       unlocked: Number(stats.my_total_worth) >= 1_000_000,
     },
-    {
-      icon: <TrophyOutlined />,
-      title: 'Tier Climber',
-      description: 'Reached Gold or Platinum',
-      unlocked: stats.company_tier !== 'silver',
-    },
+    ...(isChannelCompany
+      ? [{
+          icon: <TrophyOutlined />,
+          title: 'Tier Climber',
+          description: 'Reached Gold or Platinum',
+          unlocked: !!stats.company_tier && stats.company_tier !== 'silver',
+        }]
+      : []),
   ];
 
   return (
@@ -321,18 +332,20 @@ const PartnerDashboard: React.FC = () => {
         title={`Welcome back, ${user?.full_name?.split(' ')[0] ?? ''}`}
         subtitle="Here's how your pipeline is performing today"
         extra={
-          <Tag style={{
-            fontSize: 13,
-            padding: '6px 16px',
-            borderRadius: 20,
-            fontWeight: 600,
-            background: stats.company_tier === 'platinum' ? BRAND.royal50 : BRAND.violet100,
-            color: stats.company_tier === 'platinum' ? BRAND.royal500 : BRAND.violet700,
-            border: 'none',
-          }}>
-            <StarFilled style={{ marginRight: 6 }} />
-            {(tierLabels[stats.company_tier] ?? stats.company_tier).toUpperCase()} TIER
-          </Tag>
+          stats.company_tier ? (
+            <Tag style={{
+              fontSize: 13,
+              padding: '6px 16px',
+              borderRadius: 20,
+              fontWeight: 600,
+              background: stats.company_tier === 'platinum' ? BRAND.royal50 : BRAND.violet100,
+              color: stats.company_tier === 'platinum' ? BRAND.royal500 : BRAND.violet700,
+              border: 'none',
+            }}>
+              <StarFilled style={{ marginRight: 6 }} />
+              {(tierLabels[stats.company_tier] ?? stats.company_tier).toUpperCase()} TIER
+            </Tag>
+          ) : null
         }
       />
 
@@ -527,7 +540,9 @@ const PartnerDashboard: React.FC = () => {
 
       {/* ---------------- LMS donut + Tier progress ------------------------- */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} lg={10}>
+        {/* Widens to the full row when the Tier Progress card beside it is
+            withheld for a customer company. */}
+        <Col xs={24} lg={isChannelCompany ? 10 : 24}>
           <Card
             title={<Space><ReadOutlined style={{ color: BRAND.royal500 }} /><span>Training Progress</span></Space>}
             extra={<Button type="link" size="small" onClick={() => navigate('/lms')}>Courses <ArrowRightOutlined /></Button>}
@@ -556,9 +571,12 @@ const PartnerDashboard: React.FC = () => {
             )}
           </Card>
         </Col>
+        {/* Tier progression is a partner-programme concept — a customer
+            company has no tier, so the whole card is withheld. */}
+        {isChannelCompany && currentTier && (
         <Col xs={24} lg={14}>
           <Card
-            title={<Space><TrophyOutlined style={{ color: tierColors[stats.company_tier] }} /><span>Tier Progress</span></Space>}
+            title={<Space><TrophyOutlined style={{ color: tierColors[currentTier] }} /><span>Tier Progress</span></Space>}
             variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
@@ -574,8 +592,8 @@ const PartnerDashboard: React.FC = () => {
                   borderRadius: 10,
                 }}>
                   <Space>
-                    <Tag color={tierColors[stats.company_tier]} style={{ margin: 0, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
-                      {(tierLabels[stats.company_tier] ?? stats.company_tier).toUpperCase()}
+                    <Tag color={tierColors[currentTier]} style={{ margin: 0, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
+                      {(tierLabels[currentTier] ?? currentTier).toUpperCase()}
                     </Tag>
                     <ArrowRightOutlined style={{ color: '#6b7280' }} />
                     <Tag color={tierColors[stats.tier_progress.next_tier]} style={{ margin: 0, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
@@ -626,6 +644,7 @@ const PartnerDashboard: React.FC = () => {
             )}
           </Card>
         </Col>
+        )}
       </Row>
 
       {/* ---------------- Achievements row ---------------------------------- */}
@@ -675,6 +694,8 @@ const PartnerDashboard: React.FC = () => {
                   </div>
                 </Card>
               </Col>
+              {/* Deal registration is closed to customer companies. */}
+              {isChannelCompany && (
               <Col xs={12} sm={6}>
                 <Card
                   hoverable
@@ -693,6 +714,7 @@ const PartnerDashboard: React.FC = () => {
                   </div>
                 </Card>
               </Col>
+              )}
               <Col xs={12} sm={6}>
                 <Card
                   hoverable

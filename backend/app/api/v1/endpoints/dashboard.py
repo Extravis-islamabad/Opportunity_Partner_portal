@@ -9,7 +9,9 @@ from app.core.deps import (
     get_current_admin,
     get_current_partner,
     get_admin_scope,
+    get_channel_partner,
     get_poc_editor,
+    deny_customer_company,
     deny_sales_rep,
 )
 from app.models.user import User, UserRole
@@ -173,7 +175,9 @@ async def partner_timeline(
 @router.post("/deals", response_model=DealRegistrationResponse, status_code=201)
 async def create_deal(
     data: DealRegistrationCreateRequest,
-    partner: User = Depends(get_current_partner),
+    # get_channel_partner, not get_current_partner: a customer company's users
+    # are partners by role but take no part in the partner programme.
+    partner: User = Depends(get_channel_partner),
     db: AsyncSession = Depends(get_db),
 ):
     return await deal_service.create_deal_registration(db, data, partner)
@@ -188,8 +192,11 @@ async def list_deals(
     # deny_sales_rep: this handler predates the sales-rep role and branches
     # `if partner … else show-all`; a rep would land in the else and read the
     # whole dataset. The frontend already hides /deals from reps — this makes
-    # the API match.
+    # the API match. deny_customer_company keeps a customer company out for
+    # the same reason: it would otherwise fall into the partner branch and
+    # list an empty set, implying the module applies to it.
     current_user: User = Depends(deny_sales_rep),
+    _no_customer: User = Depends(deny_customer_company),
     db: AsyncSession = Depends(get_db),
 ):
     registered_by = None

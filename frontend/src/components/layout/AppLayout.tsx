@@ -55,6 +55,11 @@ const AppLayout: React.FC = () => {
   const isAdmin = user?.role === 'admin';
   const isSuperadmin = !!user?.is_superadmin;
   const isSalesRep = user?.role === 'sales_rep';
+  // A customer company takes no part in the partner programme, so its users
+  // get no deal registration, commissions, scorecard or leaderboard. The
+  // backend denies these outright — this keeps the sidebar honest about it.
+  const isChannelCompany =
+    user?.company_type === 'partner' || user?.company_type === 'distributor';
 
   // Global Cmd/Ctrl+K listener for the command palette
   useEffect(() => {
@@ -112,14 +117,23 @@ const AppLayout: React.FC = () => {
       : []),
   ];
 
+  // The partner-programme items, shown only to partner/distributor companies.
+  const channelMenuItems: MenuProps['items'] = isChannelCompany
+    ? [
+        { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
+        { key: '/commissions', icon: <DollarOutlined />, label: 'My Commissions' },
+        { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
+      ]
+    : [];
+
   const partnerMenuItems: MenuProps['items'] = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
-    { key: '/scorecard', icon: <TrophyOutlined />, label: 'My Scorecard' },
+    ...(isChannelCompany
+      ? [{ key: '/scorecard', icon: <TrophyOutlined />, label: 'My Scorecard' }]
+      : []),
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'My Opportunities' },
     { key: '/poc', icon: <RocketOutlined />, label: 'POC Status' },
-    { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
-    { key: '/commissions', icon: <DollarOutlined />, label: 'My Commissions' },
-    { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
+    ...channelMenuItems,
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
     { key: '/lms', icon: <ReadOutlined />, label: 'Training Courses' },
     { key: '/doc-requests', icon: <FileTextOutlined />, label: 'Document Requests' },
@@ -205,10 +219,19 @@ const AppLayout: React.FC = () => {
           <Space direction="vertical" size={0}>
             <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Company</Text>
             <Text style={{ color: '#fff', fontSize: 13 }}>{user.company_name}</Text>
-            <Badge
-              count={user.role === 'partner' ? ((user as unknown) as Record<string, unknown>).company_tier as string : undefined}
-              style={{ backgroundColor: '#52c41a', marginTop: 4 }}
-            />
+            {/* The company's classification. This replaced a cast that read a
+                `company_tier` field UserBasic never had, so it always rendered
+                empty; the type is real, available, and the thing that actually
+                explains why this sidebar has the items it does. */}
+            {user.company_type && (
+              <Badge
+                count={user.company_type.toUpperCase()}
+                style={{
+                  backgroundColor: isChannelCompany ? '#3750ed' : '#7a2280',
+                  marginTop: 4,
+                }}
+              />
+            )}
           </Space>
         </div>
       )}

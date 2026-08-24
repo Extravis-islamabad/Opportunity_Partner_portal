@@ -41,7 +41,7 @@ from app.models.commission import (
     CommissionStatus,
     TierCommissionRate,
 )
-from app.models.company import Company, CompanyStatus, PartnerTier
+from app.models.company import Company, CompanyStatus, CompanyType, PartnerTier
 from app.models.course import Course, CourseStatus
 from app.models.deal_registration import DealRegistration, DealStatus
 from app.models.doc_request import DocRequest, DocRequestStatus, DocRequestUrgency
@@ -87,6 +87,7 @@ COMPANIES = [
         "industry": "Cloud Infrastructure",
         "contact_email": "partnerships@northbeam.example",
         "tier": PartnerTier.PLATINUM,
+        "company_type": CompanyType.PARTNER,
     },
     {
         "name": "Helios Cyber Solutions",
@@ -96,6 +97,7 @@ COMPANIES = [
         "industry": "Cybersecurity",
         "contact_email": "alliances@helios-cyber.example",
         "tier": PartnerTier.GOLD,
+        "company_type": CompanyType.PARTNER,
     },
     {
         "name": "Pacific Data Systems",
@@ -105,6 +107,7 @@ COMPANIES = [
         "industry": "Data & Analytics",
         "contact_email": "channel@pacificdata.example",
         "tier": PartnerTier.GOLD,
+        "company_type": CompanyType.DISTRIBUTOR,
     },
     {
         "name": "Andes Networks",
@@ -114,6 +117,7 @@ COMPANIES = [
         "industry": "Network Integration",
         "contact_email": "partners@andesnet.example",
         "tier": PartnerTier.SILVER,
+        "company_type": CompanyType.PARTNER,
     },
     {
         "name": "Sahara IoT Group",
@@ -123,6 +127,7 @@ COMPANIES = [
         "industry": "IoT & Smart Cities",
         "contact_email": "info@saharaiot.example",
         "tier": PartnerTier.SILVER,
+        "company_type": CompanyType.CUSTOMER,
     },
     {
         "name": "Nordic Cloud Hub",
@@ -132,6 +137,7 @@ COMPANIES = [
         "industry": "Managed Services",
         "contact_email": "hello@nordiccloud.example",
         "tier": PartnerTier.PLATINUM,
+        "company_type": CompanyType.PARTNER,
     },
 ]
 
@@ -517,6 +523,7 @@ async def seed_companies_and_partners(db, channel_managers: Sequence[User]) -> t
             contact_email=c["contact_email"],
             status=CompanyStatus.ACTIVE,
             tier=c["tier"],
+            company_type=c["company_type"],
             channel_manager_id=cm.id,
         )
         db.add(company)
@@ -645,8 +652,12 @@ async def seed_deal_registrations(
     deals: list[DealRegistration] = []
     statuses = [DealStatus.PENDING, DealStatus.APPROVED, DealStatus.APPROVED, DealStatus.APPROVED, DealStatus.REJECTED, DealStatus.EXPIRED]
 
+    # Customer companies take no part in deal registration, so seeding one a
+    # deal would produce data the API itself would now refuse to create.
+    channel_companies = [c for c in companies if c.is_channel_partner]
+
     for i in range(14):
-        company = companies[i % len(companies)]
+        company = channel_companies[i % len(channel_companies)]
         company_partners = [p for p in partners if p.company_id == company.id]
         submitter = company_partners[0] if company_partners else partners[0]
         status = statuses[i % len(statuses)]
@@ -753,7 +764,8 @@ async def seed_commission_statements(db, companies: list[Company]) -> None:
 
     # Aggregate paid commissions per company in that window
     for company in companies:
-        if company.tier == PartnerTier.SILVER:
+        # A customer company has no tier and earns no commission.
+        if not company.is_channel_partner or company.tier == PartnerTier.SILVER:
             continue
         result = await db.execute(
             select(Commission).where(

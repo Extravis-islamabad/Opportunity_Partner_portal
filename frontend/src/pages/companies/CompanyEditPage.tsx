@@ -3,8 +3,10 @@ import { Form, Input, Select, Button, Card, Alert, message, Skeleton } from 'ant
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { companiesApi, usersApi } from '@/api/endpoints';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import type { CompanyUpdateRequest } from '@/types';
+import { COMPANY_TYPE_OPTIONS } from '@/utils/companyType';
 import { AxiosError } from 'axios';
 import type { ErrorResponse } from '@/types';
 
@@ -14,6 +16,10 @@ const CompanyEditPage: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  // Company type governs what that company's users can reach, so only a
+  // superadmin may re-classify — the API rejects it from anyone else.
+  const canEditType = !!user?.is_superadmin;
   const [error, setError] = useState<string | null>(null);
 
   const { data: company, isLoading } = useQuery({
@@ -38,6 +44,7 @@ const CompanyEditPage: React.FC = () => {
         industry: company.industry,
         contact_email: company.contact_email,
         channel_manager_id: company.channel_manager_id,
+        company_type: company.company_type,
       });
     }
   }, [company, form]);
@@ -81,10 +88,33 @@ const CompanyEditPage: React.FC = () => {
         <Form
           form={form}
           layout="vertical"
-          onFinish={(values: CompanyUpdateRequest) => mutation.mutate(values)}
+          onFinish={(values: CompanyUpdateRequest) => {
+            // A disabled Select still submits its value, so a channel manager
+            // saving an unrelated edit would send company_type and be refused
+            // by the superadmin-only check. Drop it unless they may set it.
+            const payload = { ...values };
+            if (!canEditType) delete payload.company_type;
+            mutation.mutate(payload);
+          }}
         >
           <Form.Item name="name" label="Company Name" rules={[{ required: true }]}>
             <Input placeholder="Company name" maxLength={255} />
+          </Form.Item>
+          <Form.Item
+            name="company_type"
+            label="Company Type"
+            rules={[{ required: true }]}
+            extra={
+              canEditType
+                ? 'Changing this changes what the company\u2019s users can reach — customers lose deal registration, commissions, scorecard and tier.'
+                : 'Only a superadmin can change a company\u2019s type.'
+            }
+          >
+            <Select
+              disabled={!canEditType}
+              placeholder="Select company type"
+              options={COMPANY_TYPE_OPTIONS}
+            />
           </Form.Item>
           <Form.Item name="country" label="Country" rules={[{ required: true }]}>
             <Input placeholder="Country" maxLength={100} />

@@ -32,7 +32,7 @@ from sqlalchemy import select
 
 from app.core.database import async_session_factory
 from app.core.security import hash_password
-from app.models.company import Company, CompanyStatus, PartnerTier
+from app.models.company import Company, CompanyStatus, CompanyType, PartnerTier
 from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.user import User, UserRole, UserStatus
 from app.utils.audit import write_audit_log
@@ -217,6 +217,7 @@ async def ensure_companies(
                 contact_email=f"contact@{company_slug(partner)}.partner.extravis.com",
                 status=CompanyStatus.ACTIVE,
                 tier=PartnerTier.SILVER,
+                company_type=CompanyType.PARTNER,
                 channel_manager_id=cm.id,
             )
             db.add(c)

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { companiesApi, dashboardApi, scorecardApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
 import type { PartnerAccountBrief, ScorecardRead } from '@/types';
+import { companyTypeMeta, isChannelCompanyType } from '@/utils/companyType';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, TrophyOutlined, StarFilled, DollarOutlined, RiseOutlined } from '@ant-design/icons';
 
@@ -31,10 +32,14 @@ const CompanyDetailPage: React.FC = () => {
     enabled: !!company,
   });
 
+  // Customer companies have no partner scorecard — the endpoint refuses them,
+  // so don't ask for one.
+  const isChannel = isChannelCompanyType(company?.company_type);
+
   const { data: scorecard, isError: scorecardError } = useQuery<ScorecardRead>({
     queryKey: ['company-scorecard', companyId],
     queryFn: async () => { const res = await scorecardApi.company(companyId); return res.data; },
-    enabled: Number.isFinite(companyId) && companyId > 0,
+    enabled: Number.isFinite(companyId) && companyId > 0 && isChannel,
     retry: false,
   });
 
@@ -73,7 +78,20 @@ const CompanyDetailPage: React.FC = () => {
               <Descriptions.Item label="Contact Email">{company.contact_email}</Descriptions.Item>
               <Descriptions.Item label="Channel Manager">{company.channel_manager_name}</Descriptions.Item>
               <Descriptions.Item label="Status"><Tag color={company.status === 'active' ? 'green' : 'red'}>{company.status.toUpperCase()}</Tag></Descriptions.Item>
-              <Descriptions.Item label="Tier"><Tag color={tierColors[company.tier] ?? 'default'}>{company.tier.toUpperCase()}</Tag></Descriptions.Item>
+              <Descriptions.Item label="Type">
+                {(() => {
+                  const meta = companyTypeMeta(company.company_type);
+                  return meta ? (
+                    <Tooltip title={meta.description}>
+                      <Tag color={meta.color}>{meta.label.toUpperCase()}</Tag>
+                    </Tooltip>
+                  ) : '—';
+                })()}
+              </Descriptions.Item>
+              {/* Tier is a partner-programme concept; a customer has none. */}
+              {company.tier && (
+                <Descriptions.Item label="Tier"><Tag color={tierColors[company.tier] ?? 'default'}>{company.tier.toUpperCase()}</Tag></Descriptions.Item>
+              )}
             </Descriptions>
           </Card>
         </Col>
@@ -89,6 +107,7 @@ const CompanyDetailPage: React.FC = () => {
         </Col>
       </Row>
 
+      {isChannel && (
       <Card title="Partner Scorecard" style={{ marginTop: 16 }}>
         {scorecardError || !scorecard ? (
           <Empty description="No scorecard data yet" />
@@ -159,6 +178,7 @@ const CompanyDetailPage: React.FC = () => {
           })()
         )}
       </Card>
+      )}
 
       <Card title={`Partner Accounts (${company.partners.length})`} style={{ marginTop: 16 }}>
         {company.partners.length > 0 ? (

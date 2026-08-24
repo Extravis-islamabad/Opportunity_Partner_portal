@@ -5,6 +5,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { companiesApi, usersApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
 import type { CompanyCreateRequest } from '@/types';
+import { COMPANY_TYPES } from '@/utils/companyType';
 import { AxiosError } from 'axios';
 import type { ErrorResponse } from '@/types';
 
@@ -32,6 +33,32 @@ const CompanyCreatePage: React.FC = () => {
         <Form form={form} layout="vertical" onFinish={(values: CompanyCreateRequest) => mutation.mutate(values)}>
           <Form.Item name="name" label="Company Name" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Company name" maxLength={255} />
+          </Form.Item>
+          <Form.Item
+            name="company_type"
+            label="Company Type"
+            rules={[{ required: true, message: 'Choose how this company is classified' }]}
+            extra="Customers get no deal registration, commissions, scorecard or tier. Only a superadmin can change this later."
+          >
+            <Select
+              placeholder="Select company type"
+              options={COMPANY_TYPES.map((t) => ({
+                value: t.value,
+                label: t.label,
+                title: t.description,
+              }))}
+              optionRender={(opt) => {
+                const meta = COMPANY_TYPES.find((t) => t.value === opt.value);
+                return (
+                  <div>
+                    <div style={{ fontWeight: 600 }}>{meta?.label}</div>
+                    <div style={{ fontSize: 12, opacity: 0.65, whiteSpace: 'normal' }}>
+                      {meta?.description}
+                    </div>
+                  </div>
+                );
+              }}
+            />
           </Form.Item>
           <Form.Item name="country" label="Country" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Country" maxLength={100} />

@@ -166,7 +166,7 @@ const BulkImportPage: React.FC = () => {
             children: (
               <ImportPanel
                 entityLabel="companies"
-                columnsHint="Company Name, Country, City, Industry, Contact Email, Channel Manager Email"
+                columnsHint="Company Name, Company Type, Country, City, Industry, Contact Email, Channel Manager Email — Company Type must be one of: customer, distributor, partner"
                 templateFetcher={() => bulkImportApi.companiesTemplate()}
                 importFetcher={(file) => bulkImportApi.importCompanies(file)}
               />

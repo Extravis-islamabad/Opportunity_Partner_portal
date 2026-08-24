@@ -5,6 +5,11 @@ Partners see their own company only. Admins see everything. Admins/channel
 managers can transition commission status. Sales reps have no commission
 concept and are denied at the router level — the handlers here scope with
 `if partner: ... else: <everything>`, so a rep must never reach them.
+
+Customer companies are denied at the router level for the same reason: they
+take no part in the partner programme, so commissions, statements, scorecards
+and the leaderboard are all meaningless for them and must be unreachable, not
+merely hidden in the UI.
 """
 import math
 from datetime import date
@@ -15,7 +20,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user, get_admin_scope, deny_sales_rep
+from app.core.deps import (
+    deny_customer_company,
+    deny_sales_rep,
+    get_admin_scope,
+    get_current_admin,
+    get_current_user,
+)
 from app.models.user import User, UserRole
 from app.schemas.commission import (
     CommissionListResponse,
@@ -31,7 +42,10 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
-router = APIRouter(tags=["Commissions"], dependencies=[Depends(deny_sales_rep)])
+router = APIRouter(
+    tags=["Commissions"],
+    dependencies=[Depends(deny_sales_rep), Depends(deny_customer_company)],
+)
 
 
 # ---------------------------------------------------------------------------

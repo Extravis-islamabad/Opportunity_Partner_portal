@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Table, Button, Input, Tag, Space, Alert, Popconfirm, message } from 'antd';
+import { Table, Button, Input, Tag, Space, Alert, Popconfirm, Select, message } from 'antd';
 import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -9,24 +9,27 @@ import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
 import TableSkeleton from '@/components/common/TableSkeleton';
 import ExportMenu from '@/components/common/ExportMenu';
-import type { CompanyResponse } from '@/types';
+import type { CompanyResponse, CompanyType } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
+import { COMPANY_TYPE_OPTIONS, companyTypeMeta } from '@/utils/companyType';
 
 const tierColors: Record<string, string> = { silver: 'default', gold: 'gold', platinum: 'blue' };
 
 const CompanyListPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [companyType, setCompanyType] = useState<CompanyType | undefined>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const isSuperadmin = !!user?.is_superadmin;
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['companies', page, search],
+    queryKey: ['companies', page, search, companyType],
     queryFn: async () => {
       const params: Record<string, string | number | undefined> = { page, page_size: 20 };
       if (search) params['search'] = search;
+      if (companyType) params['company_type'] = companyType;
       const res = await companiesApi.list(params);
       return res.data;
     },
@@ -39,9 +42,21 @@ const CompanyListPage: React.FC = () => {
 
   const columns: ColumnsType<CompanyResponse> = [
     { title: 'Name', dataIndex: 'name', key: 'name', sorter: true },
+    {
+      title: 'Type', dataIndex: 'company_type', key: 'company_type',
+      render: (type: CompanyType) => {
+        const meta = companyTypeMeta(type);
+        return meta ? <Tag color={meta.color}>{meta.label.toUpperCase()}</Tag> : '—';
+      },
+    },
     { title: 'Country', dataIndex: 'country', key: 'country' },
     { title: 'Industry', dataIndex: 'industry', key: 'industry' },
-    { title: 'Tier', dataIndex: 'tier', key: 'tier', render: (tier: string) => <Tag color={tierColors[tier] ?? 'default'}>{tier.toUpperCase()}</Tag> },
+    {
+      title: 'Tier', dataIndex: 'tier', key: 'tier',
+      // Null for a customer company — tier is a partner-programme concept.
+      render: (tier: string | null) =>
+        tier ? <Tag color={tierColors[tier] ?? 'default'}>{tier.toUpperCase()}</Tag> : <span style={{ opacity: 0.45 }}>—</span>,
+    },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === 'active' ? 'green' : 'red'}>{s.toUpperCase()}</Tag> },
     { title: 'Channel Manager', dataIndex: 'channel_manager_name', key: 'cm' },
     { title: 'Partners', dataIndex: 'partner_count', key: 'partners' },
@@ -63,6 +78,7 @@ const CompanyListPage: React.FC = () => {
 
   const exportParams: Record<string, string | number | undefined> = {};
   if (search) exportParams['search'] = search;
+  if (companyType) exportParams['company_type'] = companyType;
 
   return (
     <>
@@ -88,13 +104,23 @@ const CompanyListPage: React.FC = () => {
           </Space>
         }
       />
-      <Input.Search
-        placeholder="Search companies..."
-        allowClear
-        prefix={<SearchOutlined />}
-        onSearch={setSearch}
-        style={{ marginBottom: 16, maxWidth: 400 }}
-      />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input.Search
+          placeholder="Search companies..."
+          allowClear
+          prefix={<SearchOutlined />}
+          onSearch={(v) => { setSearch(v); setPage(1); }}
+          style={{ width: 320 }}
+        />
+        <Select
+          placeholder="All types"
+          allowClear
+          style={{ width: 180 }}
+          value={companyType}
+          onChange={(v) => { setCompanyType(v); setPage(1); }}
+          options={COMPANY_TYPE_OPTIONS}
+        />
+      </Space>
       {isLoading ? <TableSkeleton /> : (
         data && data.items.length > 0 ? (
           <Table

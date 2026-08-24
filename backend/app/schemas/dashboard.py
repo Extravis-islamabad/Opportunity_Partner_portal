@@ -41,7 +41,9 @@ class MonthlyOpportunityData(BaseModel):
 class CompanyPerformance(BaseModel):
     company_id: int
     company_name: str
-    tier: str
+    company_type: str
+    # Null for a customer company.
+    tier: Optional[str] = None
     opportunities_submitted: int
     opportunities_won: int
     opportunities_lost: int
@@ -68,7 +70,8 @@ class PartnerDashboardResponse(BaseModel):
     my_drafts: int
     my_total_worth: Decimal
     my_approved_worth: Decimal
-    company_tier: str
+    # Null for a customer company — partner tier does not apply to it.
+    company_tier: Optional[str] = None
     lms_courses_enrolled: int
     lms_courses_completed: int
     pending_doc_requests: int
@@ -98,7 +101,9 @@ class IndustryBreakdown(BaseModel):
 class TopCompany(BaseModel):
     company_id: int
     company_name: str
-    tier: str
+    company_type: str
+    # Null for a customer company — it can rank on pipeline but has no tier.
+    tier: Optional[str] = None
     region: str
     opportunities_won: int
     approved_worth: Decimal
@@ -130,7 +135,9 @@ class RecentActivityItem(BaseModel):
 class ChannelManagerCompanyBreakdown(BaseModel):
     company_id: int
     company_name: str
-    tier: str
+    company_type: str
+    # Null for a customer company.
+    tier: Optional[str] = None
     partner_count: int
     pending_opportunities: int
     approved_opportunities: int

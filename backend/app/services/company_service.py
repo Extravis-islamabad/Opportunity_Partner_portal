@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from typing import Optional
 
-from app.models.company import Company, CompanyStatus, PartnerTier
+from app.models.company import Company, CompanyStatus, CompanyType, PartnerTier
 from app.models.user import User, UserRole, UserStatus
 from app.models.opportunity import Opportunity
 from app.schemas.company import (
@@ -17,6 +17,17 @@ from app.schemas.company import (
 from app.core.exceptions import NotFoundException, ConflictException, BadRequestException
 from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_user
+
+
+def tier_for(company: Company) -> Optional[str]:
+    """A company's tier as it should be shown, or None for a customer.
+
+    Partner tier drives commission rates and scorecard progression, neither of
+    which a customer takes part in. The column is still NOT NULL in the
+    database (so the enum stays simple), so every read path nulls it out here
+    rather than leaking a meaningless "silver" onto a customer record.
+    """
+    return company.tier.value if company.is_channel_partner else None
 
 
 async def create_company(
@@ -41,11 +52,14 @@ async def create_company(
         industry=data.industry,
         contact_email=data.contact_email,
         channel_manager_id=data.channel_manager_id,
+        company_type=CompanyType(data.company_type),
     )
     db.add(company)
     await db.flush()
 
-    await write_audit_log(db, admin_user.id, "CREATE", "company", company.id, {"name": data.name})
+    await write_audit_log(db, admin_user.id, "CREATE", "company", company.id, {
+        "name": data.name, "company_type": data.company_type,
+    })
 
     await notify_user(
         db, channel_manager.id, "channel_manager_assigned",
@@ -63,7 +77,8 @@ async def create_company(
         industry=company.industry,
         contact_email=company.contact_email,
         status=company.status.value,
-        tier=company.tier.value,
+        company_type=company.company_type.value,
+        tier=tier_for(company),
         channel_manager_id=company.channel_manager_id,
         channel_manager_name=channel_manager.full_name,
         partner_count=0,
@@ -82,6 +97,7 @@ async def get_companies(
     channel_manager_id: Optional[int] = None,
     search: Optional[str] = None,
     status: Optional[str] = None,
+    company_type: Optional[str] = None,
 ) -> tuple[list, int]:
     query = (
         select(Company)
@@ -106,6 +122,9 @@ async def get_companies(
     if status:
         query = query.where(Company.status == status)
         count_query = count_query.where(Company.status == status)
+    if company_type:
+        query = query.where(Company.company_type == company_type)
+        count_query = count_query.where(Company.company_type == company_type)
 
     query = query.order_by(Company.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
@@ -134,7 +153,8 @@ async def get_companies(
             "industry": c.industry,
             "contact_email": c.contact_email,
             "status": c.status.value,
-            "tier": c.tier.value,
+            "company_type": c.company_type.value,
+            "tier": tier_for(c),
             "channel_manager_id": c.channel_manager_id,
             "channel_manager_name": c.channel_manager.full_name if c.channel_manager else None,
             "partner_count": partner_count,
@@ -177,7 +197,8 @@ async def get_company_detail(db: AsyncSession, company_id: int) -> CompanyDetail
         industry=company.industry,
         contact_email=company.contact_email,
         status=company.status.value,
-        tier=company.tier.value,
+        company_type=company.company_type.value,
+        tier=tier_for(company),
         channel_manager_id=company.channel_manager_id,
         channel_manager_name=company.channel_manager.full_name if company.channel_manager else None,
         partner_count=partner_count,
@@ -224,6 +245,12 @@ async def update_company(
         if not cm_result.scalar_one_or_none():
             raise BadRequestException(code="INVALID_CHANNEL_MANAGER", message="Channel manager must be an active admin")
 
+    # Coerce to the enum so the assignment below sets a real CompanyType
+    # rather than a bare string (which would break company.is_channel_partner
+    # for the rest of this request).
+    if update_data.get("company_type") is not None:
+        update_data["company_type"] = CompanyType(update_data["company_type"])
+
     before_state = {key: getattr(company, key) for key in update_data}
     # Convert any enum values for serialization
     for key, value in before_state.items():
@@ -236,7 +263,8 @@ async def update_company(
     await db.flush()
     await write_audit_log(db, admin_user.id, "UPDATE", "company", company.id, {
         "before": before_state,
-        "after": update_data,
+        # Unwrap enums (company_type) — the audit payload must stay JSON-safe.
+        "after": {k: (v.value if hasattr(v, "value") else v) for k, v in update_data.items()},
     })
 
     if "channel_manager_id" in update_data and update_data["channel_manager_id"] != old_cm_id:
@@ -264,7 +292,8 @@ async def update_company(
         industry=company.industry,
         contact_email=company.contact_email,
         status=company.status.value,
-        tier=company.tier.value,
+        company_type=company.company_type.value,
+        tier=tier_for(company),
         channel_manager_id=company.channel_manager_id,
         channel_manager_name=cm.full_name if cm else None,
         partner_count=partner_count,

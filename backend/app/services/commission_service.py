@@ -25,7 +25,7 @@ from app.models.commission import (
     CommissionStatus,
     TierCommissionRate,
 )
-from app.models.company import Company, PartnerTier
+from app.models.company import CHANNEL_COMPANY_TYPES, Company, PartnerTier
 from app.models.deal_registration import DealRegistration, DealStatus
 from app.models.user import User, UserRole
 from app.schemas.commission import (
@@ -144,6 +144,16 @@ async def calculate_commission_for_deal(
 
     if not deal.company:
         logger.warning("commission.no_company", deal_id=deal_id)
+        return None
+
+    # A company reclassified to customer while a deal sat pending earns no
+    # commission on it — it is no longer in the partner programme.
+    if not deal.company.is_channel_partner:
+        logger.info(
+            "commission.skip_non_channel_company",
+            deal_id=deal_id,
+            company_type=deal.company.company_type.value,
+        )
         return None
 
     tier: PartnerTier = deal.company.tier
@@ -423,6 +433,16 @@ async def get_scorecard(
     if company is None:
         raise NotFoundException(code="COMPANY_NOT_FOUND", message="Company not found")
 
+    # A customer company has no scorecard — no deals, no commission, no tier.
+    # The router already denies its own users; this also stops an ADMIN (who
+    # has no company and so passes the router guard) rendering a meaningless
+    # scorecard when they open a customer company's detail page.
+    if not company.is_channel_partner:
+        raise NotFoundException(
+            code="SCORECARD_NOT_APPLICABLE",
+            message="Customer companies do not have a partner scorecard",
+        )
+
     # Approved deal count
     approved_deals_result = await db.execute(
         select(func.count(DealRegistration.id)).where(
@@ -532,6 +552,10 @@ async def get_leaderboard(
             Commission.status.in_([CommissionStatus.APPROVED, CommissionStatus.PAID]),
             Commission.calculated_at >= start_date,
             Company.deleted_at.is_(None),
+            # A company reclassified to customer keeps its historic commission
+            # rows, but it is no longer in the programme, so it drops off the
+            # partner leaderboard.
+            Company.company_type.in_(CHANNEL_COMPANY_TYPES),
         )
         .group_by(Company.id, Company.name, Company.tier)
         .order_by(desc("total"))

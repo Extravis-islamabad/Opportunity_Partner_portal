@@ -7,6 +7,8 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from app.services.export_service import (
+    COMPANY_HEADERS,
+    _company_row,
     build_company_pdf,
     build_company_xlsx,
     build_deal_xlsx,
@@ -15,7 +17,7 @@ from app.services.export_service import (
 )
 
 
-def _fake_company(id_: int = 1):
+def _fake_company(id_: int = 1, company_type: str = "partner", is_channel: bool = True):
     return SimpleNamespace(
         id=id_,
         name=f"Acme {id_}",
@@ -24,6 +26,8 @@ def _fake_company(id_: int = 1):
         city="Austin",
         industry="Software",
         contact_email="hi@acme.test",
+        company_type=SimpleNamespace(value=company_type),
+        is_channel_partner=is_channel,
         tier=SimpleNamespace(value="gold"),
         status=SimpleNamespace(value="active"),
         created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -95,3 +99,33 @@ class TestCompanyExport:
     def test_pdf(self):
         pdf = build_company_pdf([_fake_company()])
         assert pdf.startswith(b"%PDF-")
+
+    def test_headers_include_type(self):
+        assert "Type" in COMPANY_HEADERS
+
+    def test_pdf_column_widths_match_header_count(self):
+        # The PDF builder passes a fixed col_widths list; a header added
+        # without a matching width raises inside reportlab at build time.
+        build_company_pdf([_fake_company()])
+
+    def test_partner_row_carries_type_and_tier(self):
+        row = _company_row(_fake_company(company_type="distributor"))
+        assert row[COMPANY_HEADERS.index("Type")] == "Distributor"
+        assert row[COMPANY_HEADERS.index("Tier")] == "Gold"
+
+    def test_customer_row_has_type_but_blank_tier(self):
+        # A customer keeps a tier value in the column but must never export it.
+        row = _company_row(
+            _fake_company(company_type="customer", is_channel=False)
+        )
+        assert row[COMPANY_HEADERS.index("Type")] == "Customer"
+        assert row[COMPANY_HEADERS.index("Tier")] == ""
+
+    def test_mixed_export_renders(self):
+        companies = [
+            _fake_company(1, "partner"),
+            _fake_company(2, "distributor"),
+            _fake_company(3, "customer", is_channel=False),
+        ]
+        assert build_company_pdf(companies).startswith(b"%PDF-")
+        assert build_company_xlsx(companies)[:2] == b"PK"

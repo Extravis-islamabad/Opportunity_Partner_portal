@@ -48,6 +48,11 @@ class UserBasicResponse(BaseModel):
     status: str
     company_id: int | None = None
     company_name: str | None = None
+    # The caller's own company type — null for admins and sales reps, who have
+    # no company. The frontend derives its capability set from this, so a
+    # customer company's user never sees deal registration, commissions,
+    # scorecard or leaderboard in the sidebar, routes or command palette.
+    company_type: str | None = None
     is_superadmin: bool = False
     is_channel_manager: bool = False
     managed_company_count: int = 0

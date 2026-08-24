@@ -36,6 +36,13 @@ export interface RefreshResponse {
 
 export type UserRole = 'admin' | 'partner' | 'sales_rep';
 
+/**
+ * What a company is to Extravis. Only 'partner' and 'distributor' take part
+ * in the partner programme (deal registration, commissions, scorecard, tier);
+ * a 'customer' is an end customer with a portal login and none of those.
+ */
+export type CompanyType = 'customer' | 'distributor' | 'partner';
+
 export interface UserBasic {
   id: number;
   full_name: string;
@@ -44,6 +51,8 @@ export interface UserBasic {
   status: string;
   company_id: number | null;
   company_name: string | null;
+  /** Null for admins and sales reps, who belong to no company. */
+  company_type: CompanyType | null;
   is_superadmin: boolean;
   is_channel_manager?: boolean;
   managed_company_count?: number;
@@ -95,7 +104,9 @@ export interface CompanyResponse {
   industry: string;
   contact_email: string;
   status: string;
-  tier: string;
+  company_type: CompanyType;
+  /** Null for a customer company — partner tier does not apply. */
+  tier: string | null;
   channel_manager_id: number;
   channel_manager_name: string | null;
   partner_count: number;
@@ -125,6 +136,8 @@ export interface CompanyCreateRequest {
   industry: string;
   contact_email: string;
   channel_manager_id: number;
+  /** Required — classification governs what the company's users can reach. */
+  company_type: CompanyType;
 }
 
 export interface CompanyUpdateRequest {
@@ -135,6 +148,8 @@ export interface CompanyUpdateRequest {
   industry?: string;
   contact_email?: string;
   channel_manager_id?: number;
+  /** Superadmin-only; the API rejects it from anyone else. */
+  company_type?: CompanyType;
 }
 
 // ==================== Opportunity ====================
@@ -437,7 +452,8 @@ export interface PartnerDashboard {
   my_drafts: number;
   my_total_worth: string;
   my_approved_worth: string;
-  company_tier: string;
+  /** Null for a customer company. */
+  company_tier: string | null;
   lms_courses_enrolled: number;
   lms_courses_completed: number;
   pending_doc_requests: number;
@@ -447,7 +463,8 @@ export interface PartnerDashboard {
 export interface CompanyPerformance {
   company_id: number;
   company_name: string;
-  tier: string;
+  company_type: CompanyType;
+  tier: string | null;
   opportunities_submitted: number;
   opportunities_won: number;
   opportunities_lost: number;
@@ -508,7 +525,9 @@ export interface IndustryBreakdown {
 export interface TopCompany {
   company_id: number;
   company_name: string;
-  tier: string;
+  company_type: CompanyType;
+  /** Null for a customer company — it can rank on pipeline but has no tier. */
+  tier: string | null;
   region: string;
   opportunities_won: number;
   approved_worth: string;
@@ -771,7 +790,8 @@ export interface PocSummary {
 export interface ChannelManagerCompanyBreakdown {
   company_id: number;
   company_name: string;
-  tier: string;
+  company_type: CompanyType;
+  tier: string | null;
   partner_count: number;
   pending_opportunities: number;
   approved_opportunities: number;

@@ -15,7 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_user, get_admin_scope
+from app.core.deps import (
+    get_admin_scope,
+    get_current_admin,
+    get_current_user,
+    is_customer_company_user,
+)
 from app.core.exceptions import ForbiddenException
 from app.models.company import Company
 from app.models.customer_license import CustomerLicense
@@ -133,6 +138,14 @@ async def _fetch_deals(
     )
 
     if current_user.role == UserRole.PARTNER:
+        # A customer company takes no part in deal registration, so the export
+        # is denied outright rather than returning an empty file — matching
+        # the deal list, which denies them too.
+        if is_customer_company_user(current_user):
+            raise ForbiddenException(
+                code="CUSTOMER_COMPANY_FORBIDDEN",
+                message="Customer companies cannot export deal registrations",
+            )
         # Match the deal *list* (dashboard.list_deals), which scopes a partner
         # to their own registrations — not the whole company. Exporting
         # company-wide would leak colleagues' deals the partner can't see in
@@ -166,6 +179,7 @@ async def _fetch_companies(
     region: Optional[str],
     search: Optional[str],
     status: Optional[str],
+    company_type: Optional[str],
 ) -> list[Company]:
     query = (
         select(Company)
@@ -187,6 +201,8 @@ async def _fetch_companies(
         query = query.where(Company.name.ilike(f"%{search}%"))
     if status:
         query = query.where(Company.status == status)
+    if company_type:
+        query = query.where(Company.company_type == company_type)
 
     query = query.order_by(Company.created_at.desc()).limit(EXPORT_ROW_CAP)
     result = await db.execute(query)
@@ -297,11 +313,13 @@ async def export_companies_pdf(
     country: Optional[str] = None,
     region: Optional[str] = None,
     search: Optional[str] = None,
+    company_type: Optional[str] = Query(None, pattern="^(customer|distributor|partner)$"),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     companies = await _fetch_companies(
         db, admin=admin, country=country, region=region, search=search, status=status,
+        company_type=company_type,
     )
     subtitle_parts = []
     if status:
@@ -319,11 +337,13 @@ async def export_companies_xlsx(
     country: Optional[str] = None,
     region: Optional[str] = None,
     search: Optional[str] = None,
+    company_type: Optional[str] = Query(None, pattern="^(customer|distributor|partner)$"),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     companies = await _fetch_companies(
         db, admin=admin, country=country, region=region, search=search, status=status,
+        company_type=company_type,
     )
     xlsx_bytes = build_company_xlsx(companies)
     return _stream(

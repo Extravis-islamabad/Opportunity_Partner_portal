@@ -4,7 +4,7 @@ from typing import Optional
 from sqlalchemy import select, func, case, extract, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.company import Company
+from app.models.company import CHANNEL_COMPANY_TYPES, Company
 from app.models.user import User, UserRole
 from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.enrollment import Enrollment, EnrollmentStatus
@@ -47,8 +47,13 @@ from app.schemas.dashboard import (
 from app.models.audit_log import AuditLog
 from app.models.poc import Poc, PocStatus, POC_STAGE_KEYS, POC_STAGE_LABELS
 from app.models.customer_license import CustomerLicense, LicenseStatus
-# Safe: poc_service does not import dashboard_service, so no cycle.
-from app.services import poc_service
+# Safe: neither imports dashboard_service, so no cycle.
+from app.services import company_service, poc_service
+
+
+# Raw string values, for the aggregation queries that select the column
+# rather than loading a Company instance.
+_CHANNEL_TYPE_VALUES = frozenset(t.value for t in CHANNEL_COMPANY_TYPES)
 
 
 async def get_admin_dashboard_stats(
@@ -273,7 +278,8 @@ async def get_company_performance(db: AsyncSession, company_id: int) -> CompanyP
     return CompanyPerformance(
         company_id=company.id,
         company_name=company.name,
-        tier=company.tier.value,
+        company_type=company.company_type.value,
+        tier=company_service.tier_for(company),
         opportunities_submitted=submitted.scalar() or 0,
         opportunities_won=won.scalar() or 0,
         opportunities_lost=lost.scalar() or 0,
@@ -311,14 +317,18 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
         )
     )).scalar() or Decimal("0")
 
-    company_tier = "silver"
+    # None for a customer company — it has no tier, so the dashboard renders
+    # no tier badge and no progression card at all.
+    company_tier: Optional[str] = None
+    is_channel_company = False
     if partner_user.company_id:
         company_result = await db.execute(
             select(Company).where(Company.id == partner_user.company_id)
         )
         company = company_result.scalar_one_or_none()
         if company:
-            company_tier = company.tier.value
+            is_channel_company = company.is_channel_partner
+            company_tier = company.tier.value if is_channel_company else None
 
     enrolled_count = (await db.execute(
         select(func.count(Enrollment.id)).where(Enrollment.user_id == partner_user.id)
@@ -362,7 +372,10 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
 
     tier_progress = None
     current_idx = tier_order.index(company_tier) if company_tier in tier_order else 0
-    if current_idx < len(tier_order) - 1:
+    if not is_channel_company:
+        # Customer company: no tier, so no progression to report.
+        tier_progress = None
+    elif current_idx < len(tier_order) - 1:
         next_tier = tier_order[current_idx + 1]
         reqs = tier_thresholds[next_tier]
         opps_req = reqs["opps"]
@@ -415,6 +428,7 @@ async def get_channel_manager_dashboard(
             Company.id,
             Company.name,
             Company.tier,
+            Company.company_type,
             func.count(func.distinct(User.id)).label("partner_count"),
             func.sum(case(
                 (Opportunity.status.in_([OpportunityStatus.PENDING_REVIEW, OpportunityStatus.UNDER_REVIEW]), 1),
@@ -431,7 +445,7 @@ async def get_channel_manager_dashboard(
             Company.channel_manager_id == user_id,
             Company.deleted_at.is_(None),
         )
-        .group_by(Company.id, Company.name, Company.tier)
+        .group_by(Company.id, Company.name, Company.tier, Company.company_type)
     )
     rows = result.all()
 
@@ -444,7 +458,7 @@ async def get_channel_manager_dashboard(
         .where(
             DocRequest.status == DocRequestStatus.PENDING,
             DocRequest.deleted_at.is_(None),
-            DocRequest.company_id.in_([row[0] for row in rows]) if rows else False,
+            DocRequest.company_id.in_([row.id for row in rows]) if rows else False,
         )
         .group_by(DocRequest.company_id)
     )
@@ -456,12 +470,17 @@ async def get_channel_manager_dashboard(
     total_approved_opps = 0
     total_pending_docs = 0
 
+    # Named access, not positional: the select list grew a company_type column
+    # and index-shifting silently mis-assigns every field after it.
     for row in rows:
-        company_id = row[0]
-        partner_count = row[3] or 0
-        pending_opps = row[4] or 0
-        approved_opps = row[5] or 0
+        company_id = row.id
+        partner_count = row.partner_count or 0
+        pending_opps = row.pending_opps or 0
+        approved_opps = row.approved_opps or 0
         pending_docs = doc_counts.get(company_id, 0)
+
+        company_type = row.company_type.value if hasattr(row.company_type, "value") else row.company_type
+        tier = row.tier.value if hasattr(row.tier, "value") else row.tier
 
         total_partners += partner_count
         total_pending_opps += pending_opps
@@ -470,8 +489,10 @@ async def get_channel_manager_dashboard(
 
         companies.append(ChannelManagerCompanyBreakdown(
             company_id=company_id,
-            company_name=row[1],
-            tier=row[2].value if hasattr(row[2], "value") else row[2],
+            company_name=row.name,
+            company_type=company_type,
+            # A customer company has no tier.
+            tier=tier if company_type in _CHANNEL_TYPE_VALUES else None,
             partner_count=partner_count,
             pending_opportunities=pending_opps,
             approved_opportunities=approved_opps,
@@ -573,6 +594,8 @@ async def get_admin_analytics(
     ]
 
     # ---- Tier distribution --------------------------------------------------
+    # Partner tier only applies to companies in the programme; counting
+    # customers here would inflate "silver" with companies that have no tier.
     tier_rows = (await db.execute(
         select(
             Company.tier,
@@ -584,7 +607,7 @@ async def get_admin_analytics(
             Opportunity,
             (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
         )
-        .where(*company_filter)
+        .where(*company_filter, Company.company_type.in_(CHANNEL_COMPANY_TYPES))
         .group_by(Company.tier)
     )).all()
     tiers = [
@@ -628,6 +651,7 @@ async def get_admin_analytics(
             Company.id,
             Company.name,
             Company.tier,
+            Company.company_type,
             Company.region,
             func.count(
                 case((Opportunity.status == OpportunityStatus.APPROVED, 1))
@@ -648,7 +672,7 @@ async def get_admin_analytics(
             (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
         )
         .where(*company_filter)
-        .group_by(Company.id, Company.name, Company.tier, Company.region)
+        .group_by(Company.id, Company.name, Company.tier, Company.company_type, Company.region)
         .order_by(
             func.coalesce(
                 func.sum(
@@ -662,17 +686,22 @@ async def get_admin_analytics(
         )
         .limit(6)
     )).all()
-    top_companies = [
-        TopCompany(
-            company_id=row[0],
-            company_name=row[1],
-            tier=row[2].value if hasattr(row[2], "value") else row[2],
-            region=row[3],
-            opportunities_won=row[4] or 0,
-            approved_worth=row[5],
-        )
-        for row in top_rows
-    ]
+    # Named access: the select list grew a company_type column, and positional
+    # indexing silently mis-assigns everything after it.
+    top_companies = []
+    for row in top_rows:
+        row_type = row.company_type.value if hasattr(row.company_type, "value") else row.company_type
+        row_tier = row.tier.value if hasattr(row.tier, "value") else row.tier
+        top_companies.append(TopCompany(
+            company_id=row.id,
+            company_name=row.name,
+            company_type=row_type,
+            # A customer can rank here on pipeline, but it has no tier.
+            tier=row_tier if row_type in _CHANNEL_TYPE_VALUES else None,
+            region=row.region,
+            opportunities_won=row.won or 0,
+            approved_worth=row.approved_worth,
+        ))
 
     # ---- Conversion funnel --------------------------------------------------
     funnel_counts = {}
@@ -919,6 +948,13 @@ async def evaluate_tier_upgrade(db: AsyncSession, company_id: int) -> str | None
     )
     company = company_result.scalar_one_or_none()
     if not company:
+        return None
+
+    # Tier progression belongs to the partner programme. A customer company
+    # has no tier, so it is never promoted and never gets a tier-history row —
+    # this is the single write path for Company.tier, so guarding it here is
+    # what keeps a customer's tier inert.
+    if not company.is_channel_partner:
         return None
 
     approved_count = (await db.execute(

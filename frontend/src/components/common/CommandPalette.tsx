@@ -18,11 +18,13 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
 
   const role = (user?.role ?? 'partner') as UserRole;
   const isSuperadmin = !!user?.is_superadmin;
+  const companyType = user?.company_type ?? null;
 
   // Filter routes by capability + search query. Capabilities (not raw role)
-  // so superadmin-only pages don't show dead-end entries to channel managers.
+  // so superadmin-only pages don't show dead-end entries to channel managers,
+  // and partner-programme pages don't show for a customer company's users.
   const filtered: RouteDescriptor[] = useMemo(() => {
-    const caps = capabilitiesFor(role, isSuperadmin);
+    const caps = capabilitiesFor(role, isSuperadmin, companyType);
     const accessible = ROUTES.filter((r) => !r.roles || r.roles.some((c) => caps.includes(c)));
     if (!query.trim()) return accessible;
     const q = query.trim().toLowerCase();
@@ -33,7 +35,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
       if (r.path.toLowerCase().includes(q)) return true;
       return false;
     });
-  }, [query, role, isSuperadmin]);
+  }, [query, role, isSuperadmin, companyType]);
 
   // Reset state whenever palette opens
   useEffect(() => {

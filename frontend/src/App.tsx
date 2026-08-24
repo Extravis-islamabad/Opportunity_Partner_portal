@@ -104,10 +104,13 @@ const App: React.FC = () => {
                 {/* Partner/admin workflows — sales reps are denied by the
                     backend, so gate the routes to match. */}
                 <Route path="/doc-requests" element={<ProtectedRoute allow={['admin', 'partner']}><DocRequestPage /></ProtectedRoute>} />
-                <Route path="/deals" element={<ProtectedRoute allow={['admin', 'partner']}><DealsPage /></ProtectedRoute>} />
-                <Route path="/commissions" element={<ProtectedRoute allow={['admin', 'partner']}><CommissionsListPage /></ProtectedRoute>} />
-                <Route path="/scorecard" element={<ProtectedRoute requiredRole="partner"><ScorecardPage /></ProtectedRoute>} />
-                <Route path="/leaderboard" element={<ProtectedRoute allow={['admin', 'partner']}><LeaderboardPage /></ProtectedRoute>} />
+                {/* Partner-programme pages. 'channel_member' is admin OR a
+                    partner whose company is a partner/distributor — a customer
+                    company's users are excluded here and by the backend. */}
+                <Route path="/deals" element={<ProtectedRoute requiredRole="channel_member"><DealsPage /></ProtectedRoute>} />
+                <Route path="/commissions" element={<ProtectedRoute requiredRole="channel_member"><CommissionsListPage /></ProtectedRoute>} />
+                <Route path="/scorecard" element={<ProtectedRoute requiredRole="own_scorecard"><ScorecardPage /></ProtectedRoute>} />
+                <Route path="/leaderboard" element={<ProtectedRoute requiredRole="channel_member"><LeaderboardPage /></ProtectedRoute>} />
                 {/* Personal — every authenticated user. */}
                 <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />

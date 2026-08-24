@@ -116,6 +116,7 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
     await redis_client.set(f"refresh:{jti}", str(user.id), ex=ttl)
 
     company_name = user.company.name if user.company else None
+    company_type = user.company.company_type.value if user.company else None
 
     # Compute channel manager flags for admin users
     managed_count = 0
@@ -141,6 +142,7 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
             status=user.status.value,
             company_id=user.company_id,
             company_name=company_name,
+            company_type=company_type,
             is_superadmin=user.is_superadmin,
             is_channel_manager=is_cm,
             managed_company_count=managed_count,

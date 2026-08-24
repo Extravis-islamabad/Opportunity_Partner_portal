@@ -35,7 +35,7 @@ from app.core.seed_excel import (
     time_frame_to_date,
 )
 from app.utils.bulk_import import load_xlsx_bounded, read_rows_capped
-from app.models.company import Company, CompanyStatus, PartnerTier
+from app.models.company import Company, CompanyStatus, CompanyType, PartnerTier
 from app.models.opportunity import Opportunity
 from app.models.user import User, UserRole, UserStatus
 from app.utils.audit import write_audit_log
@@ -156,6 +156,8 @@ async def bulk_import_opportunities(
                         contact_email=f"contact@{company_slug(partner_name)}.partner.extravis.com",
                         status=CompanyStatus.ACTIVE,
                         tier=PartnerTier.SILVER,
+                        # Rows in the Target Plan workbook are channel partners.
+                        company_type=CompanyType.PARTNER,
                         channel_manager_id=cm.id,
                     )
                     db.add(company)

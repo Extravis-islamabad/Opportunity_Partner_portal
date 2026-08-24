@@ -41,6 +41,7 @@ async def list_companies(
     channel_manager_id: Optional[int] = None,
     search: Optional[str] = None,
     status: Optional[str] = None,
+    company_type: Optional[str] = Query(None, pattern="^(customer|distributor|partner)$"),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -50,7 +51,8 @@ async def list_companies(
         channel_manager_id = admin.id
 
     items, total = await company_service.get_companies(
-        db, page, page_size, country, region, channel_manager_id, search, status
+        db, page, page_size, country, region, channel_manager_id, search, status,
+        company_type=company_type,
     )
     return {
         "items": items,
@@ -89,6 +91,15 @@ async def update_company(
     if not admin.is_superadmin and data.channel_manager_id is not None:
         raise ForbiddenException(
             message="Only superadmins can change a company's channel manager"
+        )
+
+    # Company type decides whether that company's users reach deal
+    # registration, commissions and scorecards at all, so re-classifying is a
+    # superadmin action too — a channel manager must not be able to turn one
+    # of their customers into a partner and open those modules up.
+    if not admin.is_superadmin and data.company_type is not None:
+        raise ForbiddenException(
+            message="Only superadmins can change a company's type"
         )
 
     return await company_service.update_company(db, company_id, data, admin)

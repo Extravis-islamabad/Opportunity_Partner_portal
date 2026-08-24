@@ -110,6 +110,52 @@ async def get_current_sales_rep(
     return current_user
 
 
+def is_customer_company_user(user: User) -> bool:
+    """True when this user belongs to a company outside the partner programme.
+
+    Admins and sales reps have no company at all, so they are never customer
+    users — they administer the programme rather than take part in it.
+    """
+    company = user.company
+    return company is not None and not company.is_channel_partner
+
+
+async def deny_customer_company(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Guard for the partner-programme modules: deal registration,
+    commissions, statements, scorecards and the leaderboard.
+
+    A customer company is an end customer with a portal login. It tracks its
+    own opportunities, POCs and licences, but registers no deals and earns no
+    commission, so those modules must be unreachable rather than merely hidden
+    in the sidebar. `get_current_user` eager-loads `.company`, so this costs
+    no extra query.
+    """
+    if is_customer_company_user(current_user):
+        raise ForbiddenException(
+            code="CUSTOMER_COMPANY_FORBIDDEN",
+            message="This area is only available to partner and distributor companies",
+        )
+    return current_user
+
+
+async def get_channel_partner(
+    current_user: User = Depends(get_current_partner),
+) -> User:
+    """A partner user whose company is in the partner programme.
+
+    `get_current_partner` alone is not enough for deal registration: a
+    customer company's users are partners by role but must not register deals.
+    """
+    if is_customer_company_user(current_user):
+        raise ForbiddenException(
+            code="CUSTOMER_COMPANY_FORBIDDEN",
+            message="Customer companies cannot register deals",
+        )
+    return current_user
+
+
 async def get_poc_editor(
     current_user: User = Depends(get_current_user),
 ) -> User:
