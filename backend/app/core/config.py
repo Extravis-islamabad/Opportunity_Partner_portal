@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     REVIEW_REMINDER_DAYS: int = 3
     REVIEW_ESCALATION_DAYS: int = 7
 
+    # How much notice a partner gets before their deal exclusivity ends.
+    # Long enough to ask for an extension and have somebody decide it.
+    EXCLUSIVITY_WARNING_DAYS: int = 14
+
     # Support
     SUPPORT_EMAIL: str = "support@extravis.com"
 

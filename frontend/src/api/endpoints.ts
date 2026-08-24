@@ -27,6 +27,8 @@ import type {
   PartnerDashboard,
   CompanyPerformance,
   DealRegistrationResponse,
+  ExpiringExclusivity,
+  ExtensionRequest,
   OpportunityStatusBreakdown,
   MonthlyOpportunityData,
   PaginatedResponse,
@@ -434,6 +436,22 @@ export const dashboardApi = {
     apiClient.post<DealRegistrationResponse>(`/dashboard/deals/${id}/approve`, { exclusivity_days }),
   rejectDeal: (id: number, rejection_reason: string) =>
     apiClient.post<DealRegistrationResponse>(`/dashboard/deals/${id}/reject`, { rejection_reason }),
+  // Exclusivity: what is about to lapse, and asking for more time.
+  listExpiringExclusivity: () =>
+    apiClient.get<ExpiringExclusivity[]>('/dashboard/deals/expiring'),
+  listExtensionRequests: (params?: { status?: string }) =>
+    apiClient.get<ExtensionRequest[]>('/dashboard/deals/extensions', { params }),
+  requestExtension: (dealId: number, days: number, reason?: string) =>
+    apiClient.post<{ id: number; deal_id: number; status: string }>(
+      `/dashboard/deals/${dealId}/extension`, { days, reason },
+    ),
+  decideExtension: (
+    requestId: number,
+    data: { approve: boolean; granted_days?: number; note?: string },
+  ) =>
+    apiClient.post<{ id: number; status: string; granted_days: number | null }>(
+      `/dashboard/deals/extensions/${requestId}/decide`, data,
+    ),
   getPocSummary: () =>
     apiClient.get<PocSummary>('/dashboard/poc-summary'),
   getDeploymentAnalytics: (months?: number) =>

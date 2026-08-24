@@ -31,6 +31,14 @@ class DealRegistration(Base):
     approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Exclusivity ageing. Stamped by the daily sweep so the warning goes out
+    # once rather than every morning, and so a lapsed registration reads as
+    # expired instead of sitting at "approved" forever. Cleared when an
+    # extension is granted: the partner gets a fresh warning before the new
+    # end date.
+    expiry_warned_at = Column(DateTime(timezone=True), nullable=True)
+    expired_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
@@ -39,6 +47,9 @@ class DealRegistration(Base):
     registered_by_user = relationship("User", foreign_keys=[registered_by])
     approver = relationship("User", foreign_keys=[approved_by])
     opportunity = relationship("Opportunity", foreign_keys=[opportunity_id])
+    extension_requests = relationship(
+        "DealExtensionRequest", back_populates="deal", cascade="all, delete-orphan"
+    )
     commission = relationship(
         "Commission", back_populates="deal", uselist=False, cascade="all, delete-orphan"
     )

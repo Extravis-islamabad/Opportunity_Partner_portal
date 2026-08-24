@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Table, Button, Tag, Space, Alert, Modal, Form, Input, InputNumber, DatePicker, message } from 'antd';
-import { PlusOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import { PlusOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { dashboardApi, exportsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,6 +27,9 @@ const DealsPage: React.FC = () => {
   const [exclusivityDays, setExclusivityDays] = useState(90);
   const [rejectModal, setRejectModal] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [extendModal, setExtendModal] = useState<DealRegistrationResponse | null>(null);
+  const [extendDays, setExtendDays] = useState(30);
+  const [extendReason, setExtendReason] = useState('');
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['deals', page],
@@ -51,13 +54,45 @@ const DealsPage: React.FC = () => {
     onSuccess: () => { setRejectModal(null); setRejectReason(''); void queryClient.invalidateQueries({ queryKey: ['deals'] }); void message.success('Deal rejected'); },
   });
 
+  const extendMut = useMutation({
+    mutationFn: ({ id, days, reason }: { id: number; days: number; reason: string }) =>
+      dashboardApi.requestExtension(id, days, reason.trim() || undefined),
+    onSuccess: () => {
+      setExtendModal(null);
+      setExtendReason('');
+      void queryClient.invalidateQueries({ queryKey: ['deals'] });
+      void message.success('Extension requested — an admin will decide it');
+    },
+    onError: () => { void message.error('Could not request an extension'); },
+  });
+
   const columns: ColumnsType<DealRegistrationResponse> = [
     { title: 'Customer', dataIndex: 'customer_name', key: 'customer' },
     ...(isAdmin ? [{ title: 'Company', dataIndex: 'company_name' as const, key: 'company' }] : []),
     { title: 'Value', dataIndex: 'estimated_value', key: 'value', render: (v: string) => `$${Number(v).toLocaleString()}` },
     { title: 'Close Date', dataIndex: 'expected_close_date', key: 'date' },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={statusColors[s] ?? 'default'}>{s.toUpperCase()}</Tag> },
-    { title: 'Exclusivity', key: 'excl', render: (_, r) => r.exclusivity_end ? `Until ${r.exclusivity_end}` : '-' },
+    {
+      title: 'Exclusivity',
+      key: 'excl',
+      render: (_, r) => {
+        if (!r.exclusivity_end) return '-';
+        // days_left is only set while the window is live, so a number here
+        // always means protection that still applies.
+        if (r.days_left === null) {
+          return <span style={{ color: '#8c8c8c' }}>Ended {r.exclusivity_end}</span>;
+        }
+        const urgent = r.days_left <= 14;
+        return (
+          <Space size={4}>
+            <span>Until {r.exclusivity_end}</span>
+            <Tag color={urgent ? 'orange' : 'default'} icon={urgent ? <ClockCircleOutlined /> : undefined}>
+              {r.days_left} {r.days_left === 1 ? 'day' : 'days'} left
+            </Tag>
+          </Space>
+        );
+      },
+    },
     ...(isAdmin ? [{
       title: 'Actions' as const, key: 'actions' as const, render: (_: unknown, record: DealRegistrationResponse) => record.status === 'pending' ? (
         <Space>
@@ -65,6 +100,18 @@ const DealsPage: React.FC = () => {
           <Button type="link" danger icon={<CloseOutlined />} onClick={() => setRejectModal(record.id)}>Reject</Button>
         </Space>
       ) : null,
+    }] : []),
+    ...(isPartner ? [{
+      title: 'Actions' as const, key: 'partner-actions' as const,
+      render: (_: unknown, record: DealRegistrationResponse) => {
+        // Only while the window is live: an expired registration has to be
+        // registered again, and the API refuses an extension on one.
+        if (record.status !== 'approved' || record.days_left === null) return null;
+        if (record.extension_pending) return <Tag color="processing">Extension requested</Tag>;
+        return (
+          <Button type="link" onClick={() => setExtendModal(record)}>Request Extension</Button>
+        );
+      },
     }] : []),
   ];
 
@@ -117,6 +164,37 @@ const DealsPage: React.FC = () => {
           <Form.Item name="estimated_value" label="Estimated Value (USD)" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} min={0.01} precision={2} /></Form.Item>
           <Form.Item name="expected_close_date" label="Expected Close Date" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Request Exclusivity Extension"
+        open={extendModal !== null}
+        onCancel={() => setExtendModal(null)}
+        onOk={() => extendModal && extendMut.mutate({ id: extendModal.id, days: extendDays, reason: extendReason })}
+        confirmLoading={extendMut.isPending}
+        okText="Request"
+      >
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <span>
+            Exclusivity on {extendModal?.customer_name} ends {extendModal?.exclusivity_end}.
+            An admin decides the request, and may grant fewer days than you ask for.
+          </span>
+          <InputNumber
+            min={1}
+            max={365}
+            value={extendDays}
+            onChange={(v) => setExtendDays(v ?? 30)}
+            addonAfter="days"
+            style={{ width: 180 }}
+          />
+          <Input.TextArea
+            rows={3}
+            placeholder="Why you need more time (optional)"
+            value={extendReason}
+            onChange={(e) => setExtendReason(e.target.value)}
+            maxLength={2000}
+          />
+        </Space>
       </Modal>
 
       <Modal title="Approve Deal" open={approveModal !== null} onCancel={() => setApproveModal(null)}

@@ -106,6 +106,7 @@ const AppLayout: React.FC = () => {
     { key: '/deployment', icon: <DeploymentUnitOutlined />, label: 'Deployment' },
     { key: '/activities', icon: <CalendarOutlined />, label: 'Activity Log' },
     { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
+    { key: '/deals/exclusivity', icon: <ClockCircleOutlined />, label: 'Exclusivity' },
     { key: '/commissions', icon: <DollarOutlined />, label: 'Commissions' },
     { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
@@ -125,6 +126,7 @@ const AppLayout: React.FC = () => {
   const channelMenuItems: MenuProps['items'] = isChannelCompany
     ? [
         { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
+        { key: '/deals/exclusivity', icon: <ClockCircleOutlined />, label: 'Exclusivity' },
         { key: '/commissions', icon: <DollarOutlined />, label: 'My Commissions' },
         { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
       ]

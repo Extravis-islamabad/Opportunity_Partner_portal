@@ -535,7 +535,43 @@ export interface DealRegistrationResponse {
   status: string;
   exclusivity_start: string | null;
   exclusivity_end: string | null;
+  // Days until exclusivity lapses; null once the window is gone or was never
+  // granted, so a number here always means live protection.
+  days_left: number | null;
+  expired_at: string | null;
+  extension_pending: boolean;
   rejection_reason: string | null;
+}
+
+export interface ExpiringExclusivity {
+  deal_id: number;
+  customer_name: string;
+  company_id: number;
+  company_name: string | null;
+  estimated_value: string;
+  exclusivity_end: string;
+  days_left: number;
+  extension_pending: boolean;
+}
+
+export type ExtensionStatus = 'pending' | 'approved' | 'refused';
+
+export interface ExtensionRequest {
+  id: number;
+  deal_id: number;
+  customer_name: string | null;
+  company_name: string | null;
+  requested_by: number;
+  requested_by_name: string | null;
+  requested_days: number;
+  granted_days: number | null;
+  reason: string | null;
+  status: ExtensionStatus;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  exclusivity_end: string | null;
+  created_at: string;
 }
 
 export interface OpportunityStatusBreakdown {

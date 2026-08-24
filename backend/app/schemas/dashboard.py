@@ -1,5 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
+from datetime import datetime
 from decimal import Decimal
 
 
@@ -198,6 +199,14 @@ class DealRegistrationResponse(BaseModel):
     status: str
     exclusivity_start: Optional[str] = None
     exclusivity_end: Optional[str] = None
+    # Days until exclusivity lapses. None once the window is gone or was never
+    # granted — a negative number would imply protection that has run out but
+    # still exists, and an expired registration has neither.
+    days_left: Optional[int] = None
+    expired_at: Optional[datetime] = None
+    # Whether a request for more time is already waiting on a decision, so the
+    # UI offers the action only where it would be accepted.
+    extension_pending: bool = False
     rejection_reason: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -209,6 +218,25 @@ class DealApproveRequest(BaseModel):
 
 class DealRejectRequest(BaseModel):
     rejection_reason: str
+
+
+class ExtensionRequestCreate(BaseModel):
+    """A partner asking for more exclusivity on a deal they registered.
+
+    Capped at a year: an extension longer than the original window is a new
+    registration, not an extension, and an unbounded number here would let a
+    partner hold a customer indefinitely on one approval.
+    """
+    days: int = Field(..., ge=1, le=365)
+    reason: Optional[str] = Field(None, max_length=2000)
+
+
+class ExtensionDecisionRequest(BaseModel):
+    """An admin's decision. `granted_days` may be fewer than were asked for;
+    omit it to grant exactly what was requested."""
+    approve: bool
+    granted_days: Optional[int] = Field(None, ge=1, le=365)
+    note: Optional[str] = Field(None, max_length=2000)
 
 
 # ---------------------------------------------------------------------------

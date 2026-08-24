@@ -126,6 +126,13 @@ export const ROUTES: RouteDescriptor[] = [
     keywords: ['duplicate', 'dedupe', 'merge', 'review', 'conflict'],
   },
   {
+    path: '/deals/exclusivity',
+    label: 'Exclusivity',
+    section: 'Pipeline',
+    roles: ['channel_member'],
+    keywords: ['exclusivity', 'expiry', 'expiring', 'extension', 'protection', 'deal'],
+  },
+  {
     path: '/opportunities/stale-reviews',
     label: 'Stuck Reviews',
     section: 'Pipeline',

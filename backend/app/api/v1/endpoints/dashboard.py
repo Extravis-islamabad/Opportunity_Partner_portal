@@ -30,10 +30,12 @@ from app.schemas.dashboard import (
     DealRegistrationResponse,
     DealApproveRequest,
     DealRejectRequest,
+    ExtensionRequestCreate,
+    ExtensionDecisionRequest,
     AnalyticsResponse,
     TargetPlanAnalyticsResponse,
 )
-from app.services import dashboard_service, deal_service
+from app.services import dashboard_service, deal_service, exclusivity_service
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -243,6 +245,92 @@ async def list_deals(
         "page": page,
         "page_size": page_size,
         "total_pages": math.ceil(total / page_size) if total > 0 else 0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Exclusivity: what is about to lapse, and asking for more time
+# ---------------------------------------------------------------------------
+
+@router.get("/deals/expiring", status_code=200)
+async def list_expiring_exclusivity(
+    # One handler for both audiences: a partner sees their own company's
+    # windows, an admin sees their book, and the scoping below is what
+    # separates them.
+    current_user: User = Depends(deny_sales_rep),
+    _no_customer: User = Depends(deny_customer_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Exclusivity windows closing within the warning period."""
+    scope = None
+    company_id = None
+    if current_user.role == UserRole.PARTNER:
+        # Own company only, like the deal list: exclusivity is not shared down
+        # the reseller tree.
+        company_id = current_user.company_id
+        scope = [current_user.company_id] if current_user.company_id else []
+    elif current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
+        scope = await get_admin_scope(db, current_user)
+
+    return await exclusivity_service.expiring_soon(
+        db, scope_company_ids=scope, company_id=company_id
+    )
+
+
+@router.get("/deals/extensions", status_code=200)
+async def list_extension_requests(
+    status: Optional[str] = Query(None, pattern="^(pending|approved|refused)$"),
+    current_user: User = Depends(deny_sales_rep),
+    _no_customer: User = Depends(deny_customer_company),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extension requests — their own for a partner, their book for an admin."""
+    scope = None
+    partner_company_id = None
+    if current_user.role == UserRole.PARTNER:
+        partner_company_id = current_user.company_id
+        scope = [current_user.company_id] if current_user.company_id else []
+    elif current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
+        scope = await get_admin_scope(db, current_user)
+
+    return await exclusivity_service.list_extension_requests(
+        db, scope_company_ids=scope, partner_company_id=partner_company_id, status=status
+    )
+
+
+@router.post("/deals/{deal_id}/extension", status_code=201)
+async def request_extension(
+    deal_id: int,
+    data: ExtensionRequestCreate,
+    partner: User = Depends(get_channel_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ask for more exclusivity. Scoped inside the service to the partner's
+    own company."""
+    req = await exclusivity_service.request_extension(
+        db, deal_id, partner, data.days, data.reason
+    )
+    return {"id": req.id, "deal_id": req.deal_id, "status": req.status.value}
+
+
+@router.post("/deals/extensions/{request_id}/decide", status_code=200)
+async def decide_extension(
+    request_id: int,
+    data: ExtensionDecisionRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Grant or refuse an extension. Extending takes the customer away from
+    every other partner for longer, so it is an admin decision."""
+    req = await exclusivity_service.decide_extension(
+        db, request_id, admin,
+        approve=data.approve, granted_days=data.granted_days, note=data.note,
+    )
+    return {
+        "id": req.id,
+        "deal_id": req.deal_id,
+        "status": req.status.value,
+        "granted_days": req.granted_days,
     }
 
 

@@ -22,6 +22,49 @@ from app.services.notification_service import notify_all_admins, notify_user
 logger = structlog.get_logger()
 
 
+def to_deal_response(
+    deal: DealRegistration,
+    *,
+    company_name: Optional[str] = None,
+    registered_by_name: Optional[str] = None,
+    extension_pending: bool = False,
+) -> DealRegistrationResponse:
+    """One place that turns a registration into its API shape.
+
+    Four separate hand-built constructions is how a field ends up on the list
+    but not on the approval response — which is exactly what happened to the
+    exclusivity dates before this existed. `company_name` and
+    `registered_by_name` are overridable because create_deal_registration
+    already has both loaded and re-reading them would be a wasted query.
+    """
+    days_left = None
+    if deal.exclusivity_end and deal.status == DealStatus.APPROVED:
+        days_left = (deal.exclusivity_end - date.today()).days
+
+    return DealRegistrationResponse(
+        id=deal.id,
+        company_id=deal.company_id,
+        company_name=company_name if company_name is not None else (deal.company.name if deal.company else None),
+        registered_by=deal.registered_by,
+        registered_by_name=(
+            registered_by_name
+            if registered_by_name is not None
+            else (deal.registered_by_user.full_name if deal.registered_by_user else None)
+        ),
+        customer_name=deal.customer_name,
+        deal_description=deal.deal_description,
+        estimated_value=deal.estimated_value,
+        expected_close_date=str(deal.expected_close_date),
+        status=deal.status.value,
+        exclusivity_start=str(deal.exclusivity_start) if deal.exclusivity_start else None,
+        exclusivity_end=str(deal.exclusivity_end) if deal.exclusivity_end else None,
+        days_left=days_left,
+        expired_at=deal.expired_at,
+        extension_pending=extension_pending,
+        rejection_reason=deal.rejection_reason,
+    )
+
+
 async def create_deal_registration(
     db: AsyncSession, data: DealRegistrationCreateRequest, partner_user: User
 ) -> DealRegistrationResponse:
@@ -73,17 +116,8 @@ async def create_deal_registration(
         "deal_registration", deal.id,
     )
 
-    return DealRegistrationResponse(
-        id=deal.id,
-        company_id=deal.company_id,
-        company_name=company_name,
-        registered_by=deal.registered_by,
-        registered_by_name=partner_user.full_name,
-        customer_name=deal.customer_name,
-        deal_description=deal.deal_description,
-        estimated_value=deal.estimated_value,
-        expected_close_date=str(deal.expected_close_date),
-        status=deal.status.value,
+    return to_deal_response(
+        deal, company_name=company_name, registered_by_name=partner_user.full_name
     )
 
 
@@ -130,22 +164,21 @@ async def get_deal_registrations(
     count_result = await db.execute(count_query)
     total = count_result.scalar() or 0
 
+    # One query for the deals with a request already waiting, so the UI can
+    # offer "request an extension" only where it would actually be accepted.
+    pending_ids: set[int] = set()
+    if deals:
+        from app.models.deal_extension import DealExtensionRequest, ExtensionStatus
+
+        pending_ids = set((await db.execute(
+            select(DealExtensionRequest.deal_id).where(
+                DealExtensionRequest.deal_id.in_([d.id for d in deals]),
+                DealExtensionRequest.status == ExtensionStatus.PENDING,
+            )
+        )).scalars().all())
+
     items = [
-        DealRegistrationResponse(
-            id=d.id,
-            company_id=d.company_id,
-            company_name=d.company.name if d.company else None,
-            registered_by=d.registered_by,
-            registered_by_name=d.registered_by_user.full_name if d.registered_by_user else None,
-            customer_name=d.customer_name,
-            deal_description=d.deal_description,
-            estimated_value=d.estimated_value,
-            expected_close_date=str(d.expected_close_date),
-            status=d.status.value,
-            exclusivity_start=str(d.exclusivity_start) if d.exclusivity_start else None,
-            exclusivity_end=str(d.exclusivity_end) if d.exclusivity_end else None,
-            rejection_reason=d.rejection_reason,
-        )
+        to_deal_response(d, extension_pending=d.id in pending_ids)
         for d in deals
     ]
 
@@ -206,20 +239,7 @@ async def approve_deal(
             error=str(exc),
         )
 
-    return DealRegistrationResponse(
-        id=deal.id,
-        company_id=deal.company_id,
-        company_name=deal.company.name if deal.company else None,
-        registered_by=deal.registered_by,
-        registered_by_name=deal.registered_by_user.full_name if deal.registered_by_user else None,
-        customer_name=deal.customer_name,
-        deal_description=deal.deal_description,
-        estimated_value=deal.estimated_value,
-        expected_close_date=str(deal.expected_close_date),
-        status=deal.status.value,
-        exclusivity_start=str(deal.exclusivity_start),
-        exclusivity_end=str(deal.exclusivity_end),
-    )
+    return to_deal_response(deal)
 
 
 async def reject_deal(
@@ -252,16 +272,4 @@ async def reject_deal(
         "deal_registration", deal.id,
     )
 
-    return DealRegistrationResponse(
-        id=deal.id,
-        company_id=deal.company_id,
-        company_name=deal.company.name if deal.company else None,
-        registered_by=deal.registered_by,
-        registered_by_name=deal.registered_by_user.full_name if deal.registered_by_user else None,
-        customer_name=deal.customer_name,
-        deal_description=deal.deal_description,
-        estimated_value=deal.estimated_value,
-        expected_close_date=str(deal.expected_close_date),
-        status=deal.status.value,
-        rejection_reason=deal.rejection_reason,
-    )
+    return to_deal_response(deal)

@@ -8,6 +8,7 @@ from app.models.enrollment import Enrollment
 from app.models.doc_request import DocRequest
 from app.models.notification import Notification
 from app.models.audit_log import AuditLog
+from app.models.deal_extension import DealExtensionRequest, ExtensionStatus
 from app.models.email_delivery import EmailDelivery, EmailStatus
 from app.models.deal_registration import DealRegistration
 from app.models.partner_tier import PartnerTierHistory
@@ -30,6 +31,8 @@ __all__ = [
     "DocRequest",
     "Notification",
     "AuditLog",
+    "DealExtensionRequest",
+    "ExtensionStatus",
     "EmailDelivery",
     "EmailStatus",
     "PocTeamMember",

@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI):
     from app.core.init_db import create_superadmin
     await create_superadmin()
 
+    from app.services.exclusivity_service import sweep_exclusivity
     from app.services.review_sla_service import sweep_stale_reviews
 
     # Held in a list, not bare create_task calls: asyncio keeps only a weak
@@ -81,6 +82,7 @@ async def lifespan(app: FastAPI):
     jobs = [
         asyncio.create_task(_license_status_refresher(logger)),
         asyncio.create_task(_daily("review_sla_sweep", sweep_stale_reviews, logger)),
+        asyncio.create_task(_daily("exclusivity_sweep", sweep_exclusivity, logger)),
     ]
 
     yield

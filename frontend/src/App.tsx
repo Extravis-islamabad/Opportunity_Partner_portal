@@ -28,6 +28,7 @@ import DocRequestPage from '@/pages/documents/DocRequestPage';
 import NotificationsPage from '@/pages/notifications/NotificationsPage';
 import ProfilePage from '@/pages/profile/ProfilePage';
 import DealsPage from '@/pages/deals/DealsPage';
+import ExclusivityPage from '@/pages/deals/ExclusivityPage';
 import CommissionsListPage from '@/pages/commissions/CommissionsListPage';
 import ScorecardPage from '@/pages/scorecard/ScorecardPage';
 import LeaderboardPage from '@/pages/scorecard/LeaderboardPage';
@@ -113,6 +114,7 @@ const App: React.FC = () => {
                     partner whose company is a partner/distributor — a customer
                     company's users are excluded here and by the backend. */}
                 <Route path="/deals" element={<ProtectedRoute requiredRole="channel_member"><DealsPage /></ProtectedRoute>} />
+                <Route path="/deals/exclusivity" element={<ProtectedRoute requiredRole="channel_member"><ExclusivityPage /></ProtectedRoute>} />
                 <Route path="/commissions" element={<ProtectedRoute requiredRole="channel_member"><CommissionsListPage /></ProtectedRoute>} />
                 <Route path="/scorecard" element={<ProtectedRoute requiredRole="own_scorecard"><ScorecardPage /></ProtectedRoute>} />
                 <Route path="/leaderboard" element={<ProtectedRoute requiredRole="channel_member"><LeaderboardPage /></ProtectedRoute>} />
