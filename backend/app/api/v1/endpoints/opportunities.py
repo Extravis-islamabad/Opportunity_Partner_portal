@@ -5,7 +5,13 @@ from typing import Optional, List
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, get_current_admin, get_current_partner, get_admin_scope
+from app.core.deps import (
+    get_current_user,
+    get_current_admin,
+    get_current_partner,
+    get_admin_scope,
+    get_partner_pipeline_scope,
+)
 from app.models.user import User, UserRole
 from app.schemas.opportunity import (
     OpportunityCreateRequest,
@@ -105,9 +111,17 @@ async def list_opportunities(
 ):
     submitted_by = None
     sales_rep_id = None
+    company_ids = None
     if current_user.role == UserRole.PARTNER:
-        submitted_by = current_user.id
-        company_id = current_user.company_id
+        # Company-wide, plus the resellers underneath a distributor. Colleagues
+        # see each other's pipeline; a distributor sees its resellers'. Note
+        # this widens *reading* only — editing, submitting and deleting still
+        # check submitted_by (opportunity_service.update_opportunity).
+        #
+        # `company_id` stays as whatever the client asked for: it ANDs with the
+        # scope, so a distributor can narrow the list to one reseller and
+        # nobody can use it to reach outside their scope.
+        company_ids = await get_partner_pipeline_scope(db, current_user)
 
     # Channel-manager scoping: a non-superadmin admin only sees opportunities
     # for the companies they channel-manage. Force the filter regardless of
@@ -122,6 +136,7 @@ async def list_opportunities(
     items, total = await opportunity_service.get_opportunities(
         db, page, page_size, status, company_id, country, region, search,
         submitted_by, channel_manager_id, sales_rep_id=sales_rep_id,
+        company_ids=company_ids,
     )
     return {
         "items": [item.model_dump(mode="json") for item in items],
@@ -140,8 +155,15 @@ async def get_opportunity(
 ):
     opp = await opportunity_service.get_opportunity_detail(db, opp_id)
 
-    if current_user.role == UserRole.PARTNER and opp.submitted_by != current_user.id:
-        raise ForbiddenException(message="You can only view your own opportunities")
+    # Reads are company-wide and follow the reseller tree downward; writes
+    # (PUT, submit, delete, document upload) still belong to the submitter
+    # alone and are checked separately in opportunity_service.
+    if current_user.role == UserRole.PARTNER:
+        scope = await get_partner_pipeline_scope(db, current_user)
+        if opp.company_id not in scope:
+            raise ForbiddenException(
+                message="You do not have access to this opportunity"
+            )
 
     # Sales reps are scoped to the opportunities assigned to them; without
     # this they'd fall past the partner check and read the whole pipeline.

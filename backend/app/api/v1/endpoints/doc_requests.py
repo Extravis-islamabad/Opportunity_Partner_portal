@@ -43,8 +43,15 @@ async def list_doc_requests(
     db: AsyncSession = Depends(get_db),
 ):
     requested_by = None
+    scope_company_ids = None
     if current_user.role == UserRole.PARTNER:
-        requested_by = current_user.id
+        # Company-wide, and deliberately *not* down the reseller tree: a
+        # distributor sees its resellers' pipeline, not the paperwork they
+        # raise with Extravis. A partner with no company sees nothing, which
+        # is what the empty list gives.
+        scope_company_ids = (
+            [current_user.company_id] if current_user.company_id else []
+        )
     elif current_user.role == UserRole.SALES_REP:
         # Doc requests are a partner/admin workflow. Reps have no scope here,
         # so deny rather than fall through to the unfiltered admin view.
@@ -52,7 +59,8 @@ async def list_doc_requests(
         raise ForbiddenException(message="Sales reps do not have access to document requests")
 
     items, total = await doc_request_service.get_doc_requests(
-        db, page, page_size, status, company_id, requested_by
+        db, page, page_size, status, company_id, requested_by,
+        scope_company_ids=scope_company_ids,
     )
     return {
         "items": [item.model_dump(mode="json") for item in items],

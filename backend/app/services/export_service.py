@@ -259,8 +259,8 @@ def build_deal_xlsx(deals: Iterable[DealRegistration]) -> bytes:
 # ------------------------------ Companies ------------------------------------
 
 COMPANY_HEADERS = [
-    "ID", "Name", "Type", "Country", "Region", "City", "Industry",
-    "Contact Email", "Tier", "Status", "Created",
+    "ID", "Name", "Type", "Parent Distributor", "Country", "Region", "City",
+    "Industry", "Contact Email", "Tier", "Status", "Created",
 ]
 
 
@@ -269,6 +269,10 @@ def _company_row(c: Company) -> list[str]:
         c.id,
         c.name,
         c.company_type.value.title() if c.company_type else "",
+        # Blank unless this is a reseller sitting under a distributor. The
+        # caller must eager-load the relationship (exports._fetch_companies) —
+        # a lazy load here would fail outside the greenlet context.
+        c.parent_distributor.name if c.parent_distributor else "",
         c.country,
         c.region,
         c.city,
@@ -307,11 +311,12 @@ def build_company_pdf(companies: Iterable[Company], subtitle: str | None = None)
         styles = getSampleStyleSheet()
         elements.append(Paragraph("No companies match the current filters.", styles["Italic"]))
     else:
-        # 11 columns; trimmed from the wider text fields to make room for Type
-        # without overflowing the landscape A4 content width.
+        # 12 columns summing to 270mm, which fits the 273mm of content width
+        # a landscape A4 page has left after its 12mm side margins. Adding a
+        # column means taking the width out of the wider text fields.
         col_widths = [
-            12 * mm, 42 * mm, 22 * mm, 22 * mm, 22 * mm, 22 * mm,
-            34 * mm, 44 * mm, 18 * mm, 20 * mm, 20 * mm,
+            12 * mm, 36 * mm, 20 * mm, 32 * mm, 20 * mm, 18 * mm, 18 * mm,
+            26 * mm, 34 * mm, 16 * mm, 18 * mm, 20 * mm,
         ]
         elements.append(_pdf_table(COMPANY_HEADERS, rows, col_widths))
 

@@ -25,6 +25,12 @@ EXPECTED_HEADERS = [
     "Channel Manager Email",
 ]
 
+# Optional columns. Absent from the sheet entirely, or blank in a row, both
+# mean "not set" — so an existing import file keeps working unchanged.
+OPTIONAL_HEADERS = [
+    "Parent Distributor Name",
+]
+
 _VALID_COMPANY_TYPES = ", ".join(t.value for t in CompanyType)
 
 
@@ -60,6 +66,9 @@ async def bulk_import_companies(
             )
 
     col_idx = {name: header.index(name) for name in EXPECTED_HEADERS}
+    col_idx.update(
+        {name: header.index(name) for name in OPTIONAL_HEADERS if name in header}
+    )
 
     succeeded = 0
     failed = []
@@ -71,6 +80,14 @@ async def bulk_import_companies(
                 if val is None:
                     raise ValueError(f"{name} is required")
                 return str(val).strip()
+
+            def optional_cell(name: str) -> str:
+                """Blank, whitespace, or a column that isn't in the sheet at
+                all, all read as ''."""
+                if name not in col_idx:
+                    return ""
+                val = row[col_idx[name]]
+                return str(val).strip() if val is not None else ""
 
             company_name = cell("Company Name")
             company_type = _parse_company_type(cell("Company Type"))
@@ -92,6 +109,34 @@ async def bulk_import_companies(
             if not channel_manager:
                 raise ValueError(f"Channel manager not found or not an admin: {cm_email}")
 
+            # Optional reseller link, resolved by name because a spreadsheet
+            # has no ids. The distributor must already exist — either from a
+            # previous import or from an earlier row in this same sheet, since
+            # each row is flushed before the next is read. Same two rules the
+            # API enforces (company_service.assert_valid_parent_distributor):
+            # the parent must be a distributor and the child a partner.
+            parent_distributor_id = None
+            parent_name = optional_cell("Parent Distributor Name")
+            if parent_name:
+                if company_type != CompanyType.PARTNER:
+                    raise ValueError(
+                        "Parent Distributor Name is only valid on a partner company"
+                    )
+                parent_result = await db.execute(
+                    select(Company).where(
+                        Company.name == parent_name,
+                        Company.deleted_at.is_(None),
+                    )
+                )
+                parent = parent_result.scalars().first()
+                if not parent:
+                    raise ValueError(f"Parent distributor not found: {parent_name}")
+                if parent.company_type != CompanyType.DISTRIBUTOR:
+                    raise ValueError(
+                        f"Parent distributor {parent_name!r} is not of type distributor"
+                    )
+                parent_distributor_id = parent.id
+
             company = Company(
                 name=company_name,
                 country=country,
@@ -101,6 +146,7 @@ async def bulk_import_companies(
                 contact_email=contact_email,
                 channel_manager_id=channel_manager.id,
                 company_type=company_type,
+                parent_distributor_id=parent_distributor_id,
             )
             db.add(company)
             await db.flush()
@@ -110,6 +156,7 @@ async def bulk_import_companies(
                 {
                     "name": company_name,
                     "company_type": company_type.value,
+                    "parent_distributor_id": parent_distributor_id,
                     "source": "bulk_import",
                 },
             )
@@ -135,9 +182,22 @@ async def download_bulk_import_template(
     ws = wb.active
     ws.title = "Companies"
 
-    ws.append(EXPECTED_HEADERS)
-    # Two sample rows so the Company Type column shows more than one valid
-    # value — the importer rejects anything outside the enum.
+    ws.append(EXPECTED_HEADERS + OPTIONAL_HEADERS)
+    # Three sample rows: one of each company type, so the Company Type column
+    # shows more than one valid value (the importer rejects anything outside
+    # the enum), and one showing a partner linked to a distributor listed
+    # above it — rows are processed top to bottom, so the parent has to come
+    # first.
+    ws.append([
+        "Nordwind Distribution",
+        "distributor",
+        "Germany",
+        "Hamburg",
+        "Technology",
+        "contact@nordwind.example",
+        "admin@extravis.com",
+        "",
+    ])
     ws.append([
         "Acme Corp",
         "partner",
@@ -146,6 +206,7 @@ async def download_bulk_import_template(
         "Technology",
         "contact@acme.com",
         "admin@extravis.com",
+        "Nordwind Distribution",
     ])
     ws.append([
         "Globex Manufacturing",
@@ -155,6 +216,7 @@ async def download_bulk_import_template(
         "Manufacturing",
         "it@globex.example",
         "admin@extravis.com",
+        "",
     ])
 
     # Auto-size columns for readability

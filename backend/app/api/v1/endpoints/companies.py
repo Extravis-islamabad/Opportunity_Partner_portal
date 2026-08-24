@@ -102,6 +102,16 @@ async def update_company(
             message="Only superadmins can change a company's type"
         )
 
+    # Same reasoning for the reseller link: a company's parent distributor
+    # decides who can read its pipeline, so re-parenting is a superadmin
+    # action. Tested with `in` rather than `is not None` because sending an
+    # explicit null (unlinking a reseller) is just as much a scope change as
+    # setting one.
+    if not admin.is_superadmin and "parent_distributor_id" in data.model_fields_set:
+        raise ForbiddenException(
+            message="Only superadmins can change a company's parent distributor"
+        )
+
     return await company_service.update_company(db, company_id, data, admin)
 
 

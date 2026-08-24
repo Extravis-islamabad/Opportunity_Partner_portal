@@ -4,6 +4,8 @@ from typing import Optional
 from sqlalchemy import select, func, case, extract, literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# deps imports only models/core, never services, so this is cycle-free.
+from app.core.deps import get_partner_pipeline_scope
 from app.models.company import CHANNEL_COMPANY_TYPES, Company
 from app.models.user import User, UserRole
 from app.models.opportunity import Opportunity, OpportunityStatus
@@ -290,7 +292,18 @@ async def get_company_performance(db: AsyncSession, company_id: int) -> CompanyP
 
 
 async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> PartnerDashboardResponse:
-    base_filter = [Opportunity.submitted_by == partner_user.id, Opportunity.deleted_at.is_(None)]
+    # The opportunity counters cover everything this user can *read*: their
+    # company, plus any resellers underneath a distributor. Scoping them to
+    # submitted_by instead would leave a distributor with a dashboard showing
+    # near-zero while the opportunity list beside it shows the whole tree.
+    #
+    # `[]` (a partner with no company) must mean no rows rather than all rows,
+    # so this is always an IN, never a truthiness branch.
+    pipeline_scope = await get_partner_pipeline_scope(db, partner_user)
+    base_filter = [
+        Opportunity.company_id.in_(pipeline_scope),
+        Opportunity.deleted_at.is_(None),
+    ]
 
     my_opps = (await db.execute(select(func.count(Opportunity.id)).where(*base_filter))).scalar() or 0
     my_approved = (await db.execute(
@@ -340,9 +353,14 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
         )
     )).scalar() or 0
 
+    # Company-wide, matching the doc-request list this card links to — and
+    # deliberately not down the reseller tree, which the list doesn't follow
+    # either.
     pending_docs = (await db.execute(
         select(func.count(DocRequest.id)).where(
-            DocRequest.requested_by == partner_user.id,
+            DocRequest.company_id.in_(
+                [partner_user.company_id] if partner_user.company_id else []
+            ),
             DocRequest.status == DocRequestStatus.PENDING,
             DocRequest.deleted_at.is_(None),
         )
@@ -510,10 +528,15 @@ async def get_channel_manager_dashboard(
 
 
 async def get_partner_timeline(
-    db: AsyncSession, partner_id: int, months: int = 6
+    db: AsyncSession, partner_user: User, months: int = 6
 ) -> list[MonthlyOpportunityData]:
-    """Per-partner monthly submitted/approved/rejected for the partner dashboard
-    area chart. Returns last `months` months of activity."""
+    """Monthly submitted/approved/rejected for the partner dashboard area
+    chart. Returns last `months` months of activity.
+
+    Scoped exactly like the dashboard counters it sits beside
+    (get_partner_dashboard): the caller's company plus any resellers under a
+    distributor. Takes the User rather than an id because resolving the
+    reseller tree needs the company."""
     today = date.today()
     start_date = today.replace(day=1) - timedelta(days=30 * (months - 1))
 
@@ -526,7 +549,9 @@ async def get_partner_timeline(
             func.sum(case((Opportunity.status == OpportunityStatus.REJECTED, 1), else_=0)).label('rejected'),
         )
         .where(
-            Opportunity.submitted_by == partner_id,
+            Opportunity.company_id.in_(
+                await get_partner_pipeline_scope(db, partner_user)
+            ),
             Opportunity.deleted_at.is_(None),
             Opportunity.created_at >= start_date,
         )

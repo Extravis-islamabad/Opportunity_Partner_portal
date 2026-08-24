@@ -17,10 +17,20 @@ from app.services.export_service import (
 )
 
 
-def _fake_company(id_: int = 1, company_type: str = "partner", is_channel: bool = True):
+def _fake_company(
+    id_: int = 1,
+    company_type: str = "partner",
+    is_channel: bool = True,
+    parent_distributor_name: str | None = None,
+):
     return SimpleNamespace(
         id=id_,
         name=f"Acme {id_}",
+        parent_distributor=(
+            SimpleNamespace(name=parent_distributor_name)
+            if parent_distributor_name
+            else None
+        ),
         country="USA",
         region="NA",
         city="Austin",
@@ -121,9 +131,21 @@ class TestCompanyExport:
         assert row[COMPANY_HEADERS.index("Type")] == "Customer"
         assert row[COMPANY_HEADERS.index("Tier")] == ""
 
+    def test_reseller_row_names_its_parent_distributor(self):
+        row = _company_row(
+            _fake_company(parent_distributor_name="Nordwind Distribution")
+        )
+        assert row[COMPANY_HEADERS.index("Parent Distributor")] == "Nordwind Distribution"
+
+    def test_direct_company_has_blank_parent_distributor(self):
+        # Most companies report straight to Extravis; the column must be empty
+        # for them rather than repeating their own name.
+        row = _company_row(_fake_company())
+        assert row[COMPANY_HEADERS.index("Parent Distributor")] == ""
+
     def test_mixed_export_renders(self):
         companies = [
-            _fake_company(1, "partner"),
+            _fake_company(1, "partner", parent_distributor_name="Nordwind"),
             _fake_company(2, "distributor"),
             _fake_company(3, "customer", is_channel=False),
         ]

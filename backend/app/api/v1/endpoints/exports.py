@@ -17,6 +17,7 @@ from sqlalchemy.orm import joinedload
 from app.core.database import get_db
 from app.core.deps import (
     get_admin_scope,
+    get_partner_pipeline_scope,
     get_current_admin,
     get_current_user,
     is_customer_company_user,
@@ -82,12 +83,17 @@ async def _fetch_opportunities(
         .where(Opportunity.deleted_at.is_(None))
     )
 
-    # Partners are scoped to their own company + their own submissions
+    # Partners export what they can read: their own company, plus any
+    # resellers underneath them. Matches the opportunity list exactly — an
+    # export must never be a way to see more than the UI shows.
     if current_user.role == UserRole.PARTNER:
         query = query.where(
-            Opportunity.company_id == current_user.company_id,
-            Opportunity.submitted_by == current_user.id,
+            Opportunity.company_id.in_(
+                await get_partner_pipeline_scope(db, current_user)
+            )
         )
+        if company_id:
+            query = query.where(Opportunity.company_id == company_id)
     # Sales reps are scoped to the opportunities assigned to them.
     elif current_user.role == UserRole.SALES_REP:
         query = query.where(Opportunity.sales_rep_id == current_user.id)
@@ -146,11 +152,15 @@ async def _fetch_deals(
                 code="CUSTOMER_COMPANY_FORBIDDEN",
                 message="Customer companies cannot export deal registrations",
             )
-        # Match the deal *list* (dashboard.list_deals), which scopes a partner
-        # to their own registrations — not the whole company. Exporting
-        # company-wide would leak colleagues' deals the partner can't see in
-        # the UI.
-        query = query.where(DealRegistration.registered_by == current_user.id)
+        # Match the deal *list* (dashboard.list_deals): a partner's own
+        # company, and never down the reseller tree — deals carry exclusivity
+        # and commission, which stay inside the company that registered them.
+        # A partner with no company exports nothing, not everything.
+        query = query.where(
+            DealRegistration.company_id.in_(
+                [current_user.company_id] if current_user.company_id else []
+            )
+        )
     elif current_user.role == UserRole.SALES_REP:
         # Deal registrations are a partner/admin concern; reps have no scope
         # here, so deny outright rather than fall through to "see everything".
@@ -183,7 +193,12 @@ async def _fetch_companies(
 ) -> list[Company]:
     query = (
         select(Company)
-        .options(joinedload(Company.channel_manager))
+        .options(
+            joinedload(Company.channel_manager),
+            # The export carries a Parent Distributor column; without this the
+            # row builder would lazy-load outside the greenlet and fail.
+            joinedload(Company.parent_distributor),
+        )
         .where(Company.deleted_at.is_(None))
     )
 
@@ -374,10 +389,15 @@ async def _fetch_pocs(
         .where(Poc.deleted_at.is_(None), Opportunity.deleted_at.is_(None))
     )
 
-    # Same scoping as the POC list (pocs._list_scope): partners by company,
-    # sales reps by assignment, channel-manager admins by managed companies.
+    # Same scoping as the POC list (pocs._list_scope): partners by company
+    # plus resellers underneath them, sales reps by assignment,
+    # channel-manager admins by managed companies.
     if current_user.role == UserRole.PARTNER:
-        query = query.where(Opportunity.company_id == current_user.company_id)
+        query = query.where(
+            Opportunity.company_id.in_(
+                await get_partner_pipeline_scope(db, current_user)
+            )
+        )
     elif current_user.role == UserRole.SALES_REP:
         query = query.where(Opportunity.sales_rep_id == current_user.id)
     else:
@@ -458,8 +478,13 @@ async def _fetch_licenses(
         .where(CustomerLicense.deleted_at.is_(None), Opportunity.deleted_at.is_(None))
     )
 
+    # Mirrors the licence list, which shares pocs._list_scope.
     if current_user.role == UserRole.PARTNER:
-        query = query.where(Opportunity.company_id == current_user.company_id)
+        query = query.where(
+            Opportunity.company_id.in_(
+                await get_partner_pipeline_scope(db, current_user)
+            )
+        )
     elif current_user.role == UserRole.SALES_REP:
         query = query.where(Opportunity.sales_rep_id == current_user.id)
     else:

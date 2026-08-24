@@ -258,7 +258,13 @@ async def get_opportunities(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     sales_rep_id: Optional[int] = None,
+    company_ids: Optional[list[int]] = None,
 ) -> tuple[list, int]:
+    """`company_ids` is a hard scope, not a user-supplied filter: callers pass
+    the set of companies the caller is allowed to read (see
+    deps.get_partner_pipeline_scope) and an empty list means "sees nothing".
+    That is why it is tested with `is not None` rather than for truthiness —
+    `[]` must return zero rows, not fall through to everything."""
     query = (
         select(Opportunity)
         .options(
@@ -273,6 +279,9 @@ async def get_opportunities(
     if status:
         query = query.where(Opportunity.status == status)
         count_query = count_query.where(Opportunity.status == status)
+    if company_ids is not None:
+        query = query.where(Opportunity.company_id.in_(company_ids))
+        count_query = count_query.where(Opportunity.company_id.in_(company_ids))
     if company_id:
         query = query.where(Opportunity.company_id == company_id)
         count_query = count_query.where(Opportunity.company_id == company_id)

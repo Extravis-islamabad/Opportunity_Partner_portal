@@ -19,6 +19,7 @@ from app.core.deps import (
     assert_can_access_opportunity,
     get_admin_scope,
     get_current_user,
+    get_partner_pipeline_scope,
     get_poc_editor,
 )
 from app.models.user import User, UserRole
@@ -40,12 +41,14 @@ async def _list_scope(db: AsyncSession, user: User) -> dict:
     """Translate the caller's role into list-query filters.
 
     Returns kwargs for poc_service.list_pocs / list_licenses. Partners are
-    scoped by their company; sales reps by assignment; channel-manager admins
-    by managed companies; superadmins unscoped.
+    scoped to their company plus any resellers underneath it; sales reps by
+    assignment; channel-manager admins by managed companies; superadmins
+    unscoped.
     """
     if user.role == UserRole.PARTNER:
-        # A partner with no company sees nothing (empty list, not everything).
-        return {"scope_company_ids": [user.company_id] if user.company_id else []}
+        # A partner with no company sees nothing (empty list, not everything),
+        # which get_partner_pipeline_scope returns as [].
+        return {"scope_company_ids": await get_partner_pipeline_scope(db, user)}
     if user.role == UserRole.SALES_REP:
         return {"sales_rep_id": user.id}
     return {"scope_company_ids": await get_admin_scope(db, user)}

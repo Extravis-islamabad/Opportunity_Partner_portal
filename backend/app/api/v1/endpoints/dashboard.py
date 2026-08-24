@@ -9,6 +9,7 @@ from app.core.deps import (
     get_current_admin,
     get_current_partner,
     get_admin_scope,
+    get_partner_pipeline_scope,
     get_channel_partner,
     get_poc_editor,
     deny_customer_company,
@@ -139,8 +140,15 @@ async def company_performance(
     db: AsyncSession = Depends(get_db),
 ):
     from app.core.exceptions import ForbiddenException
-    if current_user.role == UserRole.PARTNER and current_user.company_id != company_id:
-        raise ForbiddenException(message="You can only view your own company performance")
+    # A partner sees their own company, and a distributor also sees each
+    # reseller underneath it — this card is an opportunity roll-up, so it has
+    # to follow the same scope as the opportunity list rather than lag behind
+    # it.
+    if current_user.role == UserRole.PARTNER:
+        if company_id not in await get_partner_pipeline_scope(db, current_user):
+            raise ForbiddenException(
+                message="You can only view your own company's performance"
+            )
     if current_user.role == UserRole.SALES_REP:
         raise ForbiddenException(message="Sales reps do not have access to company performance")
     return await dashboard_service.get_company_performance(db, company_id)
@@ -168,7 +176,7 @@ async def partner_timeline(
     partner: User = Depends(get_current_partner),
     db: AsyncSession = Depends(get_db),
 ):
-    return await dashboard_service.get_partner_timeline(db, partner.id, months)
+    return await dashboard_service.get_partner_timeline(db, partner, months)
 
 
 # Deal Registration endpoints
@@ -202,7 +210,10 @@ async def list_deals(
     registered_by = None
     scope = None
     if current_user.role == UserRole.PARTNER:
-        registered_by = current_user.id
+        # Company-wide, and deliberately *not* down the reseller tree. Deal
+        # registration carries exclusivity and commission, so a distributor
+        # must not read its resellers' deals — only their pipeline.
+        scope = [current_user.company_id] if current_user.company_id else []
     elif current_user.role == UserRole.SALES_REP:
         # Reps have no scope over deal registrations; deny rather than let
         # them fall through to the unscoped superadmin branch below.

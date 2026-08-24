@@ -275,17 +275,18 @@ async def assert_can_access_doc_request(
 
     - superadmin → anything
     - admin      → requests for companies they channel-manage
-    - partner    → only requests they raised (matches the list route, which
-                   scopes on requested_by rather than company)
+    - partner    → their own company's requests (matches the list route).
+                   Deliberately not down the reseller tree: a distributor sees
+                   its resellers' pipeline, not their paperwork with Extravis.
     - sales_rep  → nothing; doc requests are a partner/admin workflow
     """
     if user.is_superadmin:
         return
 
     if user.role == UserRole.PARTNER:
-        if doc_request.requested_by != user.id:
+        if user.company_id is None or doc_request.company_id != user.company_id:
             raise ForbiddenException(
-                message="You can only view your own document requests"
+                message="You can only view your own company's document requests"
             )
         return
 
@@ -312,7 +313,12 @@ async def assert_can_access_opportunity(
     - superadmin  → anything
     - admin       → opportunities for companies they channel-manage
     - sales_rep   → only opportunities they are assigned to
-    - partner     → only opportunities they submitted
+    - partner     → their own company's opportunities, plus those of any
+                    resellers underneath them (get_partner_pipeline_scope)
+
+    The partner branch is read-only in practice: every POC and licence write
+    route goes through get_poc_editor first, which admits only admins and
+    sales reps, so a partner reaching here is always reading.
 
     Raises ForbiddenException rather than returning a bool so a forgotten
     `if` can't silently authorise.
@@ -336,13 +342,59 @@ async def assert_can_access_opportunity(
         return
 
     if user.role == UserRole.PARTNER:
-        if opportunity.submitted_by != user.id:
+        scope = await get_partner_pipeline_scope(db, user)
+        if opportunity.company_id not in scope:
             raise ForbiddenException(
-                message="You can only access your own opportunities"
+                message="You do not have access to this opportunity"
             )
         return
 
     raise ForbiddenException(message="Not authorised for this opportunity")
+
+
+async def get_reseller_company_ids(db: AsyncSession, distributor_id: int) -> list[int]:
+    """Company ids of the resellers sitting under this distributor.
+
+    One level: the schema only permits PARTNER-under-DISTRIBUTOR, so there is
+    nothing deeper to walk (see company_service.assert_valid_parent_distributor).
+    """
+    from app.models.company import Company
+
+    result = await db.execute(
+        select(Company.id).where(
+            Company.parent_distributor_id == distributor_id,
+            Company.deleted_at.is_(None),
+        )
+    )
+    return [row[0] for row in result.all()]
+
+
+async def get_partner_pipeline_scope(db: AsyncSession, user: User) -> list[int]:
+    """Company ids whose *pipeline* a partner user may read.
+
+    Their own company, plus — when their own company is a distributor — every
+    reseller underneath it. Pipeline means opportunities, POCs and licences.
+
+    Visibility walks DOWNWARD only, which is what keeps resellers from seeing
+    one another: a reseller's own company is not a distributor, so its scope is
+    exactly `[own]`. It never contains a sibling, and never contains the
+    parent.
+
+    Deliberately narrower than it could be: deal registrations, commissions,
+    statements and scorecards are NOT in the pipeline and stay scoped to the
+    user's own company, so no money or exclusivity data crosses the tree.
+
+    Returns `[]` for a user with no company, which every caller must treat as
+    "sees nothing" rather than "unscoped".
+    """
+    if not user.company_id:
+        return []
+
+    scope = [user.company_id]
+    company = user.company
+    if company is not None and company.can_have_resellers:
+        scope.extend(await get_reseller_company_ids(db, company.id))
+    return scope
 
 
 async def get_admin_scope(

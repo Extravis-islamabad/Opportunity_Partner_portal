@@ -13,10 +13,115 @@ from app.schemas.company import (
     CompanyResponse,
     CompanyDetailResponse,
     PartnerAccountBrief,
+    ResellerBrief,
 )
 from app.core.exceptions import NotFoundException, ConflictException, BadRequestException
 from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_user
+
+
+async def assert_valid_parent_distributor(
+    db: AsyncSession,
+    *,
+    child_type: CompanyType,
+    parent_distributor_id: Optional[int],
+    child_company_id: Optional[int] = None,
+) -> Optional[Company]:
+    """The one place the reseller-hierarchy shape is enforced.
+
+    Returns the parent company it validated (None when there is no parent), so
+    callers that need its name for the response don't re-query for it.
+
+    Three rules, and between them they keep the graph two levels deep and
+    acyclic without ever needing a cycle walk:
+
+      1. Only a PARTNER may have a parent. A distributor is already the top of
+         a tree and a customer is outside the channel entirely.
+      2. The parent must be an existing, live DISTRIBUTOR.
+      3. A company is not its own parent.
+
+    Because a child is always a PARTNER and a parent is always a DISTRIBUTOR,
+    no company can be both, so a cycle is unreachable by construction. Rule 3
+    is belt-and-braces for the one case a single row could manage on its own
+    (and is mirrored by ck_companies_parent_not_self in migration 014).
+
+    `child_type` is the type the company will have *after* the write, not the
+    one it has now — a single PUT can change type and parent together.
+    """
+    if parent_distributor_id is None:
+        return None
+
+    if child_type != CompanyType.PARTNER:
+        raise BadRequestException(
+            code="INVALID_PARENT_DISTRIBUTOR",
+            message="Only a partner company can sit underneath a distributor",
+        )
+
+    if child_company_id is not None and parent_distributor_id == child_company_id:
+        raise BadRequestException(
+            code="INVALID_PARENT_DISTRIBUTOR",
+            message="A company cannot be its own parent distributor",
+        )
+
+    result = await db.execute(
+        select(Company).where(
+            Company.id == parent_distributor_id,
+            Company.deleted_at.is_(None),
+        )
+    )
+    parent = result.scalar_one_or_none()
+    if parent is None:
+        raise BadRequestException(
+            code="INVALID_PARENT_DISTRIBUTOR",
+            message="Parent distributor not found",
+        )
+    if parent.company_type != CompanyType.DISTRIBUTOR:
+        raise BadRequestException(
+            code="INVALID_PARENT_DISTRIBUTOR",
+            message="The parent company must be of type distributor",
+        )
+    return parent
+
+
+async def assert_can_change_type(
+    db: AsyncSession, company: Company, new_type: CompanyType
+) -> None:
+    """Guard the two reclassifications that would strand an existing link.
+
+    A distributor with resellers underneath it cannot stop being a distributor,
+    and a partner that reports to one cannot stop being a partner. Either would
+    leave a parent_distributor_id pointing somewhere the hierarchy rules forbid,
+    which is exactly the state assert_valid_parent_distributor exists to keep
+    out. The caller is told to unlink first rather than having rows silently
+    rewritten underneath them.
+    """
+    if new_type == company.company_type:
+        return
+
+    if company.company_type == CompanyType.DISTRIBUTOR:
+        reseller_count = await db.execute(
+            select(func.count(Company.id)).where(
+                Company.parent_distributor_id == company.id,
+                Company.deleted_at.is_(None),
+            )
+        )
+        if (reseller_count.scalar() or 0) > 0:
+            raise ConflictException(
+                code="DISTRIBUTOR_HAS_RESELLERS",
+                message=(
+                    "This distributor has resellers underneath it. Reassign or "
+                    "unlink them before changing its type."
+                ),
+            )
+
+    if company.parent_distributor_id is not None and new_type != CompanyType.PARTNER:
+        raise ConflictException(
+            code="RESELLER_TYPE_CHANGE",
+            message=(
+                "This company reports to a parent distributor. Clear its parent "
+                "distributor before changing its type."
+            ),
+        )
 
 
 def tier_for(company: Company) -> Optional[str]:
@@ -44,6 +149,13 @@ async def create_company(
     if not channel_manager:
         raise BadRequestException(code="INVALID_CHANNEL_MANAGER", message="Channel manager must be an active admin")
 
+    company_type = CompanyType(data.company_type)
+    parent = await assert_valid_parent_distributor(
+        db,
+        child_type=company_type,
+        parent_distributor_id=data.parent_distributor_id,
+    )
+
     company = Company(
         name=data.name,
         country=data.country,
@@ -52,13 +164,15 @@ async def create_company(
         industry=data.industry,
         contact_email=data.contact_email,
         channel_manager_id=data.channel_manager_id,
-        company_type=CompanyType(data.company_type),
+        company_type=company_type,
+        parent_distributor_id=data.parent_distributor_id,
     )
     db.add(company)
     await db.flush()
 
     await write_audit_log(db, admin_user.id, "CREATE", "company", company.id, {
         "name": data.name, "company_type": data.company_type,
+        "parent_distributor_id": data.parent_distributor_id,
     })
 
     await notify_user(
@@ -81,6 +195,8 @@ async def create_company(
         tier=tier_for(company),
         channel_manager_id=company.channel_manager_id,
         channel_manager_name=channel_manager.full_name,
+        parent_distributor_id=company.parent_distributor_id,
+        parent_distributor_name=parent.name if parent else None,
         partner_count=0,
         opportunity_count=0,
         created_at=company.created_at,
@@ -101,7 +217,12 @@ async def get_companies(
 ) -> tuple[list, int]:
     query = (
         select(Company)
-        .options(joinedload(Company.channel_manager))
+        .options(
+            joinedload(Company.channel_manager),
+            # So the list can show which distributor a reseller belongs to
+            # without a query per row.
+            joinedload(Company.parent_distributor),
+        )
         .where(Company.deleted_at.is_(None))
     )
     count_query = select(func.count(Company.id)).where(Company.deleted_at.is_(None))
@@ -157,6 +278,8 @@ async def get_companies(
             "tier": tier_for(c),
             "channel_manager_id": c.channel_manager_id,
             "channel_manager_name": c.channel_manager.full_name if c.channel_manager else None,
+            "parent_distributor_id": c.parent_distributor_id,
+            "parent_distributor_name": c.parent_distributor.name if c.parent_distributor else None,
             "partner_count": partner_count,
             "created_at": c.created_at,
             "updated_at": c.updated_at,
@@ -168,7 +291,10 @@ async def get_companies(
 async def get_company_detail(db: AsyncSession, company_id: int) -> CompanyDetailResponse:
     result = await db.execute(
         select(Company)
-        .options(joinedload(Company.channel_manager))
+        .options(
+            joinedload(Company.channel_manager),
+            joinedload(Company.parent_distributor),
+        )
         .where(Company.id == company_id, Company.deleted_at.is_(None))
     )
     company = result.scalar_one_or_none()
@@ -179,6 +305,18 @@ async def get_company_detail(db: AsyncSession, company_id: int) -> CompanyDetail
         select(User).where(User.company_id == company_id, User.deleted_at.is_(None))
     )
     partners = partners_result.scalars().all()
+
+    # Empty for anything that isn't a distributor, so this is one cheap query
+    # rather than a branch.
+    resellers_result = await db.execute(
+        select(Company)
+        .where(
+            Company.parent_distributor_id == company_id,
+            Company.deleted_at.is_(None),
+        )
+        .order_by(Company.name)
+    )
+    resellers = resellers_result.scalars().all()
 
     partner_count = len(partners)
     opp_count_result = await db.execute(
@@ -201,6 +339,8 @@ async def get_company_detail(db: AsyncSession, company_id: int) -> CompanyDetail
         tier=tier_for(company),
         channel_manager_id=company.channel_manager_id,
         channel_manager_name=company.channel_manager.full_name if company.channel_manager else None,
+        parent_distributor_id=company.parent_distributor_id,
+        parent_distributor_name=company.parent_distributor.name if company.parent_distributor else None,
         partner_count=partner_count,
         opportunity_count=opp_count,
         created_at=company.created_at,
@@ -215,6 +355,16 @@ async def get_company_detail(db: AsyncSession, company_id: int) -> CompanyDetail
                 created_at=p.created_at,
             )
             for p in partners
+        ],
+        resellers=[
+            ResellerBrief(
+                id=r.id,
+                name=r.name,
+                country=r.country,
+                status=r.status.value,
+                tier=tier_for(r),
+            )
+            for r in resellers
         ],
     )
 
@@ -250,6 +400,20 @@ async def update_company(
     # for the rest of this request).
     if update_data.get("company_type") is not None:
         update_data["company_type"] = CompanyType(update_data["company_type"])
+        await assert_can_change_type(db, company, update_data["company_type"])
+
+    # Validate the hierarchy against the type the company will *have* after
+    # this write, not the one it has now — one PUT can set both. Only checked
+    # when the parent is actually part of the payload, so an unrelated edit to
+    # a reseller doesn't re-validate (and can't fail on) a link it isn't
+    # touching.
+    if "parent_distributor_id" in update_data:
+        await assert_valid_parent_distributor(
+            db,
+            child_type=update_data.get("company_type", company.company_type),
+            parent_distributor_id=update_data["parent_distributor_id"],
+            child_company_id=company.id,
+        )
 
     before_state = {key: getattr(company, key) for key in update_data}
     # Convert any enum values for serialization
@@ -278,6 +442,13 @@ async def update_company(
     await db.refresh(company)
     cm = company.channel_manager
 
+    parent_name = None
+    if company.parent_distributor_id is not None:
+        parent_name_result = await db.execute(
+            select(Company.name).where(Company.id == company.parent_distributor_id)
+        )
+        parent_name = parent_name_result.scalar_one_or_none()
+
     partner_count_result = await db.execute(
         select(func.count(User.id)).where(User.company_id == company.id, User.deleted_at.is_(None))
     )
@@ -296,6 +467,8 @@ async def update_company(
         tier=tier_for(company),
         channel_manager_id=company.channel_manager_id,
         channel_manager_name=cm.full_name if cm else None,
+        parent_distributor_id=company.parent_distributor_id,
+        parent_distributor_name=parent_name,
         partner_count=partner_count,
         opportunity_count=0,
         created_at=company.created_at,

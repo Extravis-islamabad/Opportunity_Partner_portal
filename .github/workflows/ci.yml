@@ -13,6 +13,37 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      # The RBAC integration tests (tests/test_rbac_visibility.py) drive the
+      # real app against a real database — the schema uses Postgres enums,
+      # to_char and a trigram index, so SQLite cannot stand in. Without these
+      # services those tests skip rather than fail, which would let an
+      # authorisation regression through unnoticed; the "assert no skips" step
+      # below is what stops that happening quietly.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: partner_portal_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        # get_current_user checks a token blacklist in Redis on every
+        # authenticated request, so the integration tests need it too.
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -28,12 +59,29 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Assert the test database is reachable
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/partner_portal_test
+        # The integration tests skip themselves when no database is reachable.
+        # That is right on a developer machine and wrong here: a service
+        # container that failed to come up would turn the whole authorisation
+        # suite into green skips. Fail loudly instead, before pytest runs.
+        run: |
+          python -c "
+          import sys
+          from tests.conftest import db_available
+          if not db_available():
+              sys.exit('Test database unreachable — the integration suite would skip.')
+          print('Test database reachable.')
+          "
+
       - name: Run pytest
         env:
-          # Pytest discovers tests/ and runs pure unit tests that don't need
-          # Postgres or Redis; those dependencies are only imported, not
-          # actually connected to, by the unit tests in this slice.
-          DATABASE_URL: postgresql+asyncpg://fake:fake@localhost/fake
+          # conftest.py overrides DATABASE_URL with TEST_DATABASE_URL before
+          # anything imports app.core.config, so the app can only ever reach
+          # the throwaway service above.
+          TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/partner_portal_test
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/partner_portal_test
           REDIS_URL: redis://localhost:6379/0
           JWT_SECRET_KEY: ci-test-secret-key-min-32-chars-aaaaaaa
           SUPERADMIN_EMAIL: ci@example.com

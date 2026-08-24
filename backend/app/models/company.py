@@ -68,6 +68,22 @@ class Company(Base):
     # refuses to promote them.
     tier = Column(Enum(PartnerTier, values_callable=lambda x: [e.value for e in x]), nullable=False, default=PartnerTier.SILVER)
 
+    # Reseller link: a PARTNER company may sit underneath a DISTRIBUTOR.
+    # Null means the company reports directly to Extravis, which is every
+    # company predating migration 014.
+    #
+    # The graph is structurally two levels deep and acyclic, enforced by type
+    # rather than by a cycle check: only a PARTNER may have a parent, and only
+    # a DISTRIBUTOR may be one, so a parent can never itself be a child.
+    # company_service.assert_valid_parent_distributor is the one place that
+    # rule lives.
+    parent_distributor_id = Column(
+        Integer,
+        ForeignKey("companies.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     channel_manager_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -79,7 +95,19 @@ class Company(Base):
         """True when this company takes part in the partner programme."""
         return self.company_type in CHANNEL_COMPANY_TYPES
 
+    @property
+    def can_have_resellers(self) -> bool:
+        """Only a distributor sits above other companies."""
+        return self.company_type == CompanyType.DISTRIBUTOR
+
     channel_manager = relationship("User", back_populates="managed_companies", foreign_keys=[channel_manager_id])
+    parent_distributor = relationship(
+        "Company", remote_side="Company.id", foreign_keys=[parent_distributor_id],
+        back_populates="resellers",
+    )
+    resellers = relationship(
+        "Company", foreign_keys=[parent_distributor_id], back_populates="parent_distributor",
+    )
     partner_accounts = relationship("User", back_populates="company", foreign_keys="[User.company_id]")
     opportunities = relationship("Opportunity", back_populates="company")
     doc_requests = relationship("DocRequest", back_populates="company")

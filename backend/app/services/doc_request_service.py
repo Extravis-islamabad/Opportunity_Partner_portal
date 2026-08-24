@@ -74,7 +74,11 @@ async def get_doc_requests(
     status: Optional[str] = None,
     company_id: Optional[int] = None,
     requested_by: Optional[int] = None,
+    scope_company_ids: Optional[list[int]] = None,
 ) -> tuple[list, int]:
+    """`scope_company_ids` is a hard authorisation scope, not a filter: `[]`
+    means "sees nothing", so it is tested with `is not None`. `company_id`
+    remains the user-supplied narrowing filter and ANDs with it."""
     query = (
         select(DocRequest)
         .options(
@@ -88,6 +92,9 @@ async def get_doc_requests(
     if status:
         query = query.where(DocRequest.status == status)
         count_query = count_query.where(DocRequest.status == status)
+    if scope_company_ids is not None:
+        query = query.where(DocRequest.company_id.in_(scope_company_ids))
+        count_query = count_query.where(DocRequest.company_id.in_(scope_company_ids))
     if company_id:
         query = query.where(DocRequest.company_id == company_id)
         count_query = count_query.where(DocRequest.company_id == company_id)
