@@ -669,6 +669,16 @@ export interface PocStageState {
   label: string;
   completed: boolean;
   completed_at: string | null;
+
+  /**
+   * Who on the POC team is responsible for this stage. All null when nobody
+   * has been named — and all null for a partner viewer, who sees the roster
+   * but not the internal division of labour.
+   */
+  owner_user_id: number | null;
+  owner_name: string | null;
+  owner_role: PocTeamRoleKey | null;
+  owner_role_label: string | null;
 }
 
 export interface PocResponse {
@@ -749,7 +759,11 @@ export interface PocTeamMember {
   role_label: string;
   assigned_by: number | null;
   assigned_by_name: string | null;
-  assigned_at: string;
+  /**
+   * Null for a partner viewer, who gets a redacted roster — name and POC role
+   * only. Never render this without a null check.
+   */
+  assigned_at: string | null;
   /** Only set on rows from a history read; the current roster is all nulls. */
   removed_at: string | null;
 }
@@ -765,6 +779,44 @@ export interface PocAssignableUser {
   email: string;
   role: string;
   job_title: string | null;
+}
+
+/** One person's total on a POC. Zero counts are meaningful: assigned, nothing logged. */
+export interface PocActivityPerson {
+  user_id: number;
+  user_name: string | null;
+  poc_role: PocTeamRoleKey | null;
+  poc_role_label: string | null;
+  on_team: boolean;
+  activity_count: number;
+  total_duration_minutes: number;
+}
+
+export interface PocActivityEntry {
+  id: number;
+  user_id: number;
+  user_name: string | null;
+  activity_date: string;
+  activity_type: string;
+  activity_type_label: string;
+  customer_name: string | null;
+  opportunity_id: number | null;
+  opportunity_name: string | null;
+  poc_id: number | null;
+  duration_minutes: number | null;
+  notes: string | null;
+  /** 'poc' when logged as POC work, 'opportunity' when logged against the deal. */
+  linked_via: 'poc' | 'opportunity';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PocActivityFeed {
+  poc_id: number;
+  items: PocActivityEntry[];
+  by_person: PocActivityPerson[];
+  total_activities: number;
+  total_duration_minutes: number;
 }
 
 export interface PocStartRequest {
@@ -987,6 +1039,8 @@ export interface ActivityCreateRequest {
   activity_type: ActivityType;
   customer_name?: string | null;
   opportunity_id?: number | null;
+  /** The POC this was work on. Only accepted for a POC the logger can work on. */
+  poc_id?: number | null;
   duration_minutes?: number | null;
   notes?: string | null;
 }
@@ -1001,6 +1055,7 @@ export interface ActivityResponse {
   customer_name: string | null;
   opportunity_id: number | null;
   opportunity_name: string | null;
+  poc_id: number | null;
   duration_minutes: number | null;
   notes: string | null;
   created_at: string;

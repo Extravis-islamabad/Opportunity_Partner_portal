@@ -35,17 +35,19 @@ from app.schemas.poc import (
     LicenseUpsertRequest,
     PocCloseRequest,
     PocResponse,
+    PocStageOwnerRequest,
     PocStageUpdateRequest,
     PocStartRequest,
     PocUpdateRequest,
 )
+from app.schemas.sales_activity import PocActivityFeed
 from app.schemas.poc_team import (
     PocTeamMemberCreateRequest,
     PocTeamMemberResponse,
     PocTeamRoleOption,
     PocTeamRoleUpdateRequest,
 )
-from app.services import poc_service, poc_team_service
+from app.services import poc_service, poc_team_service, sales_activity_service
 
 router = APIRouter(prefix="/pocs", tags=["POC"])
 
@@ -96,6 +98,7 @@ async def list_pocs(
 ):
     items, total = await poc_service.list_pocs(
         db,
+        viewer=current_user,
         page=page,
         page_size=page_size,
         status=status,
@@ -126,7 +129,7 @@ async def get_poc_for_opportunity(
     await assert_can_work_on_poc(db, current_user, opp)
 
     poc = await poc_service.get_poc_by_opportunity(db, opp_id)
-    return poc_service.to_poc_response(poc) if poc else None
+    return poc_service.to_poc_response(poc, viewer=current_user) if poc else None
 
 
 @router.get("/{poc_id}", response_model=PocResponse, status_code=200)
@@ -137,7 +140,7 @@ async def get_poc(
 ):
     poc = await poc_service.get_poc_or_404(db, poc_id)
     await assert_can_work_on_poc(db, current_user, poc.opportunity)
-    return poc_service.to_poc_response(poc)
+    return poc_service.to_poc_response(poc, viewer=current_user)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +184,42 @@ async def set_poc_stage(
     poc = await poc_service.get_poc_or_404(db, poc_id)
     await assert_can_work_on_poc(db, user, poc.opportunity)
     return await poc_service.set_stage(db, poc_id, stage_key, data.completed_at, user)
+
+
+@router.put(
+    "/{poc_id}/stages/{stage_key}/owner",
+    response_model=PocResponse,
+    status_code=200,
+)
+async def set_poc_stage_owner(
+    poc_id: int,
+    stage_key: str,
+    data: PocStageOwnerRequest,
+    user: User = Depends(get_poc_editor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Name who is responsible for a stage, or send owner_user_id: null to
+    clear it. The person must already be on the POC team."""
+    poc = await poc_service.get_poc_or_404(db, poc_id)
+    await assert_can_work_on_poc(db, user, poc.opportunity)
+    return await poc_service.set_stage_owner(
+        db, poc_id, stage_key, data.owner_user_id, user
+    )
+
+
+@router.get("/{poc_id}/activities", response_model=PocActivityFeed, status_code=200)
+async def get_poc_activities(
+    poc_id: int,
+    # get_poc_editor, not get_current_user: this is the internal record of who
+    # did what. A partner sees the team roster and their roles, not the work
+    # log behind it.
+    user: User = Depends(get_poc_editor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every activity logged against this POC, with a total per person."""
+    poc = await poc_service.get_poc_or_404(db, poc_id)
+    await assert_can_work_on_poc(db, user, poc.opportunity)
+    return await sales_activity_service.get_poc_activity_feed(db, poc)
 
 
 @router.post("/{poc_id}/close", response_model=PocResponse, status_code=200)

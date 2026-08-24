@@ -63,6 +63,29 @@ def to_team_member_response(member: PocTeamMember) -> PocTeamMemberResponse:
     )
 
 
+def redact_for_partner(member: PocTeamMemberResponse) -> PocTeamMemberResponse:
+    """The roster as a partner may see it: who is on the team and what they do.
+
+    A partner is the customer side of this engagement. Knowing that Extravis
+    has a solution architect and a deployment engineer on their POC is
+    reassurance they are entitled to; the staff directory around it — work
+    emails, job titles, portal roles, who assigned whom and when — is internal
+    and is nulled out here rather than merely hidden in the UI.
+
+    Returns the same model with the permitted fields kept, so there is one
+    response shape to reason about rather than two that can drift.
+    """
+    return PocTeamMemberResponse(
+        id=member.id,
+        poc_id=member.poc_id,
+        user_id=member.user_id,
+        user_name=member.user_name,
+        role=member.role,
+        role_label=member.role_label,
+        # Everything below stays at its default of None.
+    )
+
+
 def _member_query():
     return select(PocTeamMember).options(
         joinedload(PocTeamMember.user),
@@ -299,9 +322,21 @@ async def remove_member(
     member.removed_by = actor.id
     await db.flush()
 
+    # Anything they owned becomes unowned. Leaving their name on a stage would
+    # keep answering "who is responsible for this" with someone who is no
+    # longer on the POC.
+    from app.services import poc_service
+
+    cleared = await poc_service.clear_stage_owner_for_user(db, poc_id, user_id)
+
     await write_audit_log(
         db, actor.id, "DELETE", "poc_team_member", member.id,
-        {"poc_id": poc_id, "user_id": user_id, "role": member.role.value},
+        {
+            "poc_id": poc_id,
+            "user_id": user_id,
+            "role": member.role.value,
+            "stages_unowned": cleared,
+        },
     )
 
 

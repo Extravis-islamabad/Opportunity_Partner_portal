@@ -41,6 +41,7 @@ import type {
   PocTeamRoleKey,
   PocTeamRoleOption,
   PocAssignableUser,
+  PocActivityFeed,
   PocStageKey,
   PocSummary,
   LicenseResponse,
@@ -446,6 +447,11 @@ export const pocsApi = {
   // completed_at: null clears the stage (undo a mis-tick).
   setStage: (pocId: number, stage: PocStageKey, completed_at: string | null) =>
     apiClient.put<PocResponse>(`/pocs/${pocId}/stages/${stage}`, { completed_at }),
+  setStageOwner: (pocId: number, stage: PocStageKey, owner_user_id: number | null) =>
+    apiClient.put<PocResponse>(`/pocs/${pocId}/stages/${stage}/owner`, { owner_user_id }),
+  // Internal work log — the API refuses partners, who see the roster only.
+  activities: (pocId: number) =>
+    apiClient.get<PocActivityFeed>(`/pocs/${pocId}/activities`),
   close: (pocId: number, data: PocCloseRequest) =>
     apiClient.post<PocResponse>(`/pocs/${pocId}/close`, data),
   reopen: (pocId: number) =>

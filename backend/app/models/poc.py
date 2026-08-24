@@ -21,6 +21,9 @@ Status is derived, not hand-set (see poc_service.derive_status):
 Completing all five stages does NOT auto-close the POC — a human closes it,
 because "all the technical work is done" and "the customer accepted it" are
 different facts.
+
+Each stage also carries an owner drawn from the POC team, so "who is
+responsible for device onboarding" has an answer without asking anyone.
 """
 import enum
 from datetime import datetime, timezone
@@ -89,6 +92,36 @@ class Poc(Base):
     dashboarding_completed_at = Column(Date, nullable=True)
     fine_tuning_completed_at = Column(Date, nullable=True)
 
+    # Per-stage owner — who on the POC team is responsible for this stage.
+    # Null means nobody has been named yet, which is every stage of every POC
+    # predating migration 016.
+    #
+    # Five columns rather than a join table, mirroring the completion dates
+    # above: the stage list is a fixed tuple (POC_STAGES), the accessors are
+    # already generated as f"{key}_completed_at", and one owner per stage is
+    # then true by construction rather than by constraint.
+    #
+    # SET NULL on delete: losing the account must leave the stage unowned, not
+    # take the POC's history with it. An owner who leaves the *team* is
+    # cleared explicitly instead — see poc_team_service.remove_member, because
+    # a name still shown against a stage they are no longer on is worse than
+    # no name at all.
+    vm_provisioning_owner_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    deployment_owner_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    device_onboarding_owner_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    dashboarding_owner_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    fine_tuning_owner_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Close-out
     closed_at = Column(DateTime(timezone=True), nullable=True)
     closed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -111,6 +144,11 @@ class Poc(Base):
         back_populates="poc",
         cascade="all, delete-orphan",
     )
+
+    def owner_id_for(self, stage_key: str) -> int | None:
+        """The user id owning this stage, or None. Mirrors how the completion
+        dates are read — one accessor built from the canonical stage key."""
+        return getattr(self, f"{stage_key}_owner_id")
 
     @property
     def completed_stage_count(self) -> int:

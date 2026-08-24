@@ -78,6 +78,18 @@ class SalesActivity(Base):
         index=True,
     )
 
+    # The POC this work was part of, when it was POC work. Independent of
+    # opportunity_id above: a POC belongs to one opportunity, but not every
+    # activity on that opportunity is POC work — a contract call is not an
+    # onboarding session. The POC activity feed unions both links and says
+    # which one matched, rather than treating them as the same thing.
+    poc_id = Column(
+        Integer,
+        ForeignKey("pocs.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     duration_minutes = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
 
@@ -88,3 +100,4 @@ class SalesActivity(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     opportunity = relationship("Opportunity", foreign_keys=[opportunity_id])
+    poc = relationship("Poc", foreign_keys=[poc_id])

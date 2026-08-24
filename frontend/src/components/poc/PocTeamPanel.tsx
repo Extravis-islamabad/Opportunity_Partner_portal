@@ -8,6 +8,11 @@
  * Membership grants access, so the controls are admin-only. A sales rep sees
  * the roster read-only; the API refuses their writes either way, and offering
  * a button that always 403s is worse than not offering it.
+ *
+ * A partner sees a roster the *server* has already redacted to names and POC
+ * roles — no emails, job titles or assignment metadata. This component does
+ * not re-implement that rule; it just renders nothing where the server sent
+ * nothing, so there is one place the redaction lives.
  */
 import React, { useState } from 'react';
 import {
@@ -59,6 +64,9 @@ const PocTeamPanel: React.FC<Props> = ({ pocId, team, onChanged }) => {
     queryFn: async () => (await pocTeamApi.roles()).data,
     // The list is a fixed enum; no point refetching it per POC.
     staleTime: Infinity,
+    // Only managers get a role picker, and the endpoint is staff-only — a
+    // partner viewing their POC would just collect a 403 per render.
+    enabled: canManage,
   });
 
   const { data: assignable } = useQuery({
@@ -130,9 +138,14 @@ const PocTeamPanel: React.FC<Props> = ({ pocId, team, onChanged }) => {
           </Avatar>
           <span>
             <div style={{ fontWeight: 600 }}>{name ?? '—'}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {record.job_title ?? record.user_email}
-            </Text>
+            {/* Null for a partner viewer — the server redacts job title and
+                email out of the roster, so the second line simply vanishes
+                rather than needing its own role check here. */}
+            {(record.job_title ?? record.user_email) && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {record.job_title ?? record.user_email}
+              </Text>
+            )}
           </span>
         </Space>
       ),
@@ -158,17 +171,23 @@ const PocTeamPanel: React.FC<Props> = ({ pocId, team, onChanged }) => {
           <Tag color={ROLE_COLOR[role]}>{record.role_label}</Tag>
         ),
     },
-    {
-      title: 'Assigned',
-      dataIndex: 'assigned_at',
-      key: 'assigned_at',
-      render: (at: string, record) => (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          {new Date(at).toLocaleDateString()}
-          {record.assigned_by_name ? ` by ${record.assigned_by_name}` : ''}
-        </Text>
-      ),
-    },
+    // Assignment metadata is internal: the server sends it as null to a
+    // partner, so the column is dropped for them rather than rendering a row
+    // of dashes.
+    ...(team.some((m) => m.assigned_at)
+      ? [{
+          title: 'Assigned',
+          dataIndex: 'assigned_at',
+          key: 'assigned_at',
+          render: (at: string | null, record: PocTeamMember) =>
+            at ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {new Date(at).toLocaleDateString()}
+                {record.assigned_by_name ? ` by ${record.assigned_by_name}` : ''}
+              </Text>
+            ) : null,
+        }]
+      : []),
     ...(canManage
       ? [{
           title: '',
@@ -177,7 +196,7 @@ const PocTeamPanel: React.FC<Props> = ({ pocId, team, onChanged }) => {
           render: (_: unknown, record: PocTeamMember) => (
             <Popconfirm
               title={`Remove ${record.user_name ?? 'this person'} from the POC?`}
-              description="They lose access to it immediately."
+              description="They lose access immediately, and any stage they own becomes unowned."
               okText="Remove"
               cancelText="Cancel"
               onConfirm={() => removeMutation.mutate(record.user_id)}

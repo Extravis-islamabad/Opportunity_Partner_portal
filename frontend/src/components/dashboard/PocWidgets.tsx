@@ -6,7 +6,7 @@
  * match the existing dashboard visually.
  */
 import React from 'react';
-import { Typography, Tag, Tooltip, Empty } from 'antd';
+import { Typography, Tag, Tooltip, Empty, Avatar } from 'antd';
 import { CheckCircleFilled, ClockCircleOutlined } from '@ant-design/icons';
 import { formatChartUsd } from './BrandWidgets';
 import type {
@@ -60,9 +60,18 @@ interface PocStageTrackerProps {
   // Fires when a stage dot is clicked. Omit to render read-only (partners).
   onToggle?: (stage: PocStageState) => void;
   disabled?: boolean;
+  /**
+   * Fires when the owner slot under a stage is clicked. Omit to render owners
+   * read-only. The backend already sends every owner field as null to a
+   * partner, so the owner row simply does not appear for them — this prop is
+   * about who may *change* an owner, not who may see one.
+   */
+  onAssignOwner?: (stage: PocStageState) => void;
 }
 
-export const PocStageTracker: React.FC<PocStageTrackerProps> = ({ stages, onToggle, disabled }) => (
+export const PocStageTracker: React.FC<PocStageTrackerProps> = ({
+  stages, onToggle, disabled, onAssignOwner,
+}) => (
   <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%' }}>
     {stages.map((s, idx) => {
       const color = STAGE_COLORS[idx] ?? BRAND.royal500;
@@ -130,6 +139,61 @@ export const PocStageTracker: React.FC<PocStageTrackerProps> = ({ stages, onTogg
               <Text type="secondary" style={{ fontSize: 10, marginTop: 2 }}>
                 {s.completed_at}
               </Text>
+            )}
+
+            {/* Owner. Rendered whenever there is one to show or a way to set
+                one — a partner gets neither, so the row collapses away. */}
+            {(s.owner_name || onAssignOwner) && (
+              <Tooltip
+                title={
+                  s.owner_name
+                    ? `${s.owner_name}${s.owner_role_label ? ` — ${s.owner_role_label}` : ''}${
+                        onAssignOwner ? ' (click to reassign)' : ''
+                      }`
+                    : 'Nobody is responsible for this stage yet — click to assign'
+                }
+              >
+                <div
+                  onClick={onAssignOwner ? () => onAssignOwner(s) : undefined}
+                  style={{
+                    marginTop: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    maxWidth: '100%',
+                    cursor: onAssignOwner ? 'pointer' : 'default',
+                  }}
+                >
+                  {s.owner_name ? (
+                    <>
+                      <Avatar
+                        size={18}
+                        style={{ backgroundColor: color, fontSize: 9, flexShrink: 0 }}
+                      >
+                        {s.owner_name.charAt(0).toUpperCase()}
+                      </Avatar>
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          color: BRAND.navy,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {s.owner_name}
+                      </Text>
+                    </>
+                  ) : (
+                    <Text
+                      type="secondary"
+                      style={{ fontSize: 10, fontStyle: 'italic' }}
+                    >
+                      + owner
+                    </Text>
+                  )}
+                </div>
+              </Tooltip>
             )}
           </div>
         </div>

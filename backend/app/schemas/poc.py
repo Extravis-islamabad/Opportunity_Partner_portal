@@ -15,6 +15,16 @@ class PocStageState(BaseModel):
     completed: bool
     completed_at: Optional[date] = None
 
+    # Who on the POC team is responsible for this stage. All null when nobody
+    # has been named — and all null for a partner viewer, who sees the team
+    # roster but not the internal division of labour.
+    owner_user_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    # Their POC role ("Deployment Engineer"), so the tracker can say what kind
+    # of person owns the stage as well as who.
+    owner_role: Optional[str] = None
+    owner_role_label: Optional[str] = None
+
 
 class PocStartRequest(BaseModel):
     """Starting a POC == allocating the VM. vm_provisioning_completed_at is
@@ -38,6 +48,12 @@ class PocUpdateRequest(BaseModel):
     device_onboarding_completed_at: Optional[date] = None
     dashboarding_completed_at: Optional[date] = None
     fine_tuning_completed_at: Optional[date] = None
+
+
+class PocStageOwnerRequest(BaseModel):
+    # None clears the stage owner. Distinguishable from "field omitted" is not
+    # needed here — the field is the whole body.
+    owner_user_id: Optional[int] = None
 
 
 class PocCloseRequest(BaseModel):

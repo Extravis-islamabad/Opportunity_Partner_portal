@@ -17,7 +17,7 @@ import {
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs, { Dayjs } from 'dayjs';
-import { activitiesApi, opportunitiesApi, usersApi } from '@/api/endpoints';
+import { activitiesApi, opportunitiesApi, pocsApi, usersApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import type { ActivityResponse, ActivityType } from '@/types';
@@ -113,6 +113,13 @@ const ActivityLogPage: React.FC = () => {
     enabled: isRep,
   });
 
+  // POCs this person can work on — their own plus any they are on the team
+  // of. The API applies that scope; nothing is filtered client-side.
+  const { data: myPocs } = useQuery({
+    queryKey: ['my-pocs-for-activities'],
+    queryFn: async () => (await pocsApi.list({ page: 1, page_size: 100 })).data,
+  });
+
   const { data: log, isLoading } = useQuery({
     queryKey: ['activity-month', monthStr, targetUserId],
     queryFn: async () => (await activitiesApi.getMonth(monthStr, targetUserId)).data,
@@ -157,6 +164,7 @@ const ActivityLogPage: React.FC = () => {
       activity_type: 'call',
       customer_name: undefined,
       opportunity_id: undefined,
+      poc_id: undefined,
       duration_minutes: undefined,
       notes: undefined,
     });
@@ -170,6 +178,7 @@ const ActivityLogPage: React.FC = () => {
       activity_type: a.activity_type,
       customer_name: a.customer_name ?? undefined,
       opportunity_id: a.opportunity_id ?? undefined,
+      poc_id: a.poc_id ?? undefined,
       duration_minutes: a.duration_minutes ?? undefined,
       notes: a.notes ?? undefined,
     });
@@ -180,7 +189,7 @@ const ActivityLogPage: React.FC = () => {
 
   const submit = (v: {
     activity_date: Dayjs; activity_type: ActivityType;
-    customer_name?: string; opportunity_id?: number;
+    customer_name?: string; opportunity_id?: number; poc_id?: number;
     duration_minutes?: number; notes?: string;
   }) => {
     const payload = {
@@ -188,6 +197,7 @@ const ActivityLogPage: React.FC = () => {
       activity_type: v.activity_type,
       customer_name: v.customer_name || null,
       opportunity_id: v.opportunity_id ?? null,
+      poc_id: v.poc_id ?? null,
       duration_minutes: v.duration_minutes ?? null,
       notes: v.notes || null,
     };
@@ -411,6 +421,24 @@ const ActivityLogPage: React.FC = () => {
               optionFilterProp="label"
               placeholder="Link to one of your opportunities"
               options={(myOpps?.items ?? []).map((o) => ({ value: o.id, label: o.name }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="poc_id"
+            label="Related POC (optional)"
+            extra="Set this when the work was part of a POC — it is what makes the activity show up on that POC's log."
+          >
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Link to a POC you're working on"
+              options={(myPocs?.items ?? []).map((p) => ({
+                value: p.id,
+                label: `${p.customer_name ?? 'POC'}${
+                  p.current_stage_label ? ` — ${p.current_stage_label}` : ''
+                }`,
+              }))}
             />
           </Form.Item>
           <Form.Item name="notes" label="Notes">

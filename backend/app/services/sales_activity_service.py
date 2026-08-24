@@ -9,12 +9,14 @@ import re
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.models.opportunity import Opportunity
+from app.models.poc import Poc
+from app.models.poc_team import POC_TEAM_ROLE_LABELS
 from app.models.sales_activity import ACTIVITY_TYPE_LABELS, ActivityType, SalesActivity
 from app.models.user import User, UserRole
 from app.schemas.sales_activity import (
@@ -24,6 +26,9 @@ from app.schemas.sales_activity import (
     ActivityResponse,
     ActivityTypeTotal,
     ActivityUpdateRequest,
+    PocActivityEntry,
+    PocActivityFeed,
+    PocActivityPerson,
 )
 from app.utils.audit import write_audit_log
 
@@ -53,6 +58,7 @@ def to_activity_response(a: SalesActivity) -> ActivityResponse:
         customer_name=a.customer_name,
         opportunity_id=a.opportunity_id,
         opportunity_name=a.opportunity.name if a.opportunity else None,
+        poc_id=a.poc_id,
         duration_minutes=a.duration_minutes,
         notes=a.notes,
         created_at=a.created_at,
@@ -93,6 +99,30 @@ async def _validate_opportunity(db: AsyncSession, opportunity_id: int) -> None:
         )
 
 
+async def _validate_poc(db: AsyncSession, poc_id: int, user: User) -> None:
+    """The POC must exist, and the logger must be able to work on it.
+
+    Existence alone is not enough: without the access check, anyone could
+    attach their activity to any POC by id and appear in a work log they have
+    nothing to do with — which is exactly the record this feature is supposed
+    to make trustworthy.
+    """
+    from app.core.deps import assert_can_work_on_poc
+
+    result = await db.execute(
+        select(Poc)
+        .options(joinedload(Poc.opportunity))
+        .where(Poc.id == poc_id, Poc.deleted_at.is_(None))
+    )
+    poc = result.unique().scalar_one_or_none()
+    if poc is None:
+        raise BadRequestException(
+            code="INVALID_POC",
+            message="The linked POC does not exist",
+        )
+    await assert_can_work_on_poc(db, user, poc.opportunity)
+
+
 def _validate_activity_date(d: date) -> None:
     """The UI only offers past/current weekdays; enforce the same server-side.
 
@@ -117,6 +147,8 @@ async def create_activity(
     _validate_activity_date(data.activity_date)
     if data.opportunity_id is not None:
         await _validate_opportunity(db, data.opportunity_id)
+    if data.poc_id is not None:
+        await _validate_poc(db, data.poc_id, user)
 
     activity = SalesActivity(
         user_id=user.id,
@@ -124,6 +156,7 @@ async def create_activity(
         activity_type=ActivityType(data.activity_type),
         customer_name=data.customer_name,
         opportunity_id=data.opportunity_id,
+        poc_id=data.poc_id,
         duration_minutes=data.duration_minutes,
         notes=data.notes,
     )
@@ -167,6 +200,11 @@ async def update_activity(
         _validate_activity_date(update_data["activity_date"])
     if "opportunity_id" in update_data and update_data["opportunity_id"] is not None:
         await _validate_opportunity(db, update_data["opportunity_id"])
+    if "poc_id" in update_data and update_data["poc_id"] is not None:
+        # Re-checked against the *editor*, not the original logger: a
+        # superadmin correcting an entry still may not file it under a POC
+        # they have no business in.
+        await _validate_poc(db, update_data["poc_id"], user)
     if "activity_type" in update_data:
         update_data["activity_type"] = ActivityType(update_data["activity_type"])
 
@@ -255,4 +293,99 @@ async def get_activity_month(
         ],
         total_activities=len(activities),
         total_duration_minutes=total_duration,
+    )
+
+
+async def get_poc_activity_feed(db: AsyncSession, poc: Poc) -> PocActivityFeed:
+    """Every activity on this POC, plus a total per person.
+
+    Two ways an activity lands here, OR'd:
+
+      - it names this POC (poc_id) — logged as POC work;
+      - it names the opportunity this POC belongs to — logged against the
+        deal, which is the same engagement.
+
+    Both are kept because neither alone is the truth. Only counting poc_id
+    would show an empty feed for every POC that predates the link, and only
+    counting the opportunity would call a contract negotiation POC work. Each
+    entry carries `linked_via` so the difference stays visible; the OR cannot
+    double-count, since it is one row either way.
+
+    `by_person` lists everyone currently on the team even when they have
+    logged nothing — "assigned but has done nothing recorded" is a thing this
+    view exists to show — followed by anyone else who logged against the POC,
+    such as someone since taken off the team.
+    """
+    result = await db.execute(
+        _activity_query()
+        .where(
+            or_(
+                SalesActivity.poc_id == poc.id,
+                SalesActivity.opportunity_id == poc.opportunity_id,
+            )
+        )
+        .order_by(
+            SalesActivity.activity_date.desc(), SalesActivity.created_at.desc()
+        )
+    )
+    activities = list(result.unique().scalars().all())
+
+    items: list[PocActivityEntry] = []
+    tallies: dict[int, dict] = {}
+    for a in activities:
+        items.append(
+            PocActivityEntry(
+                **to_activity_response(a).model_dump(),
+                linked_via="poc" if a.poc_id == poc.id else "opportunity",
+            )
+        )
+        tally = tallies.setdefault(
+            a.user_id,
+            {"name": a.user.full_name if a.user else None, "count": 0, "minutes": 0},
+        )
+        tally["count"] += 1
+        tally["minutes"] += a.duration_minutes or 0
+
+    # Team first, in roster order, so the view reads as "here is the team and
+    # what each of them has done" rather than as a list of whoever happened to
+    # log something.
+    by_person: list[PocActivityPerson] = []
+    seen: set[int] = set()
+    for member in sorted(
+        (m for m in poc.team_members if m.removed_at is None),
+        key=lambda m: m.assigned_at,
+    ):
+        tally = tallies.get(member.user_id)
+        seen.add(member.user_id)
+        by_person.append(
+            PocActivityPerson(
+                user_id=member.user_id,
+                user_name=member.user.full_name if member.user else None,
+                poc_role=member.role.value,
+                poc_role_label=POC_TEAM_ROLE_LABELS[member.role],
+                on_team=True,
+                activity_count=tally["count"] if tally else 0,
+                total_duration_minutes=tally["minutes"] if tally else 0,
+            )
+        )
+
+    for user_id, tally in tallies.items():
+        if user_id in seen:
+            continue
+        by_person.append(
+            PocActivityPerson(
+                user_id=user_id,
+                user_name=tally["name"],
+                on_team=False,
+                activity_count=tally["count"],
+                total_duration_minutes=tally["minutes"],
+            )
+        )
+
+    return PocActivityFeed(
+        poc_id=poc.id,
+        items=items,
+        by_person=by_person,
+        total_activities=len(items),
+        total_duration_minutes=sum(a.duration_minutes or 0 for a in activities),
     )

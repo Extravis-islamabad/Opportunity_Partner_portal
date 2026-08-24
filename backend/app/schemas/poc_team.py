@@ -36,7 +36,10 @@ class PocTeamMemberResponse(BaseModel):
 
     assigned_by: Optional[int] = None
     assigned_by_name: Optional[str] = None
-    assigned_at: datetime
+    # Optional because a partner viewer gets a redacted roster: names and POC
+    # roles only, with everything else nulled out. See
+    # poc_team_service.redact_for_partner.
+    assigned_at: Optional[datetime] = None
     # Set only on rows returned by a history read; the current roster is all
     # nulls here.
     removed_at: Optional[datetime] = None

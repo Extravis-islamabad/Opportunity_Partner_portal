@@ -15,7 +15,7 @@
 import React, { useState } from 'react';
 import {
   Card, Button, Empty, Descriptions, Space, Modal, Form, DatePicker, Input,
-  InputNumber, message, Typography, Tag, Alert, Radio,
+  InputNumber, message, Typography, Tag, Alert, Radio, Select,
 } from 'antd';
 import { RocketOutlined, SafetyCertificateOutlined, WarningOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -24,6 +24,7 @@ import { pocsApi, licensesApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import { PocStageTracker, PocStatusTag } from '@/components/dashboard/PocWidgets';
 import PocTeamPanel from '@/components/poc/PocTeamPanel';
+import PocActivityPanel from '@/components/poc/PocActivityPanel';
 import type { PocResponse, PocStageState, LicenseStatus } from '@/types';
 
 const { Text } = Typography;
@@ -44,6 +45,8 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
   const queryClient = useQueryClient();
   const canEdit = user?.role === 'admin' || user?.role === 'sales_rep';
 
+  // The stage whose owner is being picked, or null when the modal is closed.
+  const [ownerStage, setOwnerStage] = useState<PocStageState | null>(null);
   const [startOpen, setStartOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [licOpen, setLicOpen] = useState(false);
@@ -68,6 +71,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
     queryClient.invalidateQueries({ queryKey: ['license', opportunityId] });
     queryClient.invalidateQueries({ queryKey: ['poc-summary'] });
     queryClient.invalidateQueries({ queryKey: ['pocs'] });
+    queryClient.invalidateQueries({ queryKey: ['poc-activities'] });
   };
 
   const fail = (e: { response?: { data?: { message?: string } } }, fallback: string) =>
@@ -92,6 +96,17 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
       invalidate();
     },
     onError: (e: never) => fail(e, 'Could not update the stage'),
+  });
+
+  const ownerMut = useMutation({
+    mutationFn: ({ stage, userId }: { stage: PocStageState; userId: number | null }) =>
+      pocsApi.setStageOwner(poc!.id, stage.key, userId),
+    onSuccess: () => {
+      message.success('Stage owner updated');
+      setOwnerStage(null);
+      invalidate();
+    },
+    onError: (e: never) => fail(e, 'Could not set the stage owner'),
   });
 
   const editMut = useMutation({
@@ -202,6 +217,9 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
               stages={poc.stages}
               disabled={stageMut.isPending || !!poc.closed_at}
               onToggle={canEdit && !poc.closed_at ? (s) => stageMut.mutate({ p: poc, s }) : undefined}
+              // Owners come back null for a partner, so the row is absent for
+              // them regardless; this only decides who can change one.
+              onAssignOwner={canEdit ? (s) => setOwnerStage(s) : undefined}
             />
 
             {poc.closed_at && (
@@ -218,6 +236,53 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
         )}
       </Card>
 
+      {/* Stage owner picker. Options come from the POC's own roster: only
+          someone on the team can own a stage, which the API enforces too. */}
+      <Modal
+        title={ownerStage ? `Who owns ${ownerStage.label}?` : 'Stage owner'}
+        open={ownerStage !== null}
+        onCancel={() => setOwnerStage(null)}
+        footer={null}
+      >
+        {poc && poc.team.length === 0 ? (
+          <Alert
+            type="info"
+            showIcon
+            message="Nobody is on this POC team yet"
+            description="Add people to the team below, then come back to divide up the stages."
+          />
+        ) : (
+          <>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="Select someone from the POC team"
+              value={ownerStage?.owner_user_id ?? undefined}
+              loading={ownerMut.isPending}
+              options={(poc?.team ?? []).map((m) => ({
+                value: m.user_id,
+                label: `${m.user_name ?? 'Unknown'} — ${m.role_label}`,
+              }))}
+              onChange={(userId: number) =>
+                ownerStage && ownerMut.mutate({ stage: ownerStage, userId })
+              }
+            />
+            {ownerStage?.owner_user_id != null && (
+              <Button
+                type="link"
+                danger
+                style={{ paddingLeft: 0, marginTop: 12 }}
+                loading={ownerMut.isPending}
+                onClick={() =>
+                  ownerStage && ownerMut.mutate({ stage: ownerStage, userId: null })
+                }
+              >
+                Leave this stage unowned
+              </Button>
+            )}
+          </>
+        )}
+      </Modal>
+
       {/* The roster sits between the POC and its post-PO tracking because
           that is the span of work these people cover. */}
       <PocTeamPanel
@@ -225,6 +290,10 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
         team={poc?.team ?? []}
         onChanged={invalidate}
       />
+
+      {/* Who actually did what. Internal only — the API refuses partners, and
+          rendering it for them would just show a permanent error card. */}
+      {canEdit && poc && <PocActivityPanel pocId={poc.id} />}
 
       {/* ---------------- Post-PO customer tracking ---------------- */}
       <Card

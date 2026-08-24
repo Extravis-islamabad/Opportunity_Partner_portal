@@ -13,6 +13,9 @@ class ActivityCreateRequest(BaseModel):
     activity_type: str = Field(pattern=_TYPE_PATTERN)
     customer_name: Optional[str] = Field(None, max_length=255)
     opportunity_id: Optional[int] = None
+    # The POC this was work on, when it was POC work. Only accepted for a POC
+    # the logger can actually work on — the service checks.
+    poc_id: Optional[int] = None
     duration_minutes: Optional[int] = Field(None, ge=1, le=24 * 60)
     notes: Optional[str] = None
 
@@ -22,6 +25,7 @@ class ActivityUpdateRequest(BaseModel):
     activity_type: Optional[str] = Field(None, pattern=_TYPE_PATTERN)
     customer_name: Optional[str] = Field(None, max_length=255)
     opportunity_id: Optional[int] = None
+    poc_id: Optional[int] = None
     duration_minutes: Optional[int] = Field(None, ge=1, le=24 * 60)
     notes: Optional[str] = None
 
@@ -36,6 +40,7 @@ class ActivityResponse(BaseModel):
     customer_name: Optional[str] = None
     opportunity_id: Optional[int] = None
     opportunity_name: Optional[str] = None
+    poc_id: Optional[int] = None
     duration_minutes: Optional[int] = None
     notes: Optional[str] = None
     created_at: datetime
@@ -66,5 +71,41 @@ class ActivityMonthResponse(BaseModel):
     month: str  # "YYYY-MM"
     days: list[ActivityDay]
     totals_by_type: list[ActivityTypeTotal]
+    total_activities: int
+    total_duration_minutes: int
+
+
+# ==================== A POC's activity feed ====================
+
+class PocActivityEntry(ActivityResponse):
+    """An activity as it appears on a POC.
+
+    `linked_via` says why it is here: "poc" when it was logged as POC work,
+    "opportunity" when it was logged against the opportunity this POC belongs
+    to. Both are real activity on the engagement, but they are not the same
+    claim, so the feed distinguishes them rather than silently merging them.
+    """
+    linked_via: str
+
+
+class PocActivityPerson(BaseModel):
+    """One person's total on this POC.
+
+    Present with zero counts for anyone on the team who has logged nothing —
+    that absence is the point of the view, not a gap in it.
+    """
+    user_id: int
+    user_name: Optional[str] = None
+    poc_role: Optional[str] = None
+    poc_role_label: Optional[str] = None
+    on_team: bool
+    activity_count: int
+    total_duration_minutes: int
+
+
+class PocActivityFeed(BaseModel):
+    poc_id: int
+    items: list[PocActivityEntry]
+    by_person: list[PocActivityPerson]
     total_activities: int
     total_duration_minutes: int

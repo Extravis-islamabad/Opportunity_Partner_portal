@@ -23,8 +23,8 @@ from app.models.customer_license import (
 )
 from app.models.opportunity import Opportunity
 from app.models.poc import Poc, PocStatus, POC_STAGE_KEYS, POC_STAGE_LABELS
-from app.models.poc_team import PocTeamMember
-from app.models.user import User
+from app.models.poc_team import POC_TEAM_ROLE_LABELS, PocTeamMember
+from app.models.user import User, UserRole
 from app.schemas.poc import (
     LicenseResponse,
     LicenseUpsertRequest,
@@ -117,24 +117,54 @@ def derive_license_status(lic: CustomerLicense, today: Optional[date] = None) ->
 # Serialisation
 # ---------------------------------------------------------------------------
 
-def _stage_states(poc: Poc) -> list[PocStageState]:
-    return [
-        PocStageState(
-            key=key,
-            label=POC_STAGE_LABELS[key],
-            completed=getattr(poc, f"{key}_completed_at") is not None,
-            completed_at=getattr(poc, f"{key}_completed_at"),
+def _stage_states(poc: Poc, *, show_owners: bool) -> list[PocStageState]:
+    """The five stages resolved for display.
+
+    Owners are resolved against the *live* roster rather than trusted from the
+    column: an id that is no longer on the team renders as unowned. Team
+    removal clears the stages that person owned
+    (poc_team_service.remove_member), so this only bites on a hand-edited row —
+    and showing nobody is the right answer there too.
+    """
+    owners = {}
+    if show_owners:
+        owners = {
+            m.user_id: m
+            for m in poc.team_members
+            if m.removed_at is None
+        }
+
+    states = []
+    for key in POC_STAGE_KEYS:
+        owner = owners.get(poc.owner_id_for(key)) if show_owners else None
+        states.append(
+            PocStageState(
+                key=key,
+                label=POC_STAGE_LABELS[key],
+                completed=getattr(poc, f"{key}_completed_at") is not None,
+                completed_at=getattr(poc, f"{key}_completed_at"),
+                owner_user_id=owner.user_id if owner else None,
+                owner_name=owner.user.full_name if owner and owner.user else None,
+                owner_role=owner.role.value if owner else None,
+                owner_role_label=(
+                    POC_TEAM_ROLE_LABELS[owner.role] if owner else None
+                ),
+            )
         )
-        for key in POC_STAGE_KEYS
-    ]
+    return states
 
 
-def to_poc_response(poc: Poc) -> PocResponse:
+def to_poc_response(poc: Poc, *, viewer: User) -> PocResponse:
     """Serialise a POC. The caller must have eager-loaded .opportunity (and
     its .company / .sales_rep) and .team_members (with their .user) — we never
     lazy-load here, since an implicit async lazy-load raises MissingGreenlet
     outside the greenlet context. _poc_query() sets all of that up.
+
+    `viewer` is keyword-only and has no default on purpose. What a partner may
+    see of the team is narrower than what Extravis staff may see, and a
+    default would make the wide version the thing you get by forgetting.
     """
+    is_partner = viewer.role == UserRole.PARTNER
     opp = poc.opportunity
     today = datetime.now(timezone.utc).date()
 
@@ -169,7 +199,7 @@ def to_poc_response(poc: Poc) -> PocResponse:
         outcome_notes=poc.outcome_notes,
         failure_reason=poc.failure_reason,
         notes=poc.notes,
-        stages=_stage_states(poc),
+        stages=_stage_states(poc, show_owners=not is_partner),
         completed_stage_count=poc.completed_stage_count,
         total_stage_count=len(POC_STAGE_KEYS),
         current_stage=current,
@@ -191,10 +221,17 @@ def to_poc_response(poc: Poc) -> PocResponse:
         # history survives, but they are not on the team today and must not
         # appear as though they are; the team-history endpoint is where those
         # rows surface.
+        # A partner sees who is on the team and what they do, and nothing
+        # else about them — see poc_team_service.redact_for_partner.
         team=[
-            poc_team_service.to_team_member_response(m)
-            for m in sorted(poc.team_members, key=lambda m: m.assigned_at)
-            if m.removed_at is None
+            poc_team_service.redact_for_partner(member)
+            if is_partner
+            else member
+            for member in (
+                poc_team_service.to_team_member_response(m)
+                for m in sorted(poc.team_members, key=lambda m: m.assigned_at)
+                if m.removed_at is None
+            )
         ],
         created_at=poc.created_at,
         updated_at=poc.updated_at,
@@ -334,6 +371,7 @@ async def get_poc_or_404(db: AsyncSession, poc_id: int) -> Poc:
 async def list_pocs(
     db: AsyncSession,
     *,
+    viewer: User,
     page: int = 1,
     page_size: int = 20,
     status: Optional[str] = None,
@@ -380,7 +418,7 @@ async def list_pocs(
     result = await db.execute(query)
     pocs = result.unique().scalars().all()
 
-    return [to_poc_response(p) for p in pocs], total
+    return [to_poc_response(p, viewer=viewer) for p in pocs], total
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +464,7 @@ async def start_poc(
     })
     await db.commit()
 
-    return to_poc_response(await get_poc_or_404(db, poc.id))
+    return to_poc_response(await get_poc_or_404(db, poc.id), viewer=user)
 
 
 async def update_poc(
@@ -455,7 +493,7 @@ async def update_poc(
     await write_audit_log(db, user.id, "UPDATE", "poc", poc.id, payload_safe(payload))
     await db.commit()
 
-    return to_poc_response(await get_poc_or_404(db, poc_id))
+    return to_poc_response(await get_poc_or_404(db, poc_id), viewer=user)
 
 
 async def set_stage(
@@ -491,7 +529,78 @@ async def set_stage(
     })
     await db.commit()
 
-    return to_poc_response(await get_poc_or_404(db, poc_id))
+    return to_poc_response(await get_poc_or_404(db, poc_id), viewer=user)
+
+
+async def set_stage_owner(
+    db: AsyncSession, poc_id: int, stage_key: str, owner_user_id: Optional[int], user: User
+) -> PocResponse:
+    """Name (or clear) the person responsible for one stage.
+
+    The owner must currently be on the POC team. That is the whole constraint:
+    ownership names who is accountable, it does not grant anything — a stage
+    owner can already work the POC by virtue of being on the team, and someone
+    off the team could not act on a stage they were named against. Which is
+    also why this is not admin-only: any POC editor can divide up the work.
+    """
+    poc = await get_poc_or_404(db, poc_id)
+    if stage_key not in POC_STAGE_KEYS:
+        raise BadRequestException(
+            code="INVALID_STAGE",
+            message=f"Unknown POC stage: {stage_key}",
+        )
+
+    if owner_user_id is not None:
+        member = next(
+            (
+                m for m in poc.team_members
+                if m.user_id == owner_user_id and m.removed_at is None
+            ),
+            None,
+        )
+        if member is None:
+            raise BadRequestException(
+                code="OWNER_NOT_ON_TEAM",
+                message=(
+                    "A stage owner must be on the POC team. Add them to the "
+                    "team first."
+                ),
+            )
+
+    previous = poc.owner_id_for(stage_key)
+    setattr(poc, f"{stage_key}_owner_id", owner_user_id)
+    await db.flush()
+
+    await write_audit_log(
+        db, user.id, "UPDATE", "poc", poc.id,
+        {
+            "stage": stage_key,
+            "before": {"owner_id": previous},
+            "after": {"owner_id": owner_user_id},
+        },
+    )
+    await db.commit()
+    return to_poc_response(await get_poc_or_404(db, poc_id), viewer=user)
+
+
+async def clear_stage_owner_for_user(
+    db: AsyncSession, poc_id: int, user_id: int
+) -> list[str]:
+    """Unown every stage this person held on this POC. Returns the stage keys.
+
+    Called when someone leaves the team: a name still shown against a stage by
+    someone who is no longer on the POC is worse than no name, because it reads
+    as an answer to "who is responsible" when nobody is.
+    """
+    poc = await get_poc_or_404(db, poc_id)
+    cleared = [
+        key for key in POC_STAGE_KEYS if poc.owner_id_for(key) == user_id
+    ]
+    for key in cleared:
+        setattr(poc, f"{key}_owner_id", None)
+    if cleared:
+        await db.flush()
+    return cleared
 
 
 async def close_poc(
@@ -532,7 +641,7 @@ async def close_poc(
     })
     await db.commit()
 
-    return to_poc_response(await get_poc_or_404(db, poc_id))
+    return to_poc_response(await get_poc_or_404(db, poc_id), viewer=user)
 
 
 async def reopen_poc(db: AsyncSession, poc_id: int, user: User) -> PocResponse:
@@ -552,7 +661,7 @@ async def reopen_poc(db: AsyncSession, poc_id: int, user: User) -> PocResponse:
     await write_audit_log(db, user.id, "REOPEN", "poc", poc.id, {})
     await db.commit()
 
-    return to_poc_response(await get_poc_or_404(db, poc_id))
+    return to_poc_response(await get_poc_or_404(db, poc_id), viewer=user)
 
 
 def _validate_stage_dates(poc: Poc) -> None:
