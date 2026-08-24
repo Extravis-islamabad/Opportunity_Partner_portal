@@ -748,6 +748,22 @@ async def auto_mark_under_review(
     return _build_opportunity_response(opp)
 
 
+async def get_opportunity_or_404(db: AsyncSession, opp_id: int) -> Opportunity:
+    """Load a live opportunity, for callers that need the row before deciding
+    whether the caller may act on it."""
+    result = await db.execute(
+        select(Opportunity).where(
+            Opportunity.id == opp_id, Opportunity.deleted_at.is_(None)
+        )
+    )
+    opp = result.scalar_one_or_none()
+    if not opp:
+        raise NotFoundException(
+            code="OPPORTUNITY_NOT_FOUND", message="Opportunity not found"
+        )
+    return opp
+
+
 async def add_opp_document(db: AsyncSession, opp_id: int, file_info: dict) -> OppDocumentResponse:
     # Enforce max 5 files per opportunity
     count_result = await db.execute(
@@ -794,10 +810,16 @@ async def remove_opp_document(
     if not opp:
         raise NotFoundException(code="OPPORTUNITY_NOT_FOUND", message="Opportunity not found")
 
-    # Partners can only delete docs from their own opportunities in editable states
+    # Ownership first, for every role. This used to test the partner branch
+    # only, so a sales rep or an out-of-scope channel manager fell straight
+    # through and could delete documents from any opportunity by id.
+    from app.core.deps import assert_can_manage_opp_documents
+
+    await assert_can_manage_opp_documents(db, current_user, opp)
+
+    # Partners additionally may only remove documents while the opportunity is
+    # still under consideration — an approved one is a record, not a draft.
     if current_user.role == UserRole.PARTNER:
-        if opp.submitted_by != current_user.id:
-            raise ForbiddenException(message="You can only modify your own opportunities")
         if opp.status not in (OpportunityStatus.PENDING_REVIEW, OpportunityStatus.UNDER_REVIEW):
             raise BadRequestException(
                 code="CANNOT_DELETE_DOCUMENT",

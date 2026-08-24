@@ -15,11 +15,8 @@ import {
   InputNumber,
   Progress,
   Typography,
-  Table,
   message,
 } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
-import dayjs from 'dayjs';
 import {
   PlusOutlined,
   PlayCircleOutlined,
@@ -87,70 +84,8 @@ const LmsPage: React.FC = () => {
     onError: () => void message.error('Failed to enroll'),
   });
 
-  const { data: certRequests } = useQuery({
-    queryKey: ['certificate-requests'],
-    queryFn: async () =>
-      (await lmsApi.listCertificateRequests({ page: 1, page_size: 50 })).data,
-    enabled: isAdmin,
-  });
 
-  const issueMut = useMutation({
-    mutationFn: (enrollmentId: number) => lmsApi.issueCertificate(enrollmentId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['certificate-requests'] });
-      void message.success('Certificate issued');
-    },
-    onError: () => void message.error('Failed to issue certificate'),
-  });
 
-  const certColumns: ColumnsType<EnrollmentResponse> = [
-    {
-      title: 'Partner',
-      dataIndex: 'user_name',
-      key: 'user_name',
-      render: (_: unknown, record) => record.user_name ?? '—',
-    },
-    {
-      title: 'Course',
-      dataIndex: 'course_title',
-      key: 'course_title',
-      render: (_: unknown, record) => record.course_title ?? '—',
-    },
-    {
-      title: 'Requested',
-      dataIndex: 'certificate_requested_at',
-      key: 'certificate_requested_at',
-      render: (_: unknown, record) =>
-        record.certificate_requested_at
-          ? dayjs(record.certificate_requested_at).format('YYYY-MM-DD')
-          : '—',
-    },
-    {
-      title: 'Status',
-      key: 'status',
-      render: (_: unknown, record) =>
-        record.certificate_issued_at ? (
-          <Tag color="green">Issued</Tag>
-        ) : (
-          <Tag color="orange">Pending</Tag>
-        ),
-    },
-    {
-      title: 'Action',
-      key: 'action',
-      render: (_: unknown, record) =>
-        record.certificate_issued_at ? null : (
-          <Button
-            type="primary"
-            size="small"
-            loading={issueMut.isPending && issueMut.variables === record.id}
-            onClick={() => issueMut.mutate(record.id)}
-          >
-            Issue Certificate
-          </Button>
-        ),
-    },
-  ];
 
   const getEnrollment = (courseId: number): EnrollmentResponse | undefined =>
     myEnrollments?.find((e) => e.course_id === courseId);
@@ -359,25 +294,6 @@ const LmsPage: React.FC = () => {
         <Empty description="No courses available" />
       )}
 
-      {isAdmin && (
-        <Card
-          title="Certificate Requests"
-          variant="borderless"
-          style={{
-            marginTop: 24,
-            borderRadius: 14,
-            boxShadow: '0 4px 12px rgba(28, 28, 58, 0.06)',
-          }}
-        >
-          <Table<EnrollmentResponse>
-            rowKey="id"
-            columns={certColumns}
-            dataSource={certRequests?.items ?? []}
-            pagination={false}
-            locale={{ emptyText: 'No certificate requests' }}
-          />
-        </Card>
-      )}
 
       <Modal
         title="Create Course"

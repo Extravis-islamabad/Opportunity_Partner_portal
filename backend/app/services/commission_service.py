@@ -37,6 +37,7 @@ from app.schemas.commission import (
     ScorecardRead,
     StatementPeriodSummary,
 )
+from app.services import tier_service
 from app.services.notification_service import notify_user
 from app.utils.audit import write_audit_log
 
@@ -44,13 +45,12 @@ logger = structlog.get_logger()
 
 CENTS = Decimal("0.01")
 
-# Used to hint at the next tier on the scorecard
-TIER_ORDER = [PartnerTier.SILVER, PartnerTier.GOLD, PartnerTier.PLATINUM]
-# Number of approved deals required to advance to the given tier
-TIER_THRESHOLDS = {
-    PartnerTier.GOLD: 5,
-    PartnerTier.PLATINUM: 15,
-}
+# Tier order and thresholds now come from tier_service, which is also what
+# decides the tier. This module used to keep its own table — 5 approved *deal
+# registrations* for gold, 15 for platinum, no training component — so the
+# scorecard's "progress to gold" bar measured something that could never
+# actually promote anyone.
+TIER_ORDER = list(tier_service.TIER_ORDER)
 
 
 def _quantize(value: Decimal) -> Decimal:
@@ -378,24 +378,7 @@ async def update_commission_status(
 # ---------------------------------------------------------------------------
 
 def _next_tier(current: PartnerTier) -> Optional[PartnerTier]:
-    try:
-        idx = TIER_ORDER.index(current)
-    except ValueError:
-        return None
-    if idx + 1 >= len(TIER_ORDER):
-        return None
-    return TIER_ORDER[idx + 1]
-
-
-def _tier_progress_pct(current: PartnerTier, approved_deal_count: int) -> float:
-    target = _next_tier(current)
-    if target is None:
-        return 100.0
-    threshold = TIER_THRESHOLDS[target]
-    if threshold <= 0:
-        return 100.0
-    pct = (approved_deal_count / threshold) * 100
-    return float(min(100.0, max(0.0, pct)))
+    return tier_service.next_tier(current)
 
 
 async def _monthly_commission_series(
@@ -510,7 +493,11 @@ async def get_scorecard(
         badges.append(Badge(key="platinum", label="Platinum Tier", description="Reached Platinum tier"))
 
     monthly_series = await _monthly_commission_series(db, company_id)
-    next_tier = _next_tier(company.tier)
+    # Same rules and the same measurement the tier itself is decided by, so
+    # this bar and the partner dashboard's now agree with each other and with
+    # what actually promotes a company.
+    tier_standing = await tier_service.company_standing(db, company)
+    next_tier = tier_standing.next_tier
 
     return ScorecardRead(
         company_id=company.id,
@@ -521,7 +508,7 @@ async def get_scorecard(
         total_closed_value=_quantize(total_closed_value),
         ytd_commission=_quantize(ytd_commission),
         lifetime_commission=_quantize(lifetime_commission),
-        tier_progress_pct=_tier_progress_pct(company.tier, approved_deals),
+        tier_progress_pct=tier_standing.overall_progress_pct,
         rank=rank,
         badges=badges,
         monthly_commission=monthly_series,

@@ -10,13 +10,9 @@ from decimal import Decimal
 import pytest
 
 from app.models.commission import CommissionStatus
-from app.models.company import PartnerTier
 from app.services.commission_service import (
-    TIER_THRESHOLDS,
     VALID_TRANSITIONS,
-    _next_tier,
     _quantize,
-    _tier_progress_pct,
 )
 
 
@@ -37,34 +33,11 @@ class TestQuantize:
         assert _quantize(Decimal("0")) == Decimal("0.00")
 
 
-class TestTierProgression:
-    def test_next_tier_from_silver(self):
-        assert _next_tier(PartnerTier.SILVER) == PartnerTier.GOLD
+# Tier progression used to be tested here, against this module's own
+# thresholds — 5 approved deal registrations for gold, 15 for platinum. Those
+# rules are gone: tier now comes from tier_service, which is what actually
+# promotes a company, and the tests for it live in test_tier_model.py.
 
-    def test_next_tier_from_gold(self):
-        assert _next_tier(PartnerTier.GOLD) == PartnerTier.PLATINUM
-
-    def test_next_tier_from_platinum_is_none(self):
-        assert _next_tier(PartnerTier.PLATINUM) is None
-
-    def test_progress_pct_at_zero(self):
-        assert _tier_progress_pct(PartnerTier.SILVER, 0) == 0.0
-
-    def test_progress_pct_halfway(self):
-        threshold = TIER_THRESHOLDS[PartnerTier.GOLD]
-        half = threshold // 2
-        expected = (half / threshold) * 100
-        assert _tier_progress_pct(PartnerTier.SILVER, half) == pytest.approx(expected)
-
-    def test_progress_pct_capped_at_100(self):
-        # Overshooting the threshold shouldn't go beyond 100
-        threshold = TIER_THRESHOLDS[PartnerTier.GOLD]
-        assert _tier_progress_pct(PartnerTier.SILVER, threshold * 10) == 100.0
-
-    def test_progress_pct_platinum_is_max(self):
-        # Platinum has no higher tier, always 100%
-        assert _tier_progress_pct(PartnerTier.PLATINUM, 0) == 100.0
-        assert _tier_progress_pct(PartnerTier.PLATINUM, 999) == 100.0
 
 
 class TestStatusStateMachine:

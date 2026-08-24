@@ -53,13 +53,25 @@ class CompanyPerformance(BaseModel):
 
 
 class TierProgress(BaseModel):
+    """Progress toward the next tier, from tier_service — the one place the
+    rules live. Both criteria are company-wide and both must be met.
+
+    Replaces a per-user *course count*: a tier belongs to the company, so one
+    keen individual finishing five courses no longer reads as the whole
+    company being ready for platinum.
+    """
     next_tier: Optional[str]
     opps_required: int
     opps_current: int
-    courses_required: int
-    courses_current: int
     opps_progress_pct: float
-    courses_progress_pct: float
+    # Company-wide completed/total enrolments, as a percentage.
+    lms_rate_required: float
+    lms_rate_current: float
+    lms_progress_pct: float
+    # The weaker of the two — what actually stands between here and the next
+    # tier. Averaging would flatter a company that has done all the training
+    # and registered nothing.
+    overall_progress_pct: float
 
 
 class PartnerDashboardResponse(BaseModel):

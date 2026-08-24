@@ -352,6 +352,35 @@ async def assert_can_access_opportunity(
     raise ForbiddenException(message="Not authorised for this opportunity")
 
 
+async def assert_can_manage_opp_documents(
+    db: AsyncSession,
+    user: User,
+    opportunity,
+) -> None:
+    """Per-record authorisation for attaching or removing an opportunity's
+    documents.
+
+    A *write*, so it is narrower than assert_can_access_opportunity for
+    partners: reads went company-wide, but a partner may only touch the
+    documents of an opportunity they themselves submitted, matching
+    update_opportunity. Everyone else gets the standard per-record rule —
+    channel-manage the company, or be the assigned sales rep.
+
+    Uploading had no check of any kind: any authenticated account could attach
+    a file to any opportunity by id, and to ids that did not exist. Deleting
+    checked only the partner branch, so a sales rep or an out-of-scope channel
+    manager fell straight through it.
+    """
+    if user.role == UserRole.PARTNER:
+        if opportunity.submitted_by != user.id:
+            raise ForbiddenException(
+                message="You can only change documents on your own opportunities"
+            )
+        return
+
+    await assert_can_access_opportunity(db, user, opportunity)
+
+
 async def is_poc_team_member(
     db: AsyncSession,
     user: User,

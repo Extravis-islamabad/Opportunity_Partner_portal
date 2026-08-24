@@ -25,8 +25,11 @@ class Enrollment(Base):
     attempt_count = Column(Integer, default=0, nullable=False)
     score = Column(Integer, nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    certificate_requested = Column(Boolean, default=False, nullable=False)
-    certificate_requested_at = Column(DateTime(timezone=True), nullable=True)
+    # A certificate is issued automatically on completion (see
+    # lms_service._auto_issue_certificate). The old request-then-admin-approves
+    # queue is gone, and with it certificate_requested / _requested_at, which
+    # only ever existed to stop that queue re-issuing what auto-issue had
+    # already produced — migration 018 drops them.
     certificate_url = Column(String(1000), nullable=True)
     certificate_issued_at = Column(DateTime(timezone=True), nullable=True)
 

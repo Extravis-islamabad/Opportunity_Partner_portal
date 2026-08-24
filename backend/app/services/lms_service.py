@@ -239,7 +239,6 @@ async def enroll_in_course(db: AsyncSession, course_id: int, partner_user: User)
         course_id=enrollment.course_id,
         course_title=course.title,
         status=enrollment.status.value,
-        certificate_requested=enrollment.certificate_requested,
         enrolled_at=enrollment.enrolled_at,
     )
 
@@ -275,182 +274,12 @@ async def update_enrollment(
         status=enrollment.status.value,
         progress_json=enrollment.progress_json,
         completed_at=enrollment.completed_at,
-        certificate_requested=enrollment.certificate_requested,
-        certificate_requested_at=enrollment.certificate_requested_at,
         certificate_url=signed_file_url(enrollment.certificate_url),
         certificate_issued_at=enrollment.certificate_issued_at,
         enrolled_at=enrollment.enrolled_at,
     )
 
 
-async def request_certificate(db: AsyncSession, enrollment_id: int, partner_user: User) -> EnrollmentResponse:
-    result = await db.execute(
-        select(Enrollment)
-        .options(joinedload(Enrollment.course))
-        .where(Enrollment.id == enrollment_id, Enrollment.user_id == partner_user.id)
-    )
-    enrollment = result.scalar_one_or_none()
-    if not enrollment:
-        raise NotFoundException(code="ENROLLMENT_NOT_FOUND", message="Enrollment not found")
-
-    if enrollment.status != EnrollmentStatus.COMPLETED:
-        raise BadRequestException(code="COURSE_NOT_COMPLETED", message="Course must be completed before requesting a certificate")
-
-    if enrollment.certificate_requested:
-        raise BadRequestException(code="CERTIFICATE_ALREADY_REQUESTED", message="Certificate has already been requested")
-
-    enrollment.certificate_requested = True
-    enrollment.certificate_requested_at = datetime.now(timezone.utc)
-    await db.flush()
-
-    course_title = enrollment.course.title if enrollment.course else "Unknown Course"
-
-    user_result = await db.execute(
-        select(User).where(User.id == partner_user.id)
-    )
-    user = user_result.scalar_one()
-
-    company_name = "Unknown"
-    if user.company_id:
-        from app.models.company import Company
-        company_result = await db.execute(select(Company).where(Company.id == user.company_id))
-        company = company_result.scalar_one_or_none()
-        if company:
-            company_name = company.name
-
-    message = f"{partner_user.full_name} from {company_name} has completed: {course_title} and requested their certificate."
-
-    await notify_all_admins(
-        db, "certificate_requested",
-        "Certificate Request",
-        message,
-        "enrollment", enrollment.id,
-    )
-
-    if user.company_id:
-        await notify_channel_manager(
-            db, user.company_id,
-            "certificate_requested",
-            "Certificate Request",
-            message,
-            "enrollment", enrollment.id,
-        )
-
-    return EnrollmentResponse(
-        id=enrollment.id,
-        user_id=enrollment.user_id,
-        user_name=partner_user.full_name,
-        course_id=enrollment.course_id,
-        course_title=course_title,
-        status=enrollment.status.value,
-        completed_at=enrollment.completed_at,
-        certificate_requested=enrollment.certificate_requested,
-        certificate_requested_at=enrollment.certificate_requested_at,
-        certificate_url=signed_file_url(enrollment.certificate_url),
-        certificate_issued_at=enrollment.certificate_issued_at,
-        enrolled_at=enrollment.enrolled_at,
-    )
-
-
-async def issue_certificate(
-    db: AsyncSession, enrollment_id: int, certificate_url: str, admin_user: User
-) -> EnrollmentResponse:
-    from app.services.certificate_service import generate_certificate_pdf
-    from app.services.dashboard_service import evaluate_tier_upgrade
-
-    result = await db.execute(
-        select(Enrollment)
-        .options(joinedload(Enrollment.course), joinedload(Enrollment.user))
-        .where(Enrollment.id == enrollment_id)
-    )
-    enrollment = result.scalar_one_or_none()
-    if not enrollment:
-        raise NotFoundException(code="ENROLLMENT_NOT_FOUND", message="Enrollment not found")
-
-    if not enrollment.certificate_requested:
-        raise BadRequestException(code="NO_CERTIFICATE_REQUEST", message="No certificate request found for this enrollment")
-
-    course_title = enrollment.course.title if enrollment.course else "Unknown Course"
-    partner = enrollment.user
-
-    # Generate certificate PDF
-    company_name = "Unknown"
-    if partner and partner.company_id:
-        company_result = await db.execute(select(Company).where(Company.id == partner.company_id))
-        company = company_result.scalar_one_or_none()
-        if company:
-            company_name = company.name
-
-    import uuid
-    import os
-    import aiofiles
-    from app.core.config import settings
-
-    certificate_id = str(uuid.uuid4()).upper()[:12]
-    pdf_bytes = generate_certificate_pdf(
-        partner_name=partner.full_name if partner else "Partner",
-        company_name=company_name,
-        course_title=course_title,
-        completion_date=enrollment.completed_at or datetime.now(timezone.utc),
-        certificate_id=certificate_id,
-    )
-
-    # Save PDF to uploads directory
-    cert_dir = os.path.join(settings.UPLOAD_DIR, "certificates")
-    os.makedirs(cert_dir, exist_ok=True)
-    pdf_filename = f"certificate_{enrollment_id}_{certificate_id}.pdf"
-    pdf_path = os.path.join(cert_dir, pdf_filename)
-    async with aiofiles.open(pdf_path, "wb") as f:
-        await f.write(pdf_bytes)
-
-    generated_url = f"/uploads/certificates/{pdf_filename}"
-    enrollment.certificate_url = generated_url
-    enrollment.certificate_issued_at = datetime.now(timezone.utc)
-    await db.flush()
-
-    await write_audit_log(db, admin_user.id, "UPDATE", "enrollment", enrollment.id, {
-        "action": "certificate_issued", "certificate_url": generated_url,
-    })
-
-    if partner:
-        await send_template_email(
-            to_emails=[partner.email],
-            subject=f"Your Certificate for {course_title}",
-            template_name="certificate",
-            context={
-                "name": partner.full_name,
-                "course_name": course_title,
-            },
-        )
-
-        await notify_user(
-            db, partner.id, "certificate_issued",
-            "Certificate Issued",
-            f"Your certificate of completion for {course_title} is attached to this email.",
-            "enrollment", enrollment.id,
-            send_email_flag=False,
-        )
-
-    # Trigger tier upgrade evaluation
-    if partner and partner.company_id:
-        await evaluate_tier_upgrade(db, partner.company_id)
-
-    return EnrollmentResponse(
-        id=enrollment.id,
-        user_id=enrollment.user_id,
-        user_name=partner.full_name if partner else None,
-        course_id=enrollment.course_id,
-        course_title=course_title,
-        status=enrollment.status.value,
-        completed_at=enrollment.completed_at,
-        score=enrollment.score,
-        attempt_count=enrollment.attempt_count,
-        certificate_requested=enrollment.certificate_requested,
-        certificate_requested_at=enrollment.certificate_requested_at,
-        certificate_url=signed_file_url(enrollment.certificate_url),
-        certificate_issued_at=enrollment.certificate_issued_at,
-        enrolled_at=enrollment.enrolled_at,
-    )
 
 
 async def _auto_issue_certificate(db: AsyncSession, enrollment: Enrollment) -> None:
@@ -499,8 +328,6 @@ async def _auto_issue_certificate(db: AsyncSession, enrollment: Enrollment) -> N
 
     enrollment.certificate_url = f"/uploads/certificates/{pdf_filename}"
     enrollment.certificate_issued_at = datetime.now(timezone.utc)
-    enrollment.certificate_requested = True
-    enrollment.certificate_requested_at = enrollment.completed_at or datetime.now(timezone.utc)
     await db.flush()
 
     try:
@@ -573,8 +400,6 @@ async def update_module_progress(
         completed_at=enrollment.completed_at,
         score=enrollment.score,
         attempt_count=enrollment.attempt_count,
-        certificate_requested=enrollment.certificate_requested,
-        certificate_requested_at=enrollment.certificate_requested_at,
         certificate_url=signed_file_url(enrollment.certificate_url),
         certificate_issued_at=enrollment.certificate_issued_at,
         enrolled_at=enrollment.enrolled_at,
@@ -655,8 +480,6 @@ async def get_my_enrollments(
             completed_at=e.completed_at,
             score=e.score,
             attempt_count=e.attempt_count,
-            certificate_requested=e.certificate_requested,
-            certificate_requested_at=e.certificate_requested_at,
             certificate_url=signed_file_url(e.certificate_url),
             certificate_issued_at=e.certificate_issued_at,
             enrolled_at=e.enrolled_at,
@@ -665,52 +488,3 @@ async def get_my_enrollments(
     ]
 
 
-async def get_enrollment_requests(
-    db: AsyncSession,
-    certificate_requested: bool = True,
-    page: int = 1,
-    page_size: int = 20,
-) -> tuple[list, int]:
-    query = (
-        select(Enrollment)
-        .options(joinedload(Enrollment.course), joinedload(Enrollment.user))
-        .where(Enrollment.certificate_requested == certificate_requested)
-    )
-    count_query = select(func.count(Enrollment.id)).where(
-        Enrollment.certificate_requested == certificate_requested
-    )
-
-    if certificate_requested:
-        query = query.where(Enrollment.certificate_url.is_(None))
-        count_query = count_query.where(Enrollment.certificate_url.is_(None))
-
-    query = query.order_by(Enrollment.certificate_requested_at.desc())
-    query = query.offset((page - 1) * page_size).limit(page_size)
-
-    result = await db.execute(query)
-    enrollments = result.unique().scalars().all()
-
-    count_result = await db.execute(count_query)
-    total = count_result.scalar() or 0
-
-    items = [
-        EnrollmentResponse(
-            id=e.id,
-            user_id=e.user_id,
-            user_name=e.user.full_name if e.user else None,
-            course_id=e.course_id,
-            course_title=e.course.title if e.course else None,
-            status=e.status.value,
-            completed_at=e.completed_at,
-            score=e.score,
-            attempt_count=e.attempt_count,
-            certificate_requested=e.certificate_requested,
-            certificate_requested_at=e.certificate_requested_at,
-            certificate_url=signed_file_url(e.certificate_url),
-            certificate_issued_at=e.certificate_issued_at,
-            enrolled_at=e.enrolled_at,
-        )
-        for e in enrollments
-    ]
-
-    return items, total

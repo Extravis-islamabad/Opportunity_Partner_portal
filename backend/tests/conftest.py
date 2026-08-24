@@ -248,6 +248,77 @@ def auth_header(user) -> dict:
     return {"Authorization": f"Bearer {create_access_token(token_data)}"}
 
 
+async def make_deal(db, *, company_id, registered_by, status=None, customer=None):
+    from datetime import date
+    from decimal import Decimal
+
+    from app.models.deal_registration import DealRegistration, DealStatus
+
+    deal = DealRegistration(
+        company_id=company_id,
+        registered_by=registered_by,
+        customer_name=customer or unique("DealCustomer"),
+        deal_description="Fixture deal",
+        estimated_value=Decimal("100000.00"),
+        expected_close_date=date(2027, 6, 30),
+        status=status or DealStatus.PENDING,
+    )
+    db.add(deal)
+    await db.flush()
+    return deal
+
+
+async def make_doc_request(db, *, company_id, requested_by):
+    from app.models.doc_request import DocRequest
+
+    req = DocRequest(
+        company_id=company_id,
+        requested_by=requested_by,
+        description=unique("Need datasheet"),
+    )
+    db.add(req)
+    await db.flush()
+    return req
+
+
+async def make_opp_document(db, *, opportunity_id, name=None):
+    from app.models.opp_document import OppDocument
+
+    doc = OppDocument(
+        opportunity_id=opportunity_id,
+        file_name=name or unique("brief") + ".pdf",
+        file_url="/uploads/opportunities/fixture.pdf",
+    )
+    db.add(doc)
+    await db.flush()
+    return doc
+
+
+async def make_enrollment(db, *, user_id, course_id, completed=False):
+    from datetime import datetime, timezone
+
+    from app.models.enrollment import Enrollment, EnrollmentStatus
+
+    enrollment = Enrollment(
+        user_id=user_id,
+        course_id=course_id,
+        status=EnrollmentStatus.COMPLETED if completed else EnrollmentStatus.ENROLLED,
+        completed_at=datetime.now(timezone.utc) if completed else None,
+    )
+    db.add(enrollment)
+    await db.flush()
+    return enrollment
+
+
+async def make_course(db, *, created_by, title=None):
+    from app.models.course import Course
+
+    course = Course(title=title or unique("Course"), created_by=created_by)
+    db.add(course)
+    await db.flush()
+    return course
+
+
 async def make_poc(db, *, opportunity_id, status=None, start_date=None):
     """A started POC by default.
 

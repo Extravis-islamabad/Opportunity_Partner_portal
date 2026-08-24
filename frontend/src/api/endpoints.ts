@@ -190,13 +190,7 @@ export const lmsApi = {
     apiClient.get<EnrollmentResponse[]>('/lms/enrollments/me'),
   updateEnrollment: (id: number, data: Record<string, unknown>) =>
     apiClient.put<EnrollmentResponse>(`/lms/enrollments/${id}`, data),
-  requestCertificate: (enrollmentId: number) =>
-    apiClient.post<EnrollmentResponse>(`/lms/enrollments/${enrollmentId}/request-certificate`),
-  listCertificateRequests: (params: Record<string, string | number | undefined>) =>
-    apiClient.get<PaginatedResponse<EnrollmentResponse>>('/lms/certificate-requests', { params }),
   // Auto-generated cert (no PDF upload — backend builds it from a template)
-  issueCertificate: (enrollmentId: number) =>
-    apiClient.post<EnrollmentResponse>(`/lms/enrollments/${enrollmentId}/issue-certificate`),
   // Mark a single lesson as completed; backend auto-completes the course +
   // auto-issues the certificate when all modules are done.
   markModuleProgress: (enrollmentId: number, moduleId: string) =>

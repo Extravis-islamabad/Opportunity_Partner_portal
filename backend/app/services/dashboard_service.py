@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # deps imports only models/core, never services, so this is cycle-free.
 from app.core.deps import get_partner_pipeline_scope
-from app.models.company import CHANNEL_COMPANY_TYPES, Company
+from app.models.company import CHANNEL_COMPANY_TYPES, Company, PartnerTier
 from app.models.user import User, UserRole
 from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.enrollment import Enrollment, EnrollmentStatus
@@ -50,7 +50,7 @@ from app.models.audit_log import AuditLog
 from app.models.poc import Poc, PocStatus, POC_STAGE_KEYS, POC_STAGE_LABELS
 from app.models.customer_license import CustomerLicense, LicenseStatus
 # Safe: neither imports dashboard_service, so no cycle.
-from app.services import company_service, poc_service
+from app.services import company_service, poc_service, tier_service
 
 
 # Raw string values, for the aggregation queries that select the column
@@ -366,59 +366,26 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
         )
     )).scalar() or 0
 
-    # FIX 2: Tier progress calculation
-    tier_thresholds = {
-        "silver": {"opps": 1, "courses": 1},
-        "gold": {"opps": 5, "courses": 3},
-        "platinum": {"opps": 10, "courses": 5},
-    }
-    tier_order = ["silver", "gold", "platinum"]
-
-    # Count approved opps for user's company
-    company_approved_opps = 0
-    if partner_user.company_id:
-        company_approved_opps = (await db.execute(
-            select(func.count(Opportunity.id)).where(
-                Opportunity.company_id == partner_user.company_id,
-                Opportunity.status == OpportunityStatus.APPROVED,
-                Opportunity.deleted_at.is_(None),
-            )
-        )).scalar() or 0
-
-    # completed_count already calculated above for LMS
-    user_completed_courses = completed_count
-
+    # Progress toward the next tier, from the same rules that decide it.
+    # Previously a private 5-opps/3-courses table that could never move a tier,
+    # and that counted only *this user's* completed courses.
     tier_progress = None
-    current_idx = tier_order.index(company_tier) if company_tier in tier_order else 0
-    if not is_channel_company:
-        # Customer company: no tier, so no progression to report.
-        tier_progress = None
-    elif current_idx < len(tier_order) - 1:
-        next_tier = tier_order[current_idx + 1]
-        reqs = tier_thresholds[next_tier]
-        opps_req = reqs["opps"]
-        courses_req = reqs["courses"]
-        opps_pct = min(round((company_approved_opps / opps_req) * 100, 1), 100.0) if opps_req > 0 else 100.0
-        courses_pct = min(round((user_completed_courses / courses_req) * 100, 1), 100.0) if courses_req > 0 else 100.0
-        tier_progress = TierProgress(
-            next_tier=next_tier,
-            opps_required=opps_req,
-            opps_current=company_approved_opps,
-            courses_required=courses_req,
-            courses_current=user_completed_courses,
-            opps_progress_pct=opps_pct,
-            courses_progress_pct=courses_pct,
+    if is_channel_company and company_tier:
+        approved_opps, lms_rate = await tier_service.measure_company(
+            db, partner_user.company_id
         )
-    else:
-        # Already at platinum
+        standing = tier_service.standing(
+            PartnerTier(company_tier), approved_opps, lms_rate
+        )
         tier_progress = TierProgress(
-            next_tier=None,
-            opps_required=0,
-            opps_current=company_approved_opps,
-            courses_required=0,
-            courses_current=user_completed_courses,
-            opps_progress_pct=100.0,
-            courses_progress_pct=100.0,
+            next_tier=standing.next_tier.value if standing.next_tier else None,
+            opps_required=standing.opps_required,
+            opps_current=standing.approved_opportunities,
+            opps_progress_pct=standing.opps_progress_pct,
+            lms_rate_required=standing.lms_rate_required,
+            lms_rate_current=standing.lms_completion_rate,
+            lms_progress_pct=standing.lms_progress_pct,
+            overall_progress_pct=standing.overall_progress_pct,
         )
 
     return PartnerDashboardResponse(
@@ -982,31 +949,24 @@ async def evaluate_tier_upgrade(db: AsyncSession, company_id: int) -> str | None
     if not company.is_channel_partner:
         return None
 
-    approved_count = (await db.execute(
-        select(func.count(Opportunity.id)).where(
-            Opportunity.company_id == company_id,
-            Opportunity.status == OpportunityStatus.APPROVED,
-            Opportunity.deleted_at.is_(None),
-        )
-    )).scalar() or 0
+    # Measured through tier_service as well as judged by it — the old
+    # implementations agreed on neither, and counting differently is just as
+    # good a way to disagree as thresholds are.
+    approved_count, lms_rate = await tier_service.measure_company(db, company_id)
 
-    performance = await get_company_performance(db, company_id)
-    lms_rate = performance.lms_completion_rate
+    # The rules now live in tier_service, which the partner dashboard and the
+    # commission scorecard read from too — so what a partner is told they need
+    # is what this actually requires.
+    qualifies = tier_service.qualifying_tier(approved_count, lms_rate)
 
     current_tier = company.tier.value
-    new_tier = current_tier
+    new_tier = qualifies.value
 
-    if approved_count >= 20 and lms_rate >= 80:
-        new_tier = "platinum"
-    elif approved_count >= 10 and lms_rate >= 50:
-        new_tier = "gold"
-    else:
-        new_tier = "silver"
-
-    tier_order = {"silver": 0, "gold": 1, "platinum": 2}
-    if tier_order.get(new_tier, 0) > tier_order.get(current_tier, 0):
-        from app.models.company import PartnerTier
-        company.tier = PartnerTier(new_tier)
+    # Promotion only. A company that drops below its threshold keeps its tier:
+    # tier sets the commission rate, and silently cutting someone's rate on a
+    # quiet quarter is not something this should do on its own.
+    if tier_service.is_promotion(company.tier, qualifies):
+        company.tier = qualifies
 
         tier_record = PartnerTierHistory(
             company_id=company_id,

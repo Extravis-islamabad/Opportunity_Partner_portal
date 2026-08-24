@@ -860,19 +860,16 @@ async def seed_enrollments(db, courses: list[Course], partners: list[User]) -> N
                 status = EnrollmentStatus.COMPLETED
                 score = random.randint(72, 98)
                 completed_at = _rand_past(45)
-                cert_requested = random.random() < 0.7
             elif roll < 0.8 and num_modules > 0:
                 completed_modules = list(range(1, max(1, num_modules // 2 + 1)))
                 status = EnrollmentStatus.IN_PROGRESS
                 score = None
                 completed_at = None
-                cert_requested = False
             else:
                 completed_modules = []
                 status = EnrollmentStatus.ENROLLED
                 score = None
                 completed_at = None
-                cert_requested = False
 
             db.add(Enrollment(
                 user_id=partner.id,
@@ -882,10 +879,13 @@ async def seed_enrollments(db, courses: list[Course], partners: list[User]) -> N
                 attempt_count=1 if score else 0,
                 score=score,
                 completed_at=completed_at,
-                certificate_requested=cert_requested,
-                certificate_requested_at=completed_at if cert_requested else None,
-                certificate_issued_at=completed_at if cert_requested and random.random() < 0.6 else None,
-                certificate_url="/uploads/certificates/sample.pdf" if cert_requested and random.random() < 0.6 else None,
+                # Completion issues a certificate automatically, so a
+                # completed enrolment always has one — there is no longer a
+                # state where it is finished but waiting on an admin.
+                certificate_issued_at=completed_at,
+                certificate_url=(
+                    "/uploads/certificates/sample.pdf" if completed_at else None
+                ),
                 enrolled_at=_rand_past(90),
             ))
     await db.flush()

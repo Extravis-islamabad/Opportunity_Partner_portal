@@ -622,17 +622,22 @@ const PartnerDashboard: React.FC = () => {
 
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <Typography.Text style={{ fontWeight: 500 }}>Completed Courses</Typography.Text>
+                    {/* A company-wide completion RATE, not this user's course
+                        count — the tier belongs to the company. */}
+                    <Typography.Text style={{ fontWeight: 500 }}>Training Completion</Typography.Text>
                     <Typography.Text strong style={{ color: BRAND.navy }}>
-                      {stats.tier_progress.courses_current} / {stats.tier_progress.courses_required}
+                      {stats.tier_progress.lms_rate_current}% / {stats.tier_progress.lms_rate_required}%
                     </Typography.Text>
                   </div>
                   <Progress
-                    percent={stats.tier_progress.courses_progress_pct}
+                    percent={stats.tier_progress.lms_progress_pct}
                     strokeColor={{ '0%': BRAND.violet400, '100%': BRAND.violet600 }}
                     strokeWidth={10}
                     showInfo={false}
                   />
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    Across everyone at your company. Both bars must reach 100% to promote.
+                  </Typography.Text>
                 </div>
               </div>
             ) : (

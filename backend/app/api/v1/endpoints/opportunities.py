@@ -11,6 +11,8 @@ from app.core.deps import (
     get_current_partner,
     get_admin_scope,
     get_partner_pipeline_scope,
+    assert_can_manage_opp_documents,
+    assert_can_access_opportunity,
     is_poc_team_member,
 )
 from app.models.user import User, UserRole
@@ -29,6 +31,20 @@ from app.utils.file_upload import save_upload
 from app.core.exceptions import ForbiddenException
 
 router = APIRouter(prefix="/opportunities", tags=["Opportunities"])
+
+
+async def _assert_admin_manages(db: AsyncSession, admin: User, opp_id: int) -> None:
+    """Channel-manager scope for the admin actions on a single opportunity.
+
+    Approve, reject, mark-under-review, internal notes and delete were all
+    guarded by get_current_admin alone — which proves the caller is an admin
+    and nothing about whose book the opportunity is in. A channel manager
+    could therefore approve, annotate or delete any opportunity in the system.
+    Superadmins pass, as everywhere else.
+    """
+    opp = await opportunity_service.get_opportunity_or_404(db, opp_id)
+    await assert_can_access_opportunity(db, admin, opp)
+
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +231,10 @@ async def approve_opportunity(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Role is not scope. Without this a channel manager could approve an
+    # opportunity for any company in the system, which also promotes that
+    # company's tier and starts its commission clock.
+    await _assert_admin_manages(db, admin, opp_id)
     return await opportunity_service.approve_opportunity(db, opp_id, data, admin)
 
 
@@ -225,6 +245,7 @@ async def reject_opportunity(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    await _assert_admin_manages(db, admin, opp_id)
     return await opportunity_service.reject_opportunity(db, opp_id, data, admin)
 
 
@@ -234,6 +255,7 @@ async def mark_under_review(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    await _assert_admin_manages(db, admin, opp_id)
     return await opportunity_service.mark_under_review(db, opp_id, admin)
 
 
@@ -243,6 +265,7 @@ async def remove_opportunity(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    await _assert_admin_manages(db, admin, opp_id)
     await opportunity_service.remove_opportunity(db, opp_id, admin)
     return MessageResponse(message="Opportunity removed successfully")
 
@@ -254,6 +277,7 @@ async def add_internal_note(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    await _assert_admin_manages(db, admin, opp_id)
     return await opportunity_service.add_internal_note(db, opp_id, data, admin)
 
 
@@ -264,6 +288,13 @@ async def upload_opp_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Authorise BEFORE touching the disk. This route previously saved the
+    # upload first and never checked at all, so any authenticated account
+    # could attach a file to any opportunity — and a refusal added after
+    # save_upload would still have written the attacker's file to disk.
+    opp = await opportunity_service.get_opportunity_or_404(db, opp_id)
+    await assert_can_manage_opp_documents(db, current_user, opp)
+
     file_info = await save_upload(file, subdirectory=f"opportunities/{opp_id}")
     return await opportunity_service.add_opp_document(db, opp_id, file_info)
 

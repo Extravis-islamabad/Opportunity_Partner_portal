@@ -391,8 +391,6 @@ export interface EnrollmentResponse {
   completed_at: string | null;
   score?: number | null;
   attempt_count?: number;
-  certificate_requested: boolean;
-  certificate_requested_at: string | null;
   certificate_url: string | null;
   certificate_issued_at: string | null;
   enrolled_at: string;
@@ -447,10 +445,17 @@ export interface TierProgress {
   next_tier: string | null;
   opps_required: number;
   opps_current: number;
-  courses_required: number;
-  courses_current: number;
   opps_progress_pct: number;
-  courses_progress_pct: number;
+  /**
+   * Company-wide LMS completion rate, as a percentage. Replaces a per-user
+   * course *count*: a tier belongs to the company, so one person finishing
+   * five courses no longer reads as the company being ready for platinum.
+   */
+  lms_rate_required: number;
+  lms_rate_current: number;
+  lms_progress_pct: number;
+  /** The weaker of the two — what actually stands between here and promotion. */
+  overall_progress_pct: number;
 }
 
 export interface DashboardStats {

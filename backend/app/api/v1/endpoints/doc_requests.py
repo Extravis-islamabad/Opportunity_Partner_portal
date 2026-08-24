@@ -99,6 +99,13 @@ async def fulfill_doc_request(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # Same gap the opportunity upload had: the GET route checks the caller
+    # channel-manages the requesting company, this one did not — so any admin
+    # could fulfil a request for any company, and push the file into the
+    # global knowledge base while doing it. Authorise before touching disk.
+    r = await doc_request_service.load_doc_request_or_404(db, request_id)
+    await assert_can_access_doc_request(db, admin, r)
+
     file_info = await save_upload(file, subdirectory="doc-requests")
     data = DocRequestFulfillRequest(
         add_to_kb=add_to_kb,
@@ -115,4 +122,6 @@ async def decline_doc_request(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    r = await doc_request_service.load_doc_request_or_404(db, request_id)
+    await assert_can_access_doc_request(db, admin, r)
     return await doc_request_service.decline_doc_request(db, request_id, data, admin)

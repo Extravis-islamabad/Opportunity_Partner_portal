@@ -79,8 +79,6 @@ class EnrollmentResponse(BaseModel):
     completed_at: Optional[datetime] = None
     score: Optional[int] = None
     attempt_count: int = 0
-    certificate_requested: bool = False
-    certificate_requested_at: Optional[datetime] = None
     certificate_url: Optional[str] = None
     certificate_issued_at: Optional[datetime] = None
     enrolled_at: datetime

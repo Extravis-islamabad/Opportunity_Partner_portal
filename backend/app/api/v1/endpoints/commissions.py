@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import (
+    assert_manages_company,
     deny_customer_company,
     deny_sales_rep,
     get_admin_scope,
@@ -226,6 +227,13 @@ async def get_company_scorecard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ScorecardRead:
+    # A partner reaching outside their own company is refused inside
+    # get_scorecard. An *admin* was not scoped at all here, so a channel
+    # manager could read the tier, deal count, commission totals and league
+    # rank of any company in the programme.
+    if current_user.role == UserRole.ADMIN:
+        await assert_manages_company(db, current_user, company_id, action="view")
+
     return await commission_service.get_scorecard(
         db, company_id=company_id, current_user=current_user
     )

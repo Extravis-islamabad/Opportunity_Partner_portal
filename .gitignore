@@ -28,9 +28,13 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
-# Uploads
+# Uploads. Both patterns are needed: a pattern containing a slash is anchored
+# to this file's directory, so "uploads/*" alone never matched the real upload
+# root at backend/uploads and let test-run artefacts show up as untracked.
 uploads/*
 !uploads/.gitkeep
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # Logs
 *.log
