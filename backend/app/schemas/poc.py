@@ -3,6 +3,8 @@ from typing import Optional
 from datetime import date, datetime
 from decimal import Decimal
 
+from app.schemas.poc_team import PocTeamMemberResponse
+
 
 # ==================== POC ====================
 
@@ -87,6 +89,11 @@ class PocResponse(BaseModel):
     worth: Optional[Decimal] = None
     sales_rep_name: Optional[str] = None
     closed_by_name: Optional[str] = None
+
+    # The current roster — everyone from Extravis working this POC, over and
+    # above the opportunity's one named sales rep. Empty until someone is
+    # assigned, which is the normal state for a POC nobody has staffed yet.
+    team: list[PocTeamMemberResponse] = []
 
     created_at: datetime
     updated_at: datetime

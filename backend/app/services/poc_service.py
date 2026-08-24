@@ -7,9 +7,9 @@ there is exactly one definition of "running" or "expired" in the codebase.
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.exceptions import (
     BadRequestException,
@@ -23,6 +23,7 @@ from app.models.customer_license import (
 )
 from app.models.opportunity import Opportunity
 from app.models.poc import Poc, PocStatus, POC_STAGE_KEYS, POC_STAGE_LABELS
+from app.models.poc_team import PocTeamMember
 from app.models.user import User
 from app.schemas.poc import (
     LicenseResponse,
@@ -33,6 +34,7 @@ from app.schemas.poc import (
     PocStartRequest,
     PocUpdateRequest,
 )
+from app.services import poc_team_service
 from app.utils.audit import write_audit_log
 
 
@@ -129,8 +131,9 @@ def _stage_states(poc: Poc) -> list[PocStageState]:
 
 def to_poc_response(poc: Poc) -> PocResponse:
     """Serialise a POC. The caller must have eager-loaded .opportunity (and
-    its .company / .sales_rep) — we never lazy-load here, since an implicit
-    async lazy-load raises MissingGreenlet outside the greenlet context.
+    its .company / .sales_rep) and .team_members (with their .user) — we never
+    lazy-load here, since an implicit async lazy-load raises MissingGreenlet
+    outside the greenlet context. _poc_query() sets all of that up.
     """
     opp = poc.opportunity
     today = datetime.now(timezone.utc).date()
@@ -184,6 +187,15 @@ def to_poc_response(poc: Poc) -> PocResponse:
         worth=opp.worth if opp else None,
         sales_rep_name=opp.sales_rep.full_name if opp and opp.sales_rep else None,
         closed_by_name=poc.closed_by_user.full_name if poc.closed_by_user else None,
+        # Current roster only. Removed members stay in the relationship so the
+        # history survives, but they are not on the team today and must not
+        # appear as though they are; the team-history endpoint is where those
+        # rows surface.
+        team=[
+            poc_team_service.to_team_member_response(m)
+            for m in sorted(poc.team_members, key=lambda m: m.assigned_at)
+            if m.removed_at is None
+        ],
         created_at=poc.created_at,
         updated_at=poc.updated_at,
     )
@@ -221,11 +233,67 @@ def to_license_response(lic: CustomerLicense) -> LicenseResponse:
 # Loading
 # ---------------------------------------------------------------------------
 
+def poc_access_clause(
+    scope_company_ids: Optional[list[int]],
+    sales_rep_id: Optional[int],
+    team_member_id: Optional[int],
+):
+    """The SQL for "which opportunities' POC records may this caller see", or
+    None for unscoped. Constrains Opportunity, so it drops into both the POC
+    list and the licence list.
+
+    The three arguments are alternative *grounds* for access and are OR'd, not
+    AND'd — a sales rep sees the POCs of opportunities assigned to them plus
+    any POC they were added to the team of, and a channel-manager admin sees
+    their companies' POCs plus the same. Callers pass the grounds that apply
+    to one caller, never a mix meant as a narrowing filter; user-supplied
+    filters (status, country, company_id) AND on top of whatever this returns.
+
+    `scope_company_ids=[]` — a channel manager who manages nothing — must
+    contribute an impossible term rather than being dropped, which is why this
+    tests `is not None` rather than truthiness. It still ORs with team
+    membership, so such an admin sees exactly the POCs they were put on.
+
+    An argument left as None means "this ground does not apply to this
+    caller", never "unrestricted". A caller who should see everything (a
+    superadmin) passes *no* grounds and gets None back; passing them a
+    team_member_id and nothing else would OR one term onto an otherwise empty
+    set and narrow them to their own POCs, which is the opposite of intended.
+    """
+    terms = []
+    if scope_company_ids is not None:
+        terms.append(Opportunity.company_id.in_(scope_company_ids))
+    if sales_rep_id is not None:
+        terms.append(Opportunity.sales_rep_id == sales_rep_id)
+    if team_member_id is not None:
+        # Expressed against Opportunity rather than Poc so the same clause
+        # works for the licence list, which joins Opportunity but not Poc.
+        terms.append(
+            Opportunity.id.in_(
+                select(Poc.opportunity_id)
+                .join(PocTeamMember, PocTeamMember.poc_id == Poc.id)
+                .where(
+                    PocTeamMember.user_id == team_member_id,
+                    PocTeamMember.removed_at.is_(None),
+                    Poc.deleted_at.is_(None),
+                )
+            )
+        )
+    if not terms:
+        return None
+    return or_(*terms)
+
+
 def _poc_query():
     return select(Poc).options(
         joinedload(Poc.opportunity).joinedload(Opportunity.company),
         joinedload(Poc.opportunity).joinedload(Opportunity.sales_rep),
         joinedload(Poc.closed_by_user),
+        # selectinload, not joinedload: team_members is a collection, and a
+        # joined one would multiply rows under the LIMIT/OFFSET in list_pocs.
+        # This is one extra IN query for the whole page.
+        selectinload(Poc.team_members).joinedload(PocTeamMember.user),
+        selectinload(Poc.team_members).joinedload(PocTeamMember.assigned_by_user),
     ).where(Poc.deleted_at.is_(None))
 
 
@@ -274,6 +342,7 @@ async def list_pocs(
     search: Optional[str] = None,
     scope_company_ids: Optional[list[int]] = None,
     sales_rep_id: Optional[int] = None,
+    team_member_id: Optional[int] = None,
 ) -> tuple[list[PocResponse], int]:
     query = _poc_query().join(Opportunity, Poc.opportunity_id == Opportunity.id)
     count_query = (
@@ -297,13 +366,12 @@ async def list_pocs(
         both(Opportunity.company_id == company_id)
     if search:
         both(Opportunity.customer_name.ilike(f"%{search}%"))
-    # Channel-manager scope. An empty list means "manages no companies" and
-    # must return nothing — `if scope_company_ids:` would wrongly skip the
-    # filter and show everything.
-    if scope_company_ids is not None:
-        both(Opportunity.company_id.in_(scope_company_ids))
-    if sales_rep_id is not None:
-        both(Opportunity.sales_rep_id == sales_rep_id)
+    # Who may see which POC — channel-manager scope, own assignment, and POC
+    # team membership, OR'd. See poc_access_clause for why an empty scope list
+    # must still produce a term.
+    access = poc_access_clause(scope_company_ids, sales_rep_id, team_member_id)
+    if access is not None:
+        both(access)
 
     total = (await db.execute(count_query)).scalar() or 0
 
@@ -571,6 +639,7 @@ async def list_licenses(
     search: Optional[str] = None,
     scope_company_ids: Optional[list[int]] = None,
     sales_rep_id: Optional[int] = None,
+    team_member_id: Optional[int] = None,
 ) -> tuple[list[LicenseResponse], int]:
     query = _license_query().join(
         Opportunity, CustomerLicense.opportunity_id == Opportunity.id
@@ -594,10 +663,13 @@ async def list_licenses(
         both(license_status_expr() == status)
     if search:
         both(Opportunity.customer_name.ilike(f"%{search}%"))
-    if scope_company_ids is not None:
-        both(Opportunity.company_id.in_(scope_company_ids))
-    if sales_rep_id is not None:
-        both(Opportunity.sales_rep_id == sales_rep_id)
+    # Same three grounds as the POC list. A team member can edit the licence
+    # for their POC's opportunity (pocs.upsert_license goes through
+    # assert_can_work_on_poc), so the list has to show it to them — a list
+    # narrower than the per-record check is how dead ends get built.
+    access = poc_access_clause(scope_company_ids, sales_rep_id, team_member_id)
+    if access is not None:
+        both(access)
 
     total = (await db.execute(count_query)).scalar() or 0
 

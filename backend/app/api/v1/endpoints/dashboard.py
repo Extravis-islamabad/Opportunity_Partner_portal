@@ -90,12 +90,23 @@ async def target_plan_analytics(
 
 
 async def _poc_scope(db: AsyncSession, user: User) -> dict:
-    """POC/deployment scoping by role: sales reps see only the opportunities
+    """POC/deployment scoping by role: sales reps see the opportunities
     assigned to them; channel-manager admins see their companies; superadmins
-    see everything."""
+    see everything. Everyone but the superadmin additionally sees every POC
+    they are on the team of, so these widgets count what pocs._list_scope
+    lists — the two must not disagree.
+
+    Mirrors pocs._list_scope; keep them in step.
+    """
     if user.role == UserRole.SALES_REP:
-        return {"sales_rep_id": user.id}
-    return {"scope_company_ids": await get_admin_scope(db, user)}
+        return {"sales_rep_id": user.id, "team_member_id": user.id}
+
+    scope = await get_admin_scope(db, user)
+    if scope is None:
+        # Superadmin: no grounds at all means everything. Passing
+        # team_member_id here would narrow them to their own POCs instead.
+        return {}
+    return {"scope_company_ids": scope, "team_member_id": user.id}
 
 
 @router.get("/poc-summary", response_model=PocSummaryResponse, status_code=200)

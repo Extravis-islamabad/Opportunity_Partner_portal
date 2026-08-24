@@ -11,6 +11,7 @@ from app.core.deps import (
     get_current_partner,
     get_admin_scope,
     get_partner_pipeline_scope,
+    is_poc_team_member,
 )
 from app.models.user import User, UserRole
 from app.schemas.opportunity import (
@@ -167,8 +168,18 @@ async def get_opportunity(
 
     # Sales reps are scoped to the opportunities assigned to them; without
     # this they'd fall past the partner check and read the whole pipeline.
+    #
+    # Being on the POC team counts as assignment for *reading*. The POC panel
+    # lives on this page, so a presales lead or deployment engineer who cannot
+    # open it cannot do the work they were added to the POC to do. This grants
+    # read only: editing and submitting are partner routes, and approving,
+    # rejecting and internal notes are admin routes, none of which a sales rep
+    # can reach whatever this returns.
     if current_user.role == UserRole.SALES_REP and opp.sales_rep_id != current_user.id:
-        raise ForbiddenException(message="You can only view opportunities assigned to you")
+        if not await is_poc_team_member(db, current_user, opp.id):
+            raise ForbiddenException(
+                message="You can only view opportunities assigned to you"
+            )
 
     if current_user.role == UserRole.ADMIN:
         opp = await opportunity_service.auto_mark_under_review(db, opp_id, current_user)

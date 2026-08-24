@@ -352,6 +352,62 @@ async def assert_can_access_opportunity(
     raise ForbiddenException(message="Not authorised for this opportunity")
 
 
+async def is_poc_team_member(
+    db: AsyncSession,
+    user: User,
+    opportunity_id: int,
+) -> bool:
+    """Whether this user is currently on the team of this opportunity's POC.
+
+    One indexed existence check against a live membership row
+    (uq_poc_team_members_active). False when the opportunity has no POC yet,
+    which is the normal state for most opportunities.
+    """
+    from app.models.poc import Poc
+    from app.models.poc_team import PocTeamMember
+
+    result = await db.execute(
+        select(PocTeamMember.id)
+        .join(Poc, PocTeamMember.poc_id == Poc.id)
+        .where(
+            PocTeamMember.user_id == user.id,
+            PocTeamMember.removed_at.is_(None),
+            Poc.opportunity_id == opportunity_id,
+            Poc.deleted_at.is_(None),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def assert_can_work_on_poc(
+    db: AsyncSession,
+    user: User,
+    opportunity,
+) -> None:
+    """Authorisation for the POC and deployment workspace of one opportunity.
+
+    Everything assert_can_access_opportunity allows, plus: anyone currently on
+    that POC's team. That addition is the whole point of the roster — a
+    solution architect assigned to a POC is not the opportunity's named sales
+    rep and may not channel-manage the partner's company, so the strict check
+    refuses them and they cannot do the work they were assigned.
+
+    Kept as a separate function rather than folded into
+    assert_can_access_opportunity, because that one also guards approving,
+    rejecting, internal notes, deletion and the AI routes. Membership must not
+    reach those: a channel-manager admin added to a POC team would otherwise
+    gain approval rights over an opportunity for a company they don't manage.
+
+    So: this guards the POC, the licence, and *reading* the parent opportunity
+    (the POC panel lives on the opportunity page, so the page has to load).
+    Everything commercial keeps the strict check.
+    """
+    if await is_poc_team_member(db, user, opportunity.id):
+        return
+    await assert_can_access_opportunity(db, user, opportunity)
+
+
 async def get_reseller_company_ids(db: AsyncSession, distributor_id: int) -> list[int]:
     """Company ids of the resellers sitting under this distributor.
 

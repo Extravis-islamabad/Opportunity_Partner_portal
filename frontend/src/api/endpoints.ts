@@ -37,6 +37,10 @@ import type {
   PocResponse,
   PocStartRequest,
   PocCloseRequest,
+  PocTeamMember,
+  PocTeamRoleKey,
+  PocTeamRoleOption,
+  PocAssignableUser,
   PocStageKey,
   PocSummary,
   LicenseResponse,
@@ -446,6 +450,26 @@ export const pocsApi = {
     apiClient.post<PocResponse>(`/pocs/${pocId}/close`, data),
   reopen: (pocId: number) =>
     apiClient.post<PocResponse>(`/pocs/${pocId}/reopen`),
+};
+
+// ==================== POC team ====================
+// Reading the roster follows the POC's own access rules; changing it is
+// admin-only, so the mutating calls 403 for a sales rep however the UI is
+// rendered.
+export const pocTeamApi = {
+  roles: () => apiClient.get<PocTeamRoleOption[]>('/pocs/team/roles'),
+  assignableUsers: () =>
+    apiClient.get<PocAssignableUser[]>('/pocs/team/assignable-users'),
+  list: (pocId: number, includeRemoved = false) =>
+    apiClient.get<PocTeamMember[]>(`/pocs/${pocId}/team`, {
+      params: { include_removed: includeRemoved },
+    }),
+  add: (pocId: number, user_id: number, role: PocTeamRoleKey) =>
+    apiClient.post<PocTeamMember>(`/pocs/${pocId}/team`, { user_id, role }),
+  changeRole: (pocId: number, userId: number, role: PocTeamRoleKey) =>
+    apiClient.put<PocTeamMember>(`/pocs/${pocId}/team/${userId}`, { role }),
+  remove: (pocId: number, userId: number) =>
+    apiClient.delete<MessageResponse>(`/pocs/${pocId}/team/${userId}`),
 };
 
 // ==================== Customer licences (post-PO) ====================

@@ -2,11 +2,14 @@
 
 Reads are open to admins, sales reps, and partners (each scoped to what they
 own). Writes are admin + sales rep only — partners see POC progress on their
-opportunities but don't drive it.
+opportunities but don't drive it, and are never eligible for the team.
 
-Every handler that touches a single record calls assert_can_access_opportunity
+Every handler that touches a single record calls assert_can_work_on_poc
 against the *parent opportunity*, because that's where ownership lives: a POC
-has no company_id or sales_rep_id of its own.
+has no company_id or sales_rep_id of its own. That check is the strict
+per-record one plus the POC's own team roster, so an assigned solution
+architect or deployment engineer can do the work they were put on the POC to
+do without being the opportunity's named sales rep.
 """
 import math
 from typing import Optional
@@ -17,12 +20,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import (
     assert_can_access_opportunity,
+    assert_can_work_on_poc,
     get_admin_scope,
+    get_current_admin,
     get_current_user,
     get_partner_pipeline_scope,
     get_poc_editor,
 )
+from app.models.poc_team import POC_TEAM_ROLE_LABELS, PocTeamRole
 from app.models.user import User, UserRole
+from app.schemas.common import MessageResponse
 from app.schemas.poc import (
     LicenseResponse,
     LicenseUpsertRequest,
@@ -32,7 +39,13 @@ from app.schemas.poc import (
     PocStartRequest,
     PocUpdateRequest,
 )
-from app.services import poc_service
+from app.schemas.poc_team import (
+    PocTeamMemberCreateRequest,
+    PocTeamMemberResponse,
+    PocTeamRoleOption,
+    PocTeamRoleUpdateRequest,
+)
+from app.services import poc_service, poc_team_service
 
 router = APIRouter(prefix="/pocs", tags=["POC"])
 
@@ -44,14 +57,26 @@ async def _list_scope(db: AsyncSession, user: User) -> dict:
     scoped to their company plus any resellers underneath it; sales reps by
     assignment; channel-manager admins by managed companies; superadmins
     unscoped.
+
+    Extravis staff also get every POC they are on the team of, OR'd with the
+    above — that is what puts an assigned POC in the list of a solution
+    architect who is not the opportunity's named rep. Partners are never on a
+    team, so the parameter is meaningless for them.
     """
     if user.role == UserRole.PARTNER:
         # A partner with no company sees nothing (empty list, not everything),
         # which get_partner_pipeline_scope returns as [].
         return {"scope_company_ids": await get_partner_pipeline_scope(db, user)}
     if user.role == UserRole.SALES_REP:
-        return {"sales_rep_id": user.id}
-    return {"scope_company_ids": await get_admin_scope(db, user)}
+        return {"sales_rep_id": user.id, "team_member_id": user.id}
+
+    scope = await get_admin_scope(db, user)
+    if scope is None:
+        # Superadmin. Returning no grounds at all is what means "everything" —
+        # passing team_member_id here would OR a term onto nothing and
+        # *narrow* them to their own POCs.
+        return {}
+    return {"scope_company_ids": scope, "team_member_id": user.id}
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +123,7 @@ async def get_poc_for_opportunity(
     a normal state (most opportunities never reach POC), so this returns 200
     with a null body rather than 404."""
     opp = await poc_service.get_opportunity_or_404(db, opp_id)
-    await assert_can_access_opportunity(db, current_user, opp)
+    await assert_can_work_on_poc(db, current_user, opp)
 
     poc = await poc_service.get_poc_by_opportunity(db, opp_id)
     return poc_service.to_poc_response(poc) if poc else None
@@ -111,7 +136,7 @@ async def get_poc(
     db: AsyncSession = Depends(get_db),
 ):
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_access_opportunity(db, current_user, poc.opportunity)
+    await assert_can_work_on_poc(db, current_user, poc.opportunity)
     return poc_service.to_poc_response(poc)
 
 
@@ -128,7 +153,7 @@ async def start_poc(
 ):
     """Start the POC by recording the VM allocation."""
     opp = await poc_service.get_opportunity_or_404(db, opp_id)
-    await assert_can_access_opportunity(db, user, opp)
+    await assert_can_work_on_poc(db, user, opp)
     return await poc_service.start_poc(db, opp_id, data, user)
 
 
@@ -140,7 +165,7 @@ async def update_poc(
     db: AsyncSession = Depends(get_db),
 ):
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_access_opportunity(db, user, poc.opportunity)
+    await assert_can_work_on_poc(db, user, poc.opportunity)
     return await poc_service.update_poc(db, poc_id, data, user)
 
 
@@ -154,7 +179,7 @@ async def set_poc_stage(
 ):
     """Tick a stage complete, or clear it by sending completed_at: null."""
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_access_opportunity(db, user, poc.opportunity)
+    await assert_can_work_on_poc(db, user, poc.opportunity)
     return await poc_service.set_stage(db, poc_id, stage_key, data.completed_at, user)
 
 
@@ -166,7 +191,7 @@ async def close_poc(
     db: AsyncSession = Depends(get_db),
 ):
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_access_opportunity(db, user, poc.opportunity)
+    await assert_can_work_on_poc(db, user, poc.opportunity)
     return await poc_service.close_poc(db, poc_id, data, user)
 
 
@@ -177,8 +202,107 @@ async def reopen_poc(
     db: AsyncSession = Depends(get_db),
 ):
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_access_opportunity(db, user, poc.opportunity)
+    await assert_can_work_on_poc(db, user, poc.opportunity)
     return await poc_service.reopen_poc(db, poc_id, user)
+
+
+# ---------------------------------------------------------------------------
+# POC team
+# ---------------------------------------------------------------------------
+#
+# Reading the roster follows the POC's own access rules — if you can see the
+# POC you can see who is on it. Changing it is admin-only: staffing a POC is a
+# management decision, and membership grants access, so it must not be
+# self-service.
+
+@router.get("/team/roles", response_model=list[PocTeamRoleOption], status_code=200)
+async def list_team_roles(
+    _user: User = Depends(get_poc_editor),
+):
+    """The selectable roles, so the picker doesn't hardcode them."""
+    return [
+        PocTeamRoleOption(value=role.value, label=label)
+        for role, label in POC_TEAM_ROLE_LABELS.items()
+    ]
+
+
+@router.get("/team/assignable-users", status_code=200)
+async def list_assignable_users(
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Everyone eligible for a POC team: active Extravis admins and sales
+    reps. Admin-only because it enumerates staff accounts."""
+    return await poc_team_service.get_assignable_users(db)
+
+
+@router.get("/{poc_id}/team", response_model=list[PocTeamMemberResponse], status_code=200)
+async def get_poc_team(
+    poc_id: int,
+    include_removed: bool = Query(
+        False, description="Include people who have left the team."
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    poc = await poc_service.get_poc_or_404(db, poc_id)
+    await assert_can_work_on_poc(db, current_user, poc.opportunity)
+    return await poc_team_service.get_team(
+        db, poc_id, include_removed=include_removed
+    )
+
+
+@router.post("/{poc_id}/team", response_model=PocTeamMemberResponse, status_code=201)
+async def add_poc_team_member(
+    poc_id: int,
+    data: PocTeamMemberCreateRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add someone to the POC team. They are notified, and they can work on
+    the POC from that moment."""
+    poc = await poc_service.get_poc_or_404(db, poc_id)
+    # The strict check, not assert_can_work_on_poc: being on a team must not
+    # let you enlarge that team. A channel-manager admin can only staff POCs
+    # for the companies they manage.
+    await assert_can_access_opportunity(db, admin, poc.opportunity)
+    return await poc_team_service.add_member(
+        db, poc_id, data.user_id, PocTeamRole(data.role), admin
+    )
+
+
+@router.put(
+    "/{poc_id}/team/{user_id}",
+    response_model=PocTeamMemberResponse,
+    status_code=200,
+)
+async def change_poc_team_role(
+    poc_id: int,
+    user_id: int,
+    data: PocTeamRoleUpdateRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    poc = await poc_service.get_poc_or_404(db, poc_id)
+    await assert_can_access_opportunity(db, admin, poc.opportunity)
+    return await poc_team_service.change_role(
+        db, poc_id, user_id, PocTeamRole(data.role), admin
+    )
+
+
+@router.delete("/{poc_id}/team/{user_id}", response_model=MessageResponse, status_code=200)
+async def remove_poc_team_member(
+    poc_id: int,
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Take someone off the team. Their access ends immediately; the roster
+    keeps the record that they were on it."""
+    poc = await poc_service.get_poc_or_404(db, poc_id)
+    await assert_can_access_opportunity(db, admin, poc.opportunity)
+    await poc_team_service.remove_member(db, poc_id, user_id, admin)
+    return MessageResponse(message="Removed from the POC team")
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +343,7 @@ async def get_license_for_opportunity(
 ):
     """Null when no PO has landed yet — the normal case for pipeline opps."""
     opp = await poc_service.get_opportunity_or_404(db, opp_id)
-    await assert_can_access_opportunity(db, current_user, opp)
+    await assert_can_work_on_poc(db, current_user, opp)
 
     lic = await poc_service.get_license_by_opportunity(db, opp_id)
     return poc_service.to_license_response(lic) if lic else None
@@ -233,5 +357,5 @@ async def upsert_license(
     db: AsyncSession = Depends(get_db),
 ):
     opp = await poc_service.get_opportunity_or_404(db, opp_id)
-    await assert_can_access_opportunity(db, user, opp)
+    await assert_can_work_on_poc(db, user, opp)
     return await poc_service.upsert_license(db, opp_id, data, user)

@@ -13,6 +13,7 @@ from app.models.partner_tier import PartnerTierHistory
 from app.models.commission import Commission, CommissionStatement, TierCommissionRate
 from app.models.customer_ownership import CustomerOwnership
 from app.models.poc import Poc, PocStatus
+from app.models.poc_team import PocTeamMember, PocTeamRole
 from app.models.customer_license import CustomerLicense, LicenseStatus
 from app.models.sales_activity import SalesActivity, ActivityType
 
@@ -28,6 +29,8 @@ __all__ = [
     "DocRequest",
     "Notification",
     "AuditLog",
+    "PocTeamMember",
+    "PocTeamRole",
     "DealRegistration",
     "PartnerTierHistory",
     "Commission",

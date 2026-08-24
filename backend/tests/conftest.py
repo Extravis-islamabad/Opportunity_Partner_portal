@@ -248,6 +248,43 @@ def auth_header(user) -> dict:
     return {"Authorization": f"Bearer {create_access_token(token_data)}"}
 
 
+async def make_poc(db, *, opportunity_id, status=None, start_date=None):
+    """A started POC by default.
+
+    start_date and vm_provisioning_completed_at move together on purpose: the
+    POC *starts* when the VM is allocated, and the service refuses to close
+    one whose vm_provisioning_completed_at is null however its status column
+    reads. Pass start_date=None explicitly for a not-yet-started POC.
+    """
+    from datetime import date
+
+    from app.models.poc import Poc, PocStatus
+
+    if start_date is None and (status or PocStatus.RUNNING) != PocStatus.NOT_STARTED:
+        start_date = date(2026, 8, 1)
+
+    poc = Poc(
+        opportunity_id=opportunity_id,
+        status=status or PocStatus.RUNNING,
+        start_date=start_date,
+        vm_provisioning_completed_at=start_date,
+    )
+    db.add(poc)
+    await db.flush()
+    return poc
+
+
+async def make_team_member(db, *, poc_id, user_id, role, assigned_by=None):
+    from app.models.poc_team import PocTeamMember
+
+    member = PocTeamMember(
+        poc_id=poc_id, user_id=user_id, role=role, assigned_by=assigned_by
+    )
+    db.add(member)
+    await db.flush()
+    return member
+
+
 async def login(client, email: str) -> dict:
     """A real POST to /auth/login. Use only where the login flow itself is
     what's under test — auth_header is the cheap path everywhere else."""

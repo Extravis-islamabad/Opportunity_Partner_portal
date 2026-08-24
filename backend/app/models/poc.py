@@ -104,6 +104,13 @@ class Poc(Base):
 
     opportunity = relationship("Opportunity", back_populates="poc")
     closed_by_user = relationship("User", foreign_keys=[closed_by])
+    # Every membership ever, including the removed ones — callers that want
+    # the current roster filter on removed_at (poc_team_service.get_team).
+    team_members = relationship(
+        "PocTeamMember",
+        back_populates="poc",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def completed_stage_count(self) -> int:

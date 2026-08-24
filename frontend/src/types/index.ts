@@ -711,8 +711,60 @@ export interface PocResponse {
   sales_rep_name: string | null;
   closed_by_name: string | null;
 
+  /**
+   * Everyone from Extravis currently working this POC, over and above the
+   * opportunity's single named sales rep. Empty until someone is staffed on
+   * it, which is the normal state for a new POC.
+   */
+  team: PocTeamMember[];
+
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * What someone does on a POC. Distinct from their portal role: the same
+ * engineer can be the deployment engineer on one POC and the solution
+ * architect on another.
+ */
+export type PocTeamRoleKey =
+  | 'presales_lead'
+  | 'solution_architect'
+  | 'deployment_engineer'
+  | 'project_manager'
+  | 'qa'
+  | 'support';
+
+export interface PocTeamMember {
+  id: number;
+  poc_id: number;
+  user_id: number;
+  user_name: string | null;
+  user_email: string | null;
+  /** Their role in the portal — 'admin' or 'sales_rep'. */
+  user_role: string | null;
+  job_title: string | null;
+  role: PocTeamRoleKey;
+  /** Server-rendered label; "QA", not "Qa". Never title-case `role` locally. */
+  role_label: string;
+  assigned_by: number | null;
+  assigned_by_name: string | null;
+  assigned_at: string;
+  /** Only set on rows from a history read; the current roster is all nulls. */
+  removed_at: string | null;
+}
+
+export interface PocTeamRoleOption {
+  value: PocTeamRoleKey;
+  label: string;
+}
+
+export interface PocAssignableUser {
+  id: number;
+  full_name: string;
+  email: string;
+  role: string;
+  job_title: string | null;
 }
 
 export interface PocStartRequest {

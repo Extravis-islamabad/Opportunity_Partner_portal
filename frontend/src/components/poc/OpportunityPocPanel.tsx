@@ -7,6 +7,10 @@
  * counts and an expiry.
  *
  * Admins and sales reps edit; partners see the same thing read-only.
+ *
+ * The POC team roster sits in the middle: an admin staffs the POC there, and
+ * anyone staffed on it can reach this page and drive the POC even though the
+ * opportunity names a different sales rep.
  */
 import React, { useState } from 'react';
 import {
@@ -19,6 +23,7 @@ import dayjs from 'dayjs';
 import { pocsApi, licensesApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import { PocStageTracker, PocStatusTag } from '@/components/dashboard/PocWidgets';
+import PocTeamPanel from '@/components/poc/PocTeamPanel';
 import type { PocResponse, PocStageState, LicenseStatus } from '@/types';
 
 const { Text } = Typography;
@@ -212,6 +217,14 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
           </>
         )}
       </Card>
+
+      {/* The roster sits between the POC and its post-PO tracking because
+          that is the span of work these people cover. */}
+      <PocTeamPanel
+        pocId={poc?.id ?? null}
+        team={poc?.team ?? []}
+        onChanged={invalidate}
+      />
 
       {/* ---------------- Post-PO customer tracking ---------------- */}
       <Card

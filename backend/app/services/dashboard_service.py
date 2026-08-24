@@ -1040,18 +1040,28 @@ LICENSE_STATUS_LABELS = {
 }
 
 
-def _poc_base_filters(scope_company_ids: Optional[list[int]], sales_rep_id: Optional[int]) -> list:
+def _poc_base_filters(
+    scope_company_ids: Optional[list[int]],
+    sales_rep_id: Optional[int],
+    team_member_id: Optional[int] = None,
+) -> list:
     """Shared scoping for every POC aggregation.
 
+    Delegates the access half to poc_service.poc_access_clause so the widgets
+    count exactly the POCs the list would show — including the ones the caller
+    is on the team of but does not own. A counter that disagrees with the list
+    it links to is worse than no counter.
+
     `scope_company_ids=[]` (a channel manager with no companies) must yield
-    nothing — hence the explicit `is not None` check rather than a truthiness
-    test, which would silently drop the filter and expose everything.
+    nothing but their team POCs, and None means "this ground does not apply",
+    not "unrestricted" — see poc_access_clause for both.
     """
     filters: list = [Poc.deleted_at.is_(None), Opportunity.deleted_at.is_(None)]
-    if scope_company_ids is not None:
-        filters.append(Opportunity.company_id.in_(scope_company_ids))
-    if sales_rep_id is not None:
-        filters.append(Opportunity.sales_rep_id == sales_rep_id)
+    access = poc_service.poc_access_clause(
+        scope_company_ids, sales_rep_id, team_member_id
+    )
+    if access is not None:
+        filters.append(access)
     return filters
 
 
@@ -1059,11 +1069,12 @@ async def get_poc_summary(
     db: AsyncSession,
     scope_company_ids: Optional[list[int]] = None,
     sales_rep_id: Optional[int] = None,
+    team_member_id: Optional[int] = None,
 ) -> PocSummaryResponse:
     """POC widgets: status counts, the five-stage funnel, and per-country
     split. Backs the POC block on the admin dashboard."""
     today = date.today()
-    base = _poc_base_filters(scope_company_ids, sales_rep_id)
+    base = _poc_base_filters(scope_company_ids, sales_rep_id, team_member_id)
 
     # Status counts + worth
     status_rows = (await db.execute(
@@ -1196,13 +1207,14 @@ async def get_deployment_analytics(
     scope_company_ids: Optional[list[int]] = None,
     sales_rep_id: Optional[int] = None,
     months: int = 12,
+    team_member_id: Optional[int] = None,
 ) -> DeploymentAnalyticsResponse:
     """Backs the Deployment tab: POC stage throughput plus post-PO device /
     node rollout and licence expiry."""
     today = date.today()
-    base = _poc_base_filters(scope_company_ids, sales_rep_id)
+    base = _poc_base_filters(scope_company_ids, sales_rep_id, team_member_id)
 
-    summary = await get_poc_summary(db, scope_company_ids, sales_rep_id)
+    summary = await get_poc_summary(db, scope_company_ids, sales_rep_id, team_member_id)
 
     # Monthly: POCs started vs closed. Two separate groupings because a POC
     # started in March and closed in June belongs to both months.
@@ -1248,11 +1260,14 @@ async def get_deployment_analytics(
     ]
 
     # Post-PO licences
+    # Same access grounds as the POC half above — the licence widgets sit on
+    # the same tab and must not disagree with it.
     lic_base: list = [CustomerLicense.deleted_at.is_(None), Opportunity.deleted_at.is_(None)]
-    if scope_company_ids is not None:
-        lic_base.append(Opportunity.company_id.in_(scope_company_ids))
-    if sales_rep_id is not None:
-        lic_base.append(Opportunity.sales_rep_id == sales_rep_id)
+    lic_access = poc_service.poc_access_clause(
+        scope_company_ids, sales_rep_id, team_member_id
+    )
+    if lic_access is not None:
+        lic_base.append(lic_access)
 
     # Group by the *derived* status, not CustomerLicense.status. The stored
     # column is only a snapshot of what was true when the row was last saved,
