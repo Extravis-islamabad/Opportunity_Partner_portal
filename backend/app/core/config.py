@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     # Long enough to ask for an extension and have somebody decide it.
     EXCLUSIVITY_WARNING_DAYS: int = 14
 
+    # How long a company that has fallen below its tier's requirements keeps
+    # that tier before being demoted. Tier sets the commission rate, so this
+    # is the difference between "you have a month to put this right" and a
+    # pay cut arriving unannounced.
+    TIER_GRACE_DAYS: int = 30
+
     # Support
     SUPPORT_EMAIL: str = "support@extravis.com"
 

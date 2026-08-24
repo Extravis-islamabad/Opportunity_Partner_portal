@@ -6,6 +6,7 @@ import { companiesApi, dashboardApi, scorecardApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
 import type { PartnerAccountBrief, ResellerBrief, ScorecardRead } from '@/types';
 import { companyTypeMeta, isChannelCompanyType } from '@/utils/companyType';
+import TierHistoryCard from '@/components/common/TierHistoryCard';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, TrophyOutlined, StarFilled, DollarOutlined, RiseOutlined } from '@ant-design/icons';
 
@@ -246,6 +247,10 @@ const CompanyDetailPage: React.FC = () => {
           />
         </Card>
       )}
+
+      {/* Tier history is a partner-programme record — a customer company has
+          no tier, so it has nothing to show. */}
+      {isChannel && <TierHistoryCard companyId={companyId} />}
 
       <Card title={`Partner Accounts (${company.partners.length})`} style={{ marginTop: 16 }}>
         {company.partners.length > 0 ? (

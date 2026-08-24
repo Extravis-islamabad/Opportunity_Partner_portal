@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Line } from '@ant-design/charts';
 import { scorecardApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
+import TierHistoryCard from '@/components/common/TierHistoryCard';
 import TableSkeleton from '@/components/common/TableSkeleton';
 import EmptyState from '@/components/common/EmptyState';
 import { useAppTheme } from '@/contexts/ThemeContext';
@@ -172,6 +173,8 @@ const ScorecardPage: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      <TierHistoryCard companyId={data.company_id} />
     </>
   );
 };

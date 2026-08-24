@@ -174,13 +174,13 @@ class TestScreensAgree:
         assert progress["lms_rate_current"] == 75.0
 
     async def test_reaching_the_bar_promotes_and_the_screens_follow(self, client, db):
-        from app.services.dashboard_service import evaluate_tier_upgrade
-
         admin, company, partner = await self._world(
             db, approved_opps=10, courses=2, done=1
         )
         # 10 approved opportunities and 50% completion — exactly the gold bar.
-        assert (await evaluate_tier_upgrade(db, company.id)) is not None
+        change = await tier_service.review_company(db, company.id)
+        assert change is not None and change.kind == "promoted"
+
         await db.commit()
 
         dash = await client.get(
@@ -192,15 +192,13 @@ class TestScreensAgree:
         assert dash.json()["tier_progress"]["opps_required"] == 20
 
     async def test_a_company_below_the_bar_is_not_promoted(self, client, db):
-        from app.services.dashboard_service import evaluate_tier_upgrade
-
         _, company, _ = await self._world(db, approved_opps=10, courses=4, done=1)
-        # 10 opportunities but only 25% completion.
-        assert (await evaluate_tier_upgrade(db, company.id)) is None
+        # 10 opportunities but only 25% completion. Already at silver, so
+        # there is nothing to demote either.
+        assert (await tier_service.review_company(db, company.id)) is None
 
     async def test_a_customer_company_is_never_promoted(self, client, db):
         from app.models.company import CompanyType
-        from app.services.dashboard_service import evaluate_tier_upgrade
 
         admin = await make_user(db, role=UserRole.ADMIN, is_superadmin=True)
         company = await make_company(
@@ -214,4 +212,337 @@ class TestScreensAgree:
             )
         await db.commit()
 
-        assert (await evaluate_tier_upgrade(db, company.id)) is None
+        assert (await tier_service.review_company(db, company.id)) is None
+
+
+# ---------------------------------------------------------------------------
+# Reviews that can go downward
+# ---------------------------------------------------------------------------
+
+class TestDemotion:
+    """Tier used to be a ratchet: a company that fell below its requirements
+    kept the tier and the commission rate forever. Demotion is real now, and
+    deliberately slow — the grace period is the difference between a warning
+    with a deadline and an unannounced pay cut."""
+
+    pytestmark = [requires_db, pytest.mark.asyncio]
+
+    async def _gold_company(self, db, *, approved_opps: int, courses: int, done: int):
+        """A company sitting at gold, whose current numbers you choose."""
+        from app.models.company import PartnerTier
+
+        admin = await make_user(db, role=UserRole.ADMIN, is_superadmin=True)
+        company = await make_company(db, channel_manager_id=admin.id)
+        company.tier = PartnerTier.GOLD
+        partner = await make_user(db, role=UserRole.PARTNER, company_id=company.id)
+        for _ in range(approved_opps):
+            await make_opportunity(
+                db, company_id=company.id, submitted_by=partner.id,
+                status=OpportunityStatus.APPROVED,
+            )
+        for i in range(courses):
+            course = await make_course(db, created_by=admin.id)
+            await make_enrollment(
+                db, user_id=partner.id, course_id=course.id, completed=i < done
+            )
+        await db.commit()
+        return admin, company, partner
+
+    async def _reload(self, db, company_id):
+        from sqlalchemy import select
+
+        from app.models.company import Company
+
+        row = (await db.execute(
+            select(Company).where(Company.id == company_id)
+        )).scalar_one()
+        await db.refresh(row)
+        return row
+
+    async def test_falling_short_starts_a_grace_period_rather_than_demoting(
+        self, client, db
+    ):
+        from app.models.company import PartnerTier
+
+        _, company, _ = await self._gold_company(db, approved_opps=2, courses=2, done=1)
+        change = await tier_service.review_company(db, company.id)
+        await db.commit()
+
+        assert change is not None and change.kind == "at_risk"
+        row = await self._reload(db, company.id)
+        assert row.tier == PartnerTier.GOLD, "the tier must not move on day one"
+        assert row.tier_at_risk_since is not None
+
+    async def test_the_warning_says_what_is_missing_and_by_when(self, client, db):
+        # Short on both criteria — 2 of 10 opportunities, 25% of 50% training
+        # — so the message has to name both rather than the first it finds.
+        _, company, partner = await self._gold_company(
+            db, approved_opps=2, courses=4, done=1
+        )
+        change = await tier_service.review_company(db, company.id)
+        await db.commit()
+
+        assert change.demote_on is not None
+        notes = await client.get("/api/v1/notifications", headers=auth_header(partner))
+        warning = next(
+            n for n in notes.json()["items"] if n["type"] == "tier_at_risk"
+        )
+        # The shortfall is named on both criteria it fails.
+        assert "approved opportunities" in warning["message"]
+        assert "training completion" in warning["message"]
+
+    async def test_the_clock_is_not_restarted_by_a_second_review(self, client, db):
+        _, company, _ = await self._gold_company(db, approved_opps=2, courses=2, done=1)
+        await tier_service.review_company(db, company.id)
+        await db.commit()
+        started = (await self._reload(db, company.id)).tier_at_risk_since
+
+        assert (await tier_service.review_company(db, company.id)) is None
+        await db.commit()
+        assert (await self._reload(db, company.id)).tier_at_risk_since == started
+
+    async def test_a_company_still_short_when_the_grace_runs_out_is_demoted(
+        self, client, db
+    ):
+        from datetime import datetime, timedelta, timezone
+
+        from app.core.config import settings
+        from app.models.company import PartnerTier
+
+        _, company, partner = await self._gold_company(
+            db, approved_opps=2, courses=2, done=1
+        )
+        await tier_service.review_company(db, company.id)
+        row = await self._reload(db, company.id)
+        row.tier_at_risk_since = datetime.now(timezone.utc) - timedelta(
+            days=settings.TIER_GRACE_DAYS + 1
+        )
+        await db.commit()
+
+        change = await tier_service.review_company(db, company.id)
+        await db.commit()
+        assert change is not None and change.kind == "demoted"
+
+        row = await self._reload(db, company.id)
+        assert row.tier == PartnerTier.SILVER
+        assert row.tier_at_risk_since is None
+
+        notes = await client.get("/api/v1/notifications", headers=auth_header(partner))
+        assert any(n["type"] == "tier_demoted" for n in notes.json()["items"])
+
+    async def test_a_company_inside_the_grace_period_keeps_its_tier(self, client, db):
+        from datetime import datetime, timedelta, timezone
+
+        from app.core.config import settings
+        from app.models.company import PartnerTier
+
+        _, company, _ = await self._gold_company(db, approved_opps=2, courses=2, done=1)
+        await tier_service.review_company(db, company.id)
+        row = await self._reload(db, company.id)
+        row.tier_at_risk_since = datetime.now(timezone.utc) - timedelta(
+            days=settings.TIER_GRACE_DAYS - 1
+        )
+        await db.commit()
+
+        assert (await tier_service.review_company(db, company.id)) is None
+        assert (await self._reload(db, company.id)).tier == PartnerTier.GOLD
+
+    async def test_recovering_inside_the_window_clears_it(self, client, db):
+        from app.models.company import PartnerTier
+
+        admin, company, partner = await self._gold_company(
+            db, approved_opps=2, courses=2, done=1
+        )
+        await tier_service.review_company(db, company.id)
+        await db.commit()
+        assert (await self._reload(db, company.id)).tier_at_risk_since is not None
+
+        # Back over the gold bar: 10 approved opportunities and 50% training.
+        for _ in range(8):
+            await make_opportunity(
+                db, company_id=company.id, submitted_by=partner.id,
+                status=OpportunityStatus.APPROVED,
+            )
+        await db.commit()
+
+        change = await tier_service.review_company(db, company.id)
+        await db.commit()
+        assert change is not None and change.kind == "recovered"
+        row = await self._reload(db, company.id)
+        assert row.tier_at_risk_since is None
+        assert row.tier == PartnerTier.GOLD
+
+    async def test_a_promotion_clears_an_open_grace_period(self, client, db):
+        # A company at risk on gold that vaults to platinum must not keep a
+        # clock that would later demote it from the tier it just earned.
+        from datetime import datetime, timezone
+
+        from app.models.company import PartnerTier
+
+        admin, company, partner = await self._gold_company(
+            db, approved_opps=20, courses=5, done=4
+        )
+        row = await self._reload(db, company.id)
+        row.tier_at_risk_since = datetime.now(timezone.utc)
+        await db.commit()
+
+        change = await tier_service.review_company(db, company.id)
+        await db.commit()
+        assert change.kind == "promoted"
+        row = await self._reload(db, company.id)
+        assert row.tier == PartnerTier.PLATINUM
+        assert row.tier_at_risk_since is None
+
+    async def test_a_customer_company_is_never_demoted(self, client, db):
+        from app.models.company import CompanyType, PartnerTier
+
+        admin = await make_user(db, role=UserRole.ADMIN, is_superadmin=True)
+        company = await make_company(
+            db, channel_manager_id=admin.id, company_type=CompanyType.CUSTOMER
+        )
+        company.tier = PartnerTier.GOLD
+        await db.commit()
+
+        assert (await tier_service.review_company(db, company.id)) is None
+        row = await self._reload(db, company.id)
+        assert row.tier == PartnerTier.GOLD
+        assert row.tier_at_risk_since is None
+
+    async def test_the_sweep_reviews_every_channel_company(self, client, db):
+        _, company, _ = await self._gold_company(db, approved_opps=2, courses=2, done=1)
+        counts = await tier_service.sweep_tier_reviews(db)
+        await db.commit()
+        assert counts["at_risk"] >= 1
+        assert (await self._reload(db, company.id)).tier_at_risk_since is not None
+
+
+class TestTierHistory:
+    """The record of why a tier moved. A demotion nobody can explain later is
+    a support ticket; a demotion with its reason attached is an answer."""
+
+    pytestmark = [requires_db, pytest.mark.asyncio]
+
+    async def _promoted_company(self, db):
+        admin = await make_user(db, role=UserRole.ADMIN, is_superadmin=True)
+        company = await make_company(db, channel_manager_id=admin.id)
+        partner = await make_user(db, role=UserRole.PARTNER, company_id=company.id)
+        for _ in range(10):
+            await make_opportunity(
+                db, company_id=company.id, submitted_by=partner.id,
+                status=OpportunityStatus.APPROVED,
+            )
+        for i in range(2):
+            course = await make_course(db, created_by=admin.id)
+            await make_enrollment(
+                db, user_id=partner.id, course_id=course.id, completed=i < 1
+            )
+        await db.commit()
+        await tier_service.review_company(db, company.id)
+        await db.commit()
+        return admin, company, partner
+
+    async def test_a_promotion_is_recorded_with_its_reason(self, client, db):
+        admin, company, partner = await self._promoted_company(db)
+        r = await client.get(
+            f"/api/v1/companies/{company.id}/tier-history", headers=auth_header(admin)
+        )
+        assert r.status_code == 200, r.text[:300]
+        rows = r.json()
+        assert rows[0]["new_tier"] == "gold"
+        assert rows[0]["previous_tier"] == "silver"
+        assert rows[0]["direction"] == "up"
+        assert "approved opportunities" in rows[0]["reason"]
+
+    async def test_a_partner_can_see_their_own_history(self, client, db):
+        _, company, partner = await self._promoted_company(db)
+        r = await client.get(
+            f"/api/v1/companies/{company.id}/tier-history", headers=auth_header(partner)
+        )
+        assert r.status_code == 200, r.text[:300]
+        assert len(r.json()) == 1
+
+    async def test_a_partner_cannot_see_another_company_history(self, client, db):
+        _, company, _ = await self._promoted_company(db)
+        other_admin = await make_user(db, role=UserRole.ADMIN, is_superadmin=True)
+        other_company = await make_company(db, channel_manager_id=other_admin.id)
+        outsider = await make_user(
+            db, role=UserRole.PARTNER, company_id=other_company.id
+        )
+        await db.commit()
+
+        r = await client.get(
+            f"/api/v1/companies/{company.id}/tier-history",
+            headers=auth_header(outsider),
+        )
+        assert r.status_code in (403, 404)
+
+    async def test_an_out_of_scope_admin_cannot_see_it(self, client, db):
+        _, company, _ = await self._promoted_company(db)
+        other_admin = await make_user(db, role=UserRole.ADMIN)
+        await db.commit()
+
+        r = await client.get(
+            f"/api/v1/companies/{company.id}/tier-history",
+            headers=auth_header(other_admin),
+        )
+        assert r.status_code in (403, 404)
+
+    async def test_a_demotion_is_recorded_as_downward(self, client, db):
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import select
+
+        from app.core.config import settings
+        from app.models.company import Company
+
+        admin, company, _ = await self._promoted_company(db)
+        # Take the training rate below the gold bar by enrolling in more
+        # courses without finishing them.
+        for _ in range(4):
+            course = await make_course(db, created_by=admin.id)
+            await make_enrollment(
+                db,
+                user_id=(await make_user(
+                    db, role=UserRole.PARTNER, company_id=company.id
+                )).id,
+                course_id=course.id,
+                completed=False,
+            )
+        await db.commit()
+
+        await tier_service.review_company(db, company.id)
+        row = (await db.execute(
+            select(Company).where(Company.id == company.id)
+        )).scalar_one()
+        row.tier_at_risk_since = datetime.now(timezone.utc) - timedelta(
+            days=settings.TIER_GRACE_DAYS + 1
+        )
+        await db.commit()
+        await tier_service.review_company(db, company.id)
+        await db.commit()
+
+        r = await client.get(
+            f"/api/v1/companies/{company.id}/tier-history", headers=auth_header(admin)
+        )
+        newest = r.json()[0]
+        assert newest["direction"] == "down"
+        assert newest["previous_tier"] == "gold"
+        assert "grace period" in newest["reason"]
+
+    async def test_the_dashboard_shows_the_grace_deadline(self, client, db):
+        _, company, partner = await self._promoted_company(db)
+        for _ in range(4):
+            course = await make_course(db, created_by=partner.id)
+            await make_enrollment(
+                db, user_id=partner.id, course_id=course.id, completed=False
+            )
+        await db.commit()
+        await tier_service.review_company(db, company.id)
+        await db.commit()
+
+        dash = await client.get(
+            "/api/v1/dashboard/partner/stats", headers=auth_header(partner)
+        )
+        progress = dash.json()["tier_progress"]
+        assert progress["at_risk_until"] is not None
+        assert "training completion" in progress["at_risk_shortfall"]

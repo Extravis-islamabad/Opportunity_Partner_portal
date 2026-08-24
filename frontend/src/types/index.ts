@@ -477,6 +477,13 @@ export interface TierProgress {
   lms_progress_pct: number;
   /** The weaker of the two — what actually stands between here and promotion. */
   overall_progress_pct: number;
+  /**
+   * Set only while the company is below the requirements for the tier it
+   * already holds: the date the grace period runs out and the tier drops.
+   * Null is the normal case.
+   */
+  at_risk_until: string | null;
+  at_risk_shortfall: string | null;
 }
 
 export interface DashboardStats {
@@ -507,6 +514,18 @@ export interface PartnerDashboard {
   lms_courses_completed: number;
   pending_doc_requests: number;
   tier_progress: TierProgress | null;
+}
+
+export type TierDirection = 'up' | 'down' | 'unchanged' | 'unknown';
+
+export interface TierHistoryEntry {
+  id: number;
+  previous_tier: string | null;
+  new_tier: string;
+  reason: string | null;
+  changed_by_name: string | null;
+  changed_at: string;
+  direction: TierDirection;
 }
 
 export interface CompanyPerformance {

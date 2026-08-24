@@ -11,6 +11,7 @@ import type {
   CompanyDetailResponse,
   CompanyCreateRequest,
   CompanyUpdateRequest,
+  TierHistoryEntry,
   OpportunityResponse,
   OpportunityListItem,
   OpportunityCreateRequest,
@@ -118,6 +119,10 @@ export const companiesApi = {
     apiClient.put<CompanyResponse>(`/companies/${id}`, data),
   deactivate: (id: number) =>
     apiClient.delete<MessageResponse>(`/companies/${id}`),
+  // Readable by the company's own partners too, not just their admin: the
+  // reason a tier moved is the point of keeping the record.
+  tierHistory: (id: number) =>
+    apiClient.get<TierHistoryEntry[]>(`/companies/${id}/tier-history`),
 };
 
 // ==================== Opportunities ====================

@@ -75,6 +75,7 @@ async def lifespan(app: FastAPI):
 
     from app.services.exclusivity_service import sweep_exclusivity
     from app.services.review_sla_service import sweep_stale_reviews
+    from app.services.tier_service import sweep_tier_reviews
 
     # Held in a list, not bare create_task calls: asyncio keeps only a weak
     # reference to a running task, so one whose handle nobody holds can be
@@ -83,6 +84,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_license_status_refresher(logger)),
         asyncio.create_task(_daily("review_sla_sweep", sweep_stale_reviews, logger)),
         asyncio.create_task(_daily("exclusivity_sweep", sweep_exclusivity, logger)),
+        asyncio.create_task(_daily("tier_review_sweep", sweep_tier_reviews, logger)),
     ]
 
     yield

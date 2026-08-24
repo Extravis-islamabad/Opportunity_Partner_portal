@@ -5,7 +5,12 @@ from typing import Optional
 import math
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin, get_current_superadmin, assert_manages_company
+from app.core.deps import (
+    get_current_admin,
+    get_current_superadmin,
+    get_current_user,
+    assert_manages_company,
+)
 from app.core.exceptions import ForbiddenException
 from app.models.user import User
 from app.schemas.company import (
@@ -15,7 +20,7 @@ from app.schemas.company import (
     CompanyDetailResponse,
 )
 from app.schemas.common import MessageResponse
-from app.services import company_service
+from app.services import company_service, tier_service
 
 router = APIRouter(prefix="/companies", tags=["Companies"])
 
@@ -71,6 +76,28 @@ async def get_company(
 ):
     await assert_manages_company(db, admin, company_id, action="view")
     return await company_service.get_company_detail(db, company_id)
+
+
+@router.get("/{company_id}/tier-history", status_code=200)
+async def get_tier_history(
+    company_id: int,
+    # Not admin-only: a partner is entitled to see why their own company's
+    # tier moved, and the reason is the whole point of keeping the record.
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every tier change for a company, newest first, with its reason."""
+    from app.models.user import UserRole
+
+    if current_user.role == UserRole.PARTNER:
+        if current_user.company_id != company_id:
+            raise ForbiddenException(message="You can only see your own company")
+    elif current_user.role == UserRole.ADMIN:
+        await assert_manages_company(db, current_user, company_id, action="view")
+    else:
+        raise ForbiddenException(message="Partner tier does not apply to your role")
+
+    return await tier_service.tier_history(db, company_id)
 
 
 @router.put("/{company_id}", response_model=CompanyResponse, status_code=200)

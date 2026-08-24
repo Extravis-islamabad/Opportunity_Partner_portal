@@ -69,6 +69,11 @@ class TierProgress(BaseModel):
     lms_rate_required: float
     lms_rate_current: float
     lms_progress_pct: float
+    # Set only while the company is below the requirements for the tier it
+    # already holds: the date the grace period runs out and the tier drops.
+    # None is the normal case — the company qualifies for what it has.
+    at_risk_until: Optional[str] = None
+    at_risk_shortfall: Optional[str] = None
     # The weaker of the two — what actually stands between here and the next
     # tier. Averaging would flatter a company that has done all the training
     # and registered nothing.

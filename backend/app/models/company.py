@@ -68,6 +68,13 @@ class Company(Base):
     # refuses to promote them.
     tier = Column(Enum(PartnerTier, values_callable=lambda x: [e.value for e in x]), nullable=False, default=PartnerTier.SILVER)
 
+    # When the company first stopped meeting the requirements for the tier it
+    # holds. Null means it currently qualifies. Set rather than demoting on the
+    # spot because tier sets the commission rate: a quiet quarter should be a
+    # warning with a deadline, not an unannounced pay cut. Cleared the moment
+    # the company qualifies again.
+    tier_at_risk_since = Column(DateTime(timezone=True), nullable=True)
+
     # Reseller link: a PARTNER company may sit underneath a DISTRIBUTOR.
     # Null means the company reports directly to Extravis, which is every
     # company predating migration 014.

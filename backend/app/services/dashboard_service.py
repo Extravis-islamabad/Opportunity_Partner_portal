@@ -383,6 +383,23 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
         standing = tier_service.standing(
             PartnerTier(company_tier), approved_opps, lms_rate
         )
+        # A company that has fallen below the tier it holds is inside a grace
+        # period rather than already demoted, so the card has to say by when.
+        at_risk_until = None
+        at_risk_shortfall = None
+        if company and company.tier_at_risk_since:
+            from datetime import timedelta
+
+            from app.core.config import settings
+
+            started = company.tier_at_risk_since
+            at_risk_until = str(
+                (started + timedelta(days=settings.TIER_GRACE_DAYS)).date()
+            )
+            at_risk_shortfall = tier_service.shortfall_text(
+                approved_opps, lms_rate, PartnerTier(company_tier)
+            ) or None
+
         tier_progress = TierProgress(
             next_tier=standing.next_tier.value if standing.next_tier else None,
             opps_required=standing.opps_required,
@@ -392,6 +409,8 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
             lms_rate_current=standing.lms_completion_rate,
             lms_progress_pct=standing.lms_progress_pct,
             overall_progress_pct=standing.overall_progress_pct,
+            at_risk_until=at_risk_until,
+            at_risk_shortfall=at_risk_shortfall,
         )
 
     return PartnerDashboardResponse(
@@ -970,53 +989,11 @@ async def get_target_plan_analytics(
     )
 
 
-async def evaluate_tier_upgrade(db: AsyncSession, company_id: int) -> str | None:
-    from app.models.partner_tier import PartnerTierHistory
-
-    company_result = await db.execute(
-        select(Company).where(Company.id == company_id, Company.deleted_at.is_(None))
-    )
-    company = company_result.scalar_one_or_none()
-    if not company:
-        return None
-
-    # Tier progression belongs to the partner programme. A customer company
-    # has no tier, so it is never promoted and never gets a tier-history row —
-    # this is the single write path for Company.tier, so guarding it here is
-    # what keeps a customer's tier inert.
-    if not company.is_channel_partner:
-        return None
-
-    # Measured through tier_service as well as judged by it — the old
-    # implementations agreed on neither, and counting differently is just as
-    # good a way to disagree as thresholds are.
-    approved_count, lms_rate = await tier_service.measure_company(db, company_id)
-
-    # The rules now live in tier_service, which the partner dashboard and the
-    # commission scorecard read from too — so what a partner is told they need
-    # is what this actually requires.
-    qualifies = tier_service.qualifying_tier(approved_count, lms_rate)
-
-    current_tier = company.tier.value
-    new_tier = qualifies.value
-
-    # Promotion only. A company that drops below its threshold keeps its tier:
-    # tier sets the commission rate, and silently cutting someone's rate on a
-    # quiet quarter is not something this should do on its own.
-    if tier_service.is_promotion(company.tier, qualifies):
-        company.tier = qualifies
-
-        tier_record = PartnerTierHistory(
-            company_id=company_id,
-            previous_tier=current_tier,
-            new_tier=new_tier,
-            reason=f"Auto-upgrade: {approved_count} approved opportunities, {lms_rate}% LMS completion",
-        )
-        db.add(tier_record)
-        await db.flush()
-        return new_tier
-
-    return None
+# Tier is written in exactly one place — tier_service.review_company — which
+# is also where the rules and the measurement live. This module used to carry
+# a second, upgrade-only version of it; a company that fell below its
+# requirements kept the tier and the commission rate that comes with it
+# forever, because nothing here could move a tier downward.
 
 
 # ===========================================================================

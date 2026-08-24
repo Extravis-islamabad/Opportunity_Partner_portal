@@ -35,6 +35,7 @@ import {
 } from '@ant-design/icons';
 import { Column } from '@ant-design/plots';
 import { useQuery } from '@tanstack/react-query';
+import dayjs from 'dayjs';
 import { dashboardApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -582,6 +583,28 @@ const PartnerDashboard: React.FC = () => {
             variant="borderless"
             style={{ borderRadius: 12, height: '100%' }}
           >
+            {/* Below the requirements for the tier already held. Shown above
+                the promotion bars because keeping what you have comes first. */}
+            {stats.tier_progress?.at_risk_until && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={`${(tierLabels[currentTier] ?? currentTier).toUpperCase()} tier at risk`}
+                description={
+                  <span>
+                    Your company no longer meets the requirements
+                    {stats.tier_progress.at_risk_shortfall
+                      ? `: ${stats.tier_progress.at_risk_shortfall}`
+                      : ''}
+                    . If that is still true on{' '}
+                    <strong>{dayjs(stats.tier_progress.at_risk_until).format('MMM D, YYYY')}</strong>{' '}
+                    the tier drops, which lowers your commission rate.
+                  </span>
+                }
+              />
+            )}
+
             {stats.tier_progress?.next_tier ? (
               <div>
                 <div style={{

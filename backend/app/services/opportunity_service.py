@@ -614,10 +614,11 @@ async def approve_opportunity(
             "opportunity", opp.id,
         )
 
-    # Evaluate tier upgrade after approval
+    # Approving may be the opportunity that reaches a tier threshold.
     if opp.company_id:
-        from app.services.dashboard_service import evaluate_tier_upgrade
-        await evaluate_tier_upgrade(db, opp.company_id)
+        from app.services import tier_service
+
+        await tier_service.review_company(db, opp.company_id, actor_id=admin_user.id)
 
     return _build_opportunity_response(opp)
 
@@ -957,10 +958,12 @@ async def close_opportunity(
     )
 
     # Winning counts as approved (ACCEPTED_STATUSES), so a win can be the
-    # thing that tips a company over a tier threshold.
+    # thing that tips a company over a tier threshold — and a loss can be what
+    # drops it below one, which now starts a grace period rather than doing
+    # nothing.
     if opp.company_id:
-        from app.services.dashboard_service import evaluate_tier_upgrade
+        from app.services import tier_service
 
-        await evaluate_tier_upgrade(db, opp.company_id)
+        await tier_service.review_company(db, opp.company_id, actor_id=admin_user.id)
 
     return await get_opportunity_detail(db, opp_id)

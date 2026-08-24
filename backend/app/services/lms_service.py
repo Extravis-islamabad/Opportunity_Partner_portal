@@ -287,7 +287,7 @@ async def _auto_issue_certificate(db: AsyncSession, enrollment: Enrollment) -> N
     course. Skips the legacy 'request → admin approves → admin uploads PDF'
     flow entirely. Idempotent: returns if a cert already exists."""
     from app.services.certificate_service import generate_certificate_pdf
-    from app.services.dashboard_service import evaluate_tier_upgrade
+    from app.services import tier_service
     import uuid
     import os
     import aiofiles
@@ -350,7 +350,7 @@ async def _auto_issue_certificate(db: AsyncSession, enrollment: Enrollment) -> N
 
     if partner.company_id:
         try:
-            await evaluate_tier_upgrade(db, partner.company_id)
+            await tier_service.review_company(db, partner.company_id)
         except Exception:
             pass
 
