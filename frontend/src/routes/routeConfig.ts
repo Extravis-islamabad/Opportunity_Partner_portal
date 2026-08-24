@@ -133,6 +133,13 @@ export const ROUTES: RouteDescriptor[] = [
     keywords: ['exclusivity', 'expiry', 'expiring', 'extension', 'protection', 'deal'],
   },
   {
+    path: '/renewals',
+    label: 'Renewals',
+    section: 'Pipeline',
+    roles: ['channel_member'],
+    keywords: ['renewal', 'licence', 'license', 'expiry', 'expiring', 'renew'],
+  },
+  {
     path: '/opportunities/stale-reviews',
     label: 'Stuck Reviews',
     section: 'Pipeline',

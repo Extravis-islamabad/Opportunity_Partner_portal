@@ -223,6 +223,11 @@ export interface OpportunityResponse {
   loss_reason_label: string | null;
   loss_notes: string | null;
   closed_outcome_at: string | null;
+  /**
+   * Set when this opportunity renews an expiring licence rather than being new
+   * business. Null on nearly all of them.
+   */
+  renewal_of_license_id: number | null;
   internal_notes: string | null;
   submitted_by: number;
   submitted_by_name: string | null;
@@ -514,6 +519,23 @@ export interface PartnerDashboard {
   lms_courses_completed: number;
   pending_doc_requests: number;
   tier_progress: TierProgress | null;
+}
+
+export interface UpcomingRenewal {
+  license_id: number;
+  opportunity_id: number;
+  customer_name: string;
+  company_id: number;
+  company_name: string | null;
+  product: string | null;
+  po_value: string | null;
+  device_count: number | null;
+  node_count: number | null;
+  expires_at: string;
+  days_left: number;
+  /** Set once somebody has raised the renewal, so the action is not offered twice. */
+  renewal_opportunity_id: number | null;
+  notified_at: string | null;
 }
 
 export type TierDirection = 'up' | 'down' | 'unchanged' | 'unknown';

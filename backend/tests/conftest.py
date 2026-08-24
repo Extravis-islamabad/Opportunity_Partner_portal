@@ -345,6 +345,33 @@ async def make_poc(db, *, opportunity_id, status=None, start_date=None):
     return poc
 
 
+async def make_license(db, *, opportunity_id, expires_in_days=45, **kwargs):
+    """A live licence expiring N days from today.
+
+    Days-from-today rather than a fixed date because everything about renewals
+    is relative to now: a fixture pinned to a calendar date silently stops
+    being "expiring soon" as the suite ages.
+    """
+    from datetime import date, timedelta
+    from decimal import Decimal
+
+    from app.models.customer_license import CustomerLicense, LicenseStatus
+
+    lic = CustomerLicense(
+        opportunity_id=opportunity_id,
+        po_number=kwargs.get("po_number", "PO-FIXTURE"),
+        po_value=kwargs.get("po_value", Decimal("50000.00")),
+        device_count=kwargs.get("device_count", 40),
+        node_count=kwargs.get("node_count", 4),
+        license_activated_at=date.today() - timedelta(days=300),
+        license_expires_at=date.today() + timedelta(days=expires_in_days),
+        status=LicenseStatus.ACTIVE,
+    )
+    db.add(lic)
+    await db.flush()
+    return lic
+
+
 async def make_team_member(db, *, poc_id, user_id, role, assigned_by=None):
     from app.models.poc_team import PocTeamMember
 

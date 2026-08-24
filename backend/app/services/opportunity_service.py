@@ -123,6 +123,7 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         ),
         loss_notes=opp.loss_notes,
         closed_outcome_at=opp.closed_outcome_at,
+        renewal_of_license_id=opp.renewal_of_license_id,
         internal_notes=opp.internal_notes,
         submitted_by=opp.submitted_by,
         submitted_by_name=opp.submitted_by_user.full_name if opp.submitted_by_user else None,

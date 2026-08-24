@@ -106,6 +106,10 @@ class OpportunityResponse(BaseModel):
     loss_reason_label: Optional[str] = None
     loss_notes: Optional[str] = None
     closed_outcome_at: Optional[datetime] = None
+    # Set when this opportunity renews an expiring licence rather than being
+    # new business. The UI uses it to say so; reporting uses it to tell renewal
+    # revenue from new revenue.
+    renewal_of_license_id: Optional[int] = None
     internal_notes: Optional[str] = None
     submitted_by: int
     submitted_by_name: Optional[str] = None

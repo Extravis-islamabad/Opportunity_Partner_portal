@@ -71,11 +71,21 @@ class CustomerLicense(Base):
 
     notes = Column(Text, nullable=True)
 
+    # When the renewal reminder went out. Stamped so the daily sweep chases a
+    # licence once rather than every morning for the last three months of its
+    # life. Cleared by nothing: a licence is renewed by creating a renewal
+    # opportunity, not by resetting this.
+    renewal_notified_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
     deleted_at = Column(DateTime(timezone=True), nullable=True)
 
-    opportunity = relationship("Opportunity", back_populates="license")
+    opportunity = relationship(
+        "Opportunity",
+        back_populates="license",
+        foreign_keys="CustomerLicense.opportunity_id",
+    )
 
     @property
     def days_until_expiry(self) -> int | None:

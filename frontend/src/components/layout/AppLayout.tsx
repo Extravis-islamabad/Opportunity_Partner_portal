@@ -29,6 +29,7 @@ import {
   CalendarOutlined,
   ClockCircleOutlined,
   MailOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -107,6 +108,7 @@ const AppLayout: React.FC = () => {
     { key: '/activities', icon: <CalendarOutlined />, label: 'Activity Log' },
     { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
     { key: '/deals/exclusivity', icon: <ClockCircleOutlined />, label: 'Exclusivity' },
+    { key: '/renewals', icon: <ReloadOutlined />, label: 'Renewals' },
     { key: '/commissions', icon: <DollarOutlined />, label: 'Commissions' },
     { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
@@ -127,6 +129,7 @@ const AppLayout: React.FC = () => {
     ? [
         { key: '/deals', icon: <SafetyCertificateOutlined />, label: 'Deal Registration' },
         { key: '/deals/exclusivity', icon: <ClockCircleOutlined />, label: 'Exclusivity' },
+        { key: '/renewals', icon: <ReloadOutlined />, label: 'Renewals' },
         { key: '/commissions', icon: <DollarOutlined />, label: 'My Commissions' },
         { key: '/leaderboard', icon: <CrownOutlined />, label: 'Leaderboard' },
       ]

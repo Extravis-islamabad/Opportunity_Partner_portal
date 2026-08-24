@@ -19,6 +19,7 @@ from app.api.v1.endpoints import (
     pocs,
     files,
     sales_activities,
+    renewals,
     email_log,
 )
 
@@ -49,3 +50,4 @@ api_router.include_router(ai.router)
 api_router.include_router(pocs.router)
 api_router.include_router(files.router)
 api_router.include_router(sales_activities.router)
+api_router.include_router(renewals.router)

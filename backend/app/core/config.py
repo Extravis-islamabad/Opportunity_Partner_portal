@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     # Long enough to ask for an extension and have somebody decide it.
     EXCLUSIVITY_WARNING_DAYS: int = 14
 
+    # How far ahead of a licence expiry the renewal chase starts. Deliberately
+    # longer than customer_license.EXPIRING_SOON_DAYS (60), which is a display
+    # status: by the time a licence *looks* urgent on a screen, the renewal
+    # conversation should already have been running for a month.
+    RENEWAL_NOTICE_DAYS: int = 90
+
     # How long a company that has fallen below its tier's requirements keeps
     # that tier before being demoted. Tier sets the commission rate, so this
     # is the difference between "you have a month to put this right" and a

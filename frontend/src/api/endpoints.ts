@@ -18,6 +18,7 @@ import type {
   LossReasonOption,
   StaleReview,
   EmailLogResponse,
+  UpcomingRenewal,
   KBDocumentResponse,
   KBCategoryResponse,
   CourseResponse,
@@ -169,6 +170,18 @@ export const opportunitiesApi = {
   },
   deleteDocument: (id: number, docId: number) =>
     apiClient.delete<void>(`/opportunities/${id}/documents/${docId}`),
+};
+
+// ==================== Renewals ====================
+export const renewalsApi = {
+  list: (days?: number) =>
+    apiClient.get<UpcomingRenewal[]>('/renewals', { params: { days } }),
+  // Creates the renewal opportunity *and* the deal registration that earns
+  // the commission — see renewal_service.
+  create: (licenseId: number, data: { worth?: number; closing_date?: string }) =>
+    apiClient.post<{ id: number; name: string; status: string; renewal_of_license_id: number }>(
+      `/renewals/${licenseId}`, data,
+    ),
 };
 
 // ==================== Email delivery log ====================

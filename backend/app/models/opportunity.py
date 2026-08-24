@@ -118,6 +118,17 @@ class Opportunity(Base):
     )
     internal_notes = Column(Text, nullable=True)
 
+    # The licence this opportunity was raised to renew. Null on a new-business
+    # deal, which is nearly all of them. Kept on the opportunity rather than a
+    # flag on the licence so the chain reads forward and a licence can be
+    # queried for "has this been renewed" with one indexed lookup.
+    renewal_of_license_id = Column(
+        Integer,
+        ForeignKey("customer_licenses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # AI-generated fields (populated asynchronously by ai_service)
     ai_score = Column(Integer, nullable=True)
     ai_reasoning = Column(Text, nullable=True)
@@ -140,4 +151,10 @@ class Opportunity(Base):
     company = relationship("Company", back_populates="opportunities")
     documents = relationship("OppDocument", back_populates="opportunity", cascade="all, delete-orphan")
     poc = relationship("Poc", back_populates="opportunity", uselist=False, cascade="all, delete-orphan")
-    license = relationship("CustomerLicense", back_populates="opportunity", uselist=False, cascade="all, delete-orphan")
+    license = relationship(
+        "CustomerLicense",
+        back_populates="opportunity",
+        uselist=False,
+        cascade="all, delete-orphan",
+        foreign_keys="CustomerLicense.opportunity_id",
+    )

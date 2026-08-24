@@ -201,6 +201,11 @@ const OpportunityDetailPage: React.FC = () => {
               <Descriptions.Item label="Country">{opp.country}</Descriptions.Item>
               <Descriptions.Item label="City">{opp.city}</Descriptions.Item>
               <Descriptions.Item label="Closing Date">{dayjs(opp.closing_date).format('MMM D, YYYY')}</Descriptions.Item>
+              {opp.renewal_of_license_id && (
+                <Descriptions.Item label="Type">
+                  <Tag color="cyan" icon={<ReloadOutlined />}>Renewal</Tag>
+                </Descriptions.Item>
+              )}
               {opp.product && <Descriptions.Item label="Product"><Tag color="geekblue">{opp.product}</Tag></Descriptions.Item>}
               {opp.industry && <Descriptions.Item label="Industry">{opp.industry}</Descriptions.Item>}
               {opp.stage_probability && (

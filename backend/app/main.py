@@ -74,6 +74,7 @@ async def lifespan(app: FastAPI):
     await create_superadmin()
 
     from app.services.exclusivity_service import sweep_exclusivity
+    from app.services.renewal_service import sweep_renewals
     from app.services.review_sla_service import sweep_stale_reviews
     from app.services.tier_service import sweep_tier_reviews
 
@@ -85,6 +86,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_daily("review_sla_sweep", sweep_stale_reviews, logger)),
         asyncio.create_task(_daily("exclusivity_sweep", sweep_exclusivity, logger)),
         asyncio.create_task(_daily("tier_review_sweep", sweep_tier_reviews, logger)),
+        asyncio.create_task(_daily("renewal_sweep", sweep_renewals, logger)),
     ]
 
     yield
