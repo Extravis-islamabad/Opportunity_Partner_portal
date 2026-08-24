@@ -366,7 +366,9 @@ const PartnerDashboard: React.FC = () => {
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <KpiCard
-            title="My Opportunities"
+            // Company-wide, and a distributor's includes its resellers — the
+            // same scope as the list this card links to.
+            title="Opportunities"
             value={stats.my_opportunities}
             icon={<FundProjectionScreenOutlined />}
             gradient={`linear-gradient(135deg, ${BRAND.royal500} 0%, ${BRAND.royal400} 100%)`}

@@ -131,7 +131,9 @@ const AppLayout: React.FC = () => {
     ...(isChannelCompany
       ? [{ key: '/scorecard', icon: <TrophyOutlined />, label: 'My Scorecard' }]
       : []),
-    { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'My Opportunities' },
+    // Not "My": the list is the whole company's now, and a distributor's
+    // covers its resellers too.
+    { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'Opportunities' },
     { key: '/poc', icon: <RocketOutlined />, label: 'POC Status' },
     ...channelMenuItems,
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },

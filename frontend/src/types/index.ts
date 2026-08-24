@@ -109,6 +109,12 @@ export interface CompanyResponse {
   tier: string | null;
   channel_manager_id: number;
   channel_manager_name: string | null;
+  /**
+   * Set only on a partner company that resells through a distributor. Null
+   * means the company reports directly to Extravis.
+   */
+  parent_distributor_id: number | null;
+  parent_distributor_name: string | null;
   partner_count: number;
   opportunity_count: number;
   created_at: string;
@@ -117,6 +123,16 @@ export interface CompanyResponse {
 
 export interface CompanyDetailResponse extends CompanyResponse {
   partners: PartnerAccountBrief[];
+  /** The companies underneath this one. Only ever non-empty for a distributor. */
+  resellers: ResellerBrief[];
+}
+
+export interface ResellerBrief {
+  id: number;
+  name: string;
+  country: string;
+  status: string;
+  tier: string | null;
 }
 
 export interface PartnerAccountBrief {
@@ -138,6 +154,8 @@ export interface CompanyCreateRequest {
   channel_manager_id: number;
   /** Required — classification governs what the company's users can reach. */
   company_type: CompanyType;
+  /** Only valid on a partner company, and only pointing at a distributor. */
+  parent_distributor_id?: number | null;
 }
 
 export interface CompanyUpdateRequest {
@@ -150,6 +168,11 @@ export interface CompanyUpdateRequest {
   channel_manager_id?: number;
   /** Superadmin-only; the API rejects it from anyone else. */
   company_type?: CompanyType;
+  /**
+   * Superadmin-only too. Send null explicitly to unlink a reseller; omit the
+   * field entirely to leave the current link alone.
+   */
+  parent_distributor_id?: number | null;
 }
 
 // ==================== Opportunity ====================

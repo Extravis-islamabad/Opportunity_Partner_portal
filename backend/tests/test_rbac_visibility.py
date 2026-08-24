@@ -313,6 +313,67 @@ class TestHierarchyManagement:
         assert body["parent_distributor_id"] == w.distributor.id
         assert body["parent_distributor_name"] == w.distributor.name
 
+    async def test_a_company_can_be_created_already_linked(self, client, db):
+        # The create form offers the parent alongside the type, so POST has to
+        # accept and validate it, not only PUT.
+        w = await build_world(db)
+        headers = auth_header(w.admin)
+        r = await client.post(
+            "/api/v1/companies",
+            headers=headers,
+            json={
+                "name": "Freshly Linked Reseller",
+                "country": "US",
+                "region": "NA",
+                "city": "Austin",
+                "industry": "Tech",
+                "contact_email": "new@fixture.example.com",
+                "channel_manager_id": w.admin.id,
+                "company_type": "partner",
+                "parent_distributor_id": w.distributor.id,
+            },
+        )
+        assert r.status_code == 201, r.text[:300]
+        assert r.json()["parent_distributor_id"] == w.distributor.id
+        assert r.json()["parent_distributor_name"] == w.distributor.name
+
+    async def test_creating_a_customer_with_a_parent_is_rejected(self, client, db):
+        w = await build_world(db)
+        headers = auth_header(w.admin)
+        r = await client.post(
+            "/api/v1/companies",
+            headers=headers,
+            json={
+                "name": "Impossible Customer",
+                "country": "US",
+                "region": "NA",
+                "city": "Austin",
+                "industry": "Tech",
+                "contact_email": "nope@fixture.example.com",
+                "channel_manager_id": w.admin.id,
+                "company_type": "customer",
+                "parent_distributor_id": w.distributor.id,
+            },
+        )
+        assert r.status_code == 400
+
+    async def test_a_channel_manager_cannot_re_parent_a_company(self, client, db):
+        # Re-parenting decides who reads the company's pipeline, so it is a
+        # superadmin action — including clearing a link, which is why the
+        # endpoint tests the field's presence rather than its value.
+        w = await build_world(db)
+        manager = await make_user(db, role=UserRole.ADMIN)
+        w.reseller_a.channel_manager_id = manager.id
+        await db.commit()
+
+        headers = auth_header(manager)
+        r = await client.put(
+            f"/api/v1/companies/{w.reseller_a.id}",
+            headers=headers,
+            json={"parent_distributor_id": None},
+        )
+        assert r.status_code == 403
+
     async def test_a_partner_cannot_be_parented_to_a_partner(self, client, db):
         w = await build_world(db)
         headers = auth_header(w.admin)
@@ -364,3 +425,85 @@ class TestHierarchyManagement:
         assert child_view.status_code == 200
         assert child_view.json()["parent_distributor_id"] == w.distributor.id
         assert child_view.json()["resellers"] == []
+
+
+# ---------------------------------------------------------------------------
+# Bulk import
+# ---------------------------------------------------------------------------
+
+class TestBulkImportHierarchy:
+    async def _upload(self, client, headers, rows, header_row):
+        from io import BytesIO
+
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(header_row)
+        for row in rows:
+            ws.append(row)
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return await client.post(
+            "/api/v1/companies/bulk-import",
+            headers=headers,
+            files={
+                "file": (
+                    "companies.xlsx",
+                    buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+    async def test_import_links_a_reseller_by_distributor_name(self, client, db):
+        from app.api.v1.endpoints.bulk_import import EXPECTED_HEADERS, OPTIONAL_HEADERS
+
+        w = await build_world(db)
+        headers = auth_header(w.admin)
+        name = "Imported Reseller"
+        r = await self._upload(
+            client, headers,
+            [[name, "partner", "US", "Austin", "Tech",
+              "imported@fixture.example.com", w.admin.email, w.distributor.name]],
+            EXPECTED_HEADERS + OPTIONAL_HEADERS,
+        )
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["failed"] == [], r.json()["failed"]
+        assert r.json()["succeeded"] == 1
+
+        listing = await client.get(
+            f"/api/v1/companies?search={name}", headers=headers
+        )
+        row = next(c for c in listing.json()["items"] if c["name"] == name)
+        assert row["parent_distributor_id"] == w.distributor.id
+
+    async def test_import_rejects_a_parent_that_is_not_a_distributor(self, client, db):
+        from app.api.v1.endpoints.bulk_import import EXPECTED_HEADERS, OPTIONAL_HEADERS
+
+        w = await build_world(db)
+        r = await self._upload(
+            client, auth_header(w.admin),
+            [["Bad Reseller", "partner", "US", "Austin", "Tech",
+              "bad@fixture.example.com", w.admin.email, w.reseller_a.name]],
+            EXPECTED_HEADERS + OPTIONAL_HEADERS,
+        )
+        assert r.status_code == 200
+        assert r.json()["succeeded"] == 0
+        assert "not of type distributor" in r.json()["failed"][0]["error"]
+
+    async def test_a_sheet_without_the_optional_column_still_imports(self, client, db):
+        # An import file written before this feature must keep working.
+        from app.api.v1.endpoints.bulk_import import EXPECTED_HEADERS
+
+        w = await build_world(db)
+        r = await self._upload(
+            client, auth_header(w.admin),
+            [["Legacy Sheet Co", "partner", "US", "Austin", "Tech",
+              "legacy@fixture.example.com", w.admin.email]],
+            EXPECTED_HEADERS,
+        )
+        assert r.status_code == 200, r.text[:300]
+        assert r.json()["failed"] == [], r.json()["failed"]
+        assert r.json()["succeeded"] == 1

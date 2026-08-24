@@ -49,6 +49,14 @@ const CompanyListPage: React.FC = () => {
         return meta ? <Tag color={meta.color}>{meta.label.toUpperCase()}</Tag> : '—';
       },
     },
+    {
+      title: 'Parent Distributor',
+      dataIndex: 'parent_distributor_name',
+      key: 'parent_distributor',
+      // Blank for most companies — they report directly to Extravis.
+      render: (name: string | null) =>
+        name ?? <span style={{ opacity: 0.45 }}>—</span>,
+    },
     { title: 'Country', dataIndex: 'country', key: 'country' },
     { title: 'Industry', dataIndex: 'industry', key: 'industry' },
     {

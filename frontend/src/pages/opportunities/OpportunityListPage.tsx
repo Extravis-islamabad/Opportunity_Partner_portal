@@ -29,6 +29,11 @@ const OpportunityListPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isSalesRep = user?.role === 'sales_rep';
+  // A distributor's list spans its resellers as well as its own company, so
+  // it needs a column saying which company each row belongs to. Nobody else
+  // sees more than one company, so nobody else gets the column.
+  const isDistributor = user?.company_type === 'distributor';
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['opportunities', page, search, statusFilter, productFilter, industryFilter, quarterFilter],
@@ -72,7 +77,23 @@ const OpportunityListPage: React.FC = () => {
       ),
     },
     { title: 'Customer', dataIndex: 'customer_name', key: 'customer' },
-    ...(isAdmin ? [{ title: 'Partner', dataIndex: 'company_name' as const, key: 'company' }] : []),
+    ...(isAdmin || isDistributor
+      ? [{
+          title: isDistributor ? 'Reseller' : 'Partner',
+          dataIndex: 'company_name' as const,
+          key: 'company',
+        }]
+      : []),
+    // Reads are company-wide now, so a partner's list includes colleagues'
+    // rows and needs to say whose is whose. A sales rep only ever sees their
+    // own assignments, so the column would be a constant for them.
+    ...(!isAdmin && !isSalesRep
+      ? [{
+          title: 'Submitted By',
+          dataIndex: 'submitted_by_name' as const,
+          key: 'submitted_by',
+        }]
+      : []),
     {
       title: 'Product', dataIndex: 'product', key: 'product',
       render: (p: string | null) => p ? <Tag color="geekblue">{p}</Tag> : '—',
@@ -120,7 +141,17 @@ const OpportunityListPage: React.FC = () => {
   return (
     <>
       <PageHeader
-        title={isAdmin ? 'All Opportunities' : 'My Opportunities'}
+        title={
+          isAdmin
+            ? 'All Opportunities'
+            // A sales rep's list really is only theirs. A partner's is now the
+            // whole company's — and a distributor's, its resellers' too.
+            : isSalesRep
+              ? 'My Opportunities'
+              : isDistributor
+                ? 'Channel Pipeline'
+                : 'Company Pipeline'
+        }
         subtitle={`${data?.total ?? 0} total`}
         extra={
           <Space>

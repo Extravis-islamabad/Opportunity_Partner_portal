@@ -4,7 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { companiesApi, dashboardApi, scorecardApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
-import type { PartnerAccountBrief, ScorecardRead } from '@/types';
+import type { PartnerAccountBrief, ResellerBrief, ScorecardRead } from '@/types';
 import { companyTypeMeta, isChannelCompanyType } from '@/utils/companyType';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, TrophyOutlined, StarFilled, DollarOutlined, RiseOutlined } from '@ant-design/icons';
@@ -47,6 +47,43 @@ const CompanyDetailPage: React.FC = () => {
   if (isLoading) return <Skeleton active paragraph={{ rows: 10 }} />;
   if (!company) return <Empty description="Company not found" />;
 
+  const resellerColumns: ColumnsType<ResellerBrief> = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      render: (name: string, record) => (
+        <Button
+          type="link"
+          style={{ padding: 0, height: 'auto' }}
+          onClick={() => navigate(`/companies/${record.id}`)}
+        >
+          {name}
+        </Button>
+      ),
+    },
+    { title: 'Country', dataIndex: 'country', key: 'country' },
+    {
+      title: 'Tier',
+      dataIndex: 'tier',
+      key: 'tier',
+      render: (tier: string | null) =>
+        tier ? (
+          <Tag color={tierColors[tier] ?? 'default'}>{tier.toUpperCase()}</Tag>
+        ) : (
+          <span style={{ opacity: 0.45 }}>—</span>
+        ),
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (s: string) => (
+        <Tag color={s === 'active' ? 'green' : 'red'}>{s.toUpperCase()}</Tag>
+      ),
+    },
+  ];
+
   const partnerColumns: ColumnsType<PartnerAccountBrief> = [
     { title: 'Name', dataIndex: 'full_name', key: 'name' },
     { title: 'Email', dataIndex: 'email', key: 'email' },
@@ -88,6 +125,18 @@ const CompanyDetailPage: React.FC = () => {
                   ) : '—';
                 })()}
               </Descriptions.Item>
+              {/* Only ever set on a partner that resells through a distributor. */}
+              {company.parent_distributor_id && (
+                <Descriptions.Item label="Parent Distributor">
+                  <Button
+                    type="link"
+                    style={{ padding: 0, height: 'auto' }}
+                    onClick={() => navigate(`/companies/${company.parent_distributor_id}`)}
+                  >
+                    {company.parent_distributor_name}
+                  </Button>
+                </Descriptions.Item>
+              )}
               {/* Tier is a partner-programme concept; a customer has none. */}
               {company.tier && (
                 <Descriptions.Item label="Tier"><Tag color={tierColors[company.tier] ?? 'default'}>{company.tier.toUpperCase()}</Tag></Descriptions.Item>
@@ -178,6 +227,24 @@ const CompanyDetailPage: React.FC = () => {
           })()
         )}
       </Card>
+      )}
+
+      {/* Only a distributor has any, so the whole card stays out of the way
+          for every other company rather than showing an empty table. */}
+      {company.resellers.length > 0 && (
+        <Card title={`Resellers (${company.resellers.length})`} style={{ marginTop: 16 }}>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            This distributor can see the pipeline — opportunities, POCs and
+            licences — of every company listed here. They cannot see each
+            other's.
+          </Typography.Paragraph>
+          <Table
+            columns={resellerColumns}
+            dataSource={company.resellers}
+            rowKey="id"
+            pagination={false}
+          />
+        </Card>
       )}
 
       <Card title={`Partner Accounts (${company.partners.length})`} style={{ marginTop: 16 }}>

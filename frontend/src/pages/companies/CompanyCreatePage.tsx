@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { companiesApi, usersApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
+import ParentDistributorSelect from '@/components/companies/ParentDistributorSelect';
 import type { CompanyCreateRequest } from '@/types';
 import { COMPANY_TYPES } from '@/utils/companyType';
 import { AxiosError } from 'axios';
@@ -59,6 +60,22 @@ const CompanyCreatePage: React.FC = () => {
                 );
               }}
             />
+          </Form.Item>
+          {/* Only a partner can sit under a distributor, so the field appears
+              only once that is the chosen type. Form.Item shouldRender via a
+              function child so it re-reads company_type as it changes. */}
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.company_type !== cur.company_type}>
+            {({ getFieldValue }) =>
+              getFieldValue('company_type') === 'partner' ? (
+                <Form.Item
+                  name="parent_distributor_id"
+                  label="Parent Distributor"
+                  extra="Leave empty if this partner reports directly to Extravis. A distributor sees the pipeline of every partner underneath it."
+                >
+                  <ParentDistributorSelect />
+                </Form.Item>
+              ) : null
+            }
           </Form.Item>
           <Form.Item name="country" label="Country" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Country" maxLength={100} />
