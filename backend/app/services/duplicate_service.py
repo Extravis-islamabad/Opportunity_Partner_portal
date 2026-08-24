@@ -298,13 +298,10 @@ async def upsert_ownership_from_deal(
     if not normalized:
         return
 
-    existing_q = select(CustomerOwnership).where(
-        CustomerOwnership.customer_name_normalized == normalized,
-        CustomerOwnership.country == "",  # we'll fill below
-        CustomerOwnership.company_id == deal.company_id,
-        CustomerOwnership.is_active.is_(True),
-    )
-    # Country comes from the company since deal_registration doesn't store it
+    # Country comes from the company, since deal_registration doesn't store it.
+    # A first version of this built a query against country == "" before the
+    # real country was known, then never executed it — removed rather than
+    # fixed, because the query below is the one that was always doing the work.
     company = (await db.execute(select(Company).where(Company.id == deal.company_id))).scalar_one_or_none()
     country = company.country if company else "Unknown"
 

@@ -183,7 +183,24 @@ export type OpportunityStatus =
   | 'approved'
   | 'rejected'
   | 'removed'
-  | 'multi_partner_flagged';
+  | 'multi_partner_flagged'
+  // Terminal outcomes, recorded after approval. Note `won` still counts as an
+  // accepted deal everywhere a total is taken — see ACCEPTED_STATUSES.
+  | 'won'
+  | 'lost';
+
+export type LossReason =
+  | 'price'
+  | 'competitor'
+  | 'no_budget'
+  | 'timing'
+  | 'technical_fit'
+  | 'no_decision';
+
+export interface LossReasonOption {
+  value: LossReason;
+  label: string;
+}
 
 export type ProductName = 'MonetX' | 'PatchX' | 'SupportX';
 export type StageProbability = 0.1 | 0.3 | 0.6 | 0.7 | 0.9 | 1.0;
@@ -202,6 +219,10 @@ export interface OpportunityResponse {
   preferred_partner: boolean;
   multi_partner_alert: boolean;
   rejection_reason: string | null;
+  loss_reason: LossReason | null;
+  loss_reason_label: string | null;
+  loss_notes: string | null;
+  closed_outcome_at: string | null;
   internal_notes: string | null;
   submitted_by: number;
   submitted_by_name: string | null;
@@ -581,7 +602,52 @@ export interface AdminAnalyticsResponse {
   industries: IndustryBreakdown[];
   top_companies: TopCompany[];
   funnel: FunnelStage[];
+  // Empty until deals start being closed as lost.
+  loss_reasons: LossReasonBreakdown[];
   recent_activity: RecentActivityItem[];
+}
+
+export interface LossReasonBreakdown {
+  reason: LossReason;
+  label: string;
+  count: number;
+  total_worth: string;
+}
+
+// ==================== Review ageing ====================
+export interface StaleReview {
+  id: number;
+  name: string;
+  customer_name: string;
+  company_name: string | null;
+  reviewer_id: number | null;
+  reviewer_name: string | null;
+  claimed_at: string;
+  days_claimed: number;
+  escalated: boolean;
+}
+
+// ==================== Email delivery ====================
+export type EmailStatus = 'sent' | 'failed' | 'skipped';
+
+export interface EmailDeliveryItem {
+  id: number;
+  status: EmailStatus;
+  recipients: string;
+  subject: string;
+  template: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface EmailLogResponse {
+  items: EmailDeliveryItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  totals_by_status: Record<string, number>;
+  email_configured: boolean;
 }
 
 // ==================== Commissions & Scorecard ====================

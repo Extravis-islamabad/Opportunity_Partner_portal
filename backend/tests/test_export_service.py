@@ -6,6 +6,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
+from app.models.opportunity import LossReason
 from app.services.export_service import (
     COMPANY_HEADERS,
     _company_row,
@@ -44,7 +45,7 @@ def _fake_company(
     )
 
 
-def _fake_opportunity(id_: int = 1):
+def _fake_opportunity(id_: int = 1, *, lost: bool = False):
     return SimpleNamespace(
         id=id_,
         name=f"Deal {id_}",
@@ -53,7 +54,8 @@ def _fake_opportunity(id_: int = 1):
         country="USA",
         worth=Decimal("100000.00"),
         closing_date=date(2026, 12, 31),
-        status=SimpleNamespace(value="approved"),
+        status=SimpleNamespace(value="lost" if lost else "approved"),
+        loss_reason=LossReason.COMPETITOR if lost else None,
         company=_fake_company(id_),
         submitted_by_user=SimpleNamespace(full_name="Jane Partner"),
         created_at=datetime(2026, 1, 15, tzinfo=timezone.utc),
@@ -77,7 +79,11 @@ def _fake_deal(id_: int = 1):
 
 class TestOpportunityExport:
     def test_pdf_populated(self):
-        pdf = build_opportunity_pdf([_fake_opportunity(1), _fake_opportunity(2)])
+        # One won/open and one lost, so the loss-reason column renders both a
+        # value and the blank that most rows carry.
+        pdf = build_opportunity_pdf(
+            [_fake_opportunity(1), _fake_opportunity(2, lost=True)]
+        )
         assert pdf.startswith(b"%PDF-")
         assert len(pdf) > 500
 
@@ -86,7 +92,9 @@ class TestOpportunityExport:
         assert pdf.startswith(b"%PDF-")
 
     def test_xlsx_populated(self):
-        xlsx = build_opportunity_xlsx([_fake_opportunity(1)])
+        xlsx = build_opportunity_xlsx(
+            [_fake_opportunity(1), _fake_opportunity(2, lost=True)]
+        )
         # XLSX is a zip file: magic number PK
         assert xlsx[:2] == b"PK"
 

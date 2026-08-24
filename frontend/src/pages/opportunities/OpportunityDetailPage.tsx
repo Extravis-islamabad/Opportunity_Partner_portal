@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Descriptions, Card, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Modal, Input, Checkbox, Upload, List, message, Typography, Popconfirm } from 'antd';
+import { Descriptions, Card, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Modal, Input, Select, Checkbox, Upload, List, message, Typography, Popconfirm } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { opportunitiesApi, aiApi } from '@/api/endpoints';
@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 const statusColors: Record<string, string> = {
   draft: 'default', pending_review: 'orange', under_review: 'processing',
   approved: 'green', rejected: 'red', removed: 'default',
+  won: 'success', lost: 'volcano',
 };
 
 const OpportunityDetailPage: React.FC = () => {
@@ -29,6 +30,11 @@ const OpportunityDetailPage: React.FC = () => {
   const [preferredPartner, setPreferredPartner] = useState(false);
   const [noteModal, setNoteModal] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const [closeModal, setCloseModal] = useState<'won' | 'lost' | null>(null);
+  const [lossReason, setLossReason] = useState<string | undefined>();
+  const [lossNotes, setLossNotes] = useState('');
+  const [releaseModal, setReleaseModal] = useState(false);
+  const [releaseReason, setReleaseReason] = useState('');
 
   const { data: opp, isLoading, error } = useQuery({
     queryKey: ['opportunity', oppId],
@@ -55,6 +61,44 @@ const OpportunityDetailPage: React.FC = () => {
     mutationFn: () => opportunitiesApi.addNote(oppId, noteText),
     onSuccess: () => { setNoteModal(false); invalidate(); void message.success('Note added'); },
   });
+  // Only fetched for the admin who can actually close something, and only
+  // while the close dialog is open — the list is static, so once is enough.
+  const { data: lossReasonOptions } = useQuery({
+    queryKey: ['loss-reasons'],
+    queryFn: async () => (await opportunitiesApi.lossReasons()).data,
+    enabled: closeModal === 'lost',
+    staleTime: Infinity,
+  });
+
+  const closeMut = useMutation({
+    mutationFn: () => opportunitiesApi.close(oppId, {
+      won: closeModal === 'won',
+      ...(closeModal === 'lost'
+        ? { loss_reason: lossReason, loss_notes: lossNotes.trim() || undefined }
+        : {}),
+    }),
+    onSuccess: () => {
+      const outcome = closeModal;
+      setCloseModal(null);
+      setLossReason(undefined);
+      setLossNotes('');
+      invalidate();
+      void message.success(outcome === 'won' ? 'Recorded as won' : 'Recorded as lost');
+    },
+    onError: () => { void message.error('Could not record the outcome'); },
+  });
+
+  const releaseMut = useMutation({
+    mutationFn: () => opportunitiesApi.releaseReview(oppId, releaseReason.trim() || undefined),
+    onSuccess: () => {
+      setReleaseModal(false);
+      setReleaseReason('');
+      invalidate();
+      void message.success('Review released — back in the queue');
+    },
+    onError: () => { void message.error('Could not release the review'); },
+  });
+
   const deleteDocMut = useMutation({
     mutationFn: (docId: number) => opportunitiesApi.deleteDocument(oppId, docId),
     onSuccess: () => { invalidate(); void message.success('Document deleted'); },
@@ -84,6 +128,10 @@ const OpportunityDetailPage: React.FC = () => {
   const canSubmit = !isAdmin && (opp.status === 'draft' || opp.status === 'rejected');
   const canReview = isAdmin && opp.status === 'pending_review';
   const canApproveReject = isAdmin && (opp.status === 'pending_review' || opp.status === 'under_review');
+  // Only an approved deal has an outcome to record; won and lost are terminal.
+  const canClose = isAdmin && opp.status === 'approved';
+  const canRelease = isAdmin && opp.status === 'under_review';
+  const isClosed = opp.status === 'won' || opp.status === 'lost';
 
   return (
     <>
@@ -97,7 +145,10 @@ const OpportunityDetailPage: React.FC = () => {
             {canReview && <Button type="primary" loading={reviewMut.isPending} onClick={() => reviewMut.mutate()}>Mark Under Review</Button>}
             {canApproveReject && <Button type="primary" style={{ background: '#52c41a' }} onClick={() => setApproveModal(true)}>Approve</Button>}
             {canApproveReject && <Button danger onClick={() => setRejectModal(true)}>Reject</Button>}
-            {isAdmin && <Button danger onClick={() => { Modal.confirm({ title: 'Remove this opportunity?', onOk: () => removeMut.mutate() }); }}>Remove</Button>}
+            {canRelease && <Button onClick={() => setReleaseModal(true)}>Release Review</Button>}
+            {canClose && <Button type="primary" onClick={() => setCloseModal('won')}>Mark Won</Button>}
+            {canClose && <Button onClick={() => setCloseModal('lost')}>Mark Lost</Button>}
+            {isAdmin && !isClosed && <Button danger onClick={() => { Modal.confirm({ title: 'Remove this opportunity?', onOk: () => removeMut.mutate() }); }}>Remove</Button>}
             {isAdmin && <Button onClick={() => setNoteModal(true)}>Add Note</Button>}
           </Space>
         }
@@ -165,6 +216,30 @@ const OpportunityDetailPage: React.FC = () => {
               {opp.reviewed_at && <Descriptions.Item label="Reviewed At">{dayjs(opp.reviewed_at).format('MMM D, YYYY HH:mm')}</Descriptions.Item>}
             </Descriptions>
           </Card>
+
+          {isClosed && (
+            <Card title="Outcome" style={{ marginTop: 16 }}>
+              <Alert
+                type={opp.status === 'won' ? 'success' : 'warning'}
+                showIcon
+                message={
+                  opp.status === 'won'
+                    ? 'Closed as won'
+                    : `Closed as lost — ${opp.loss_reason_label ?? 'reason not recorded'}`
+                }
+                description={
+                  <Space direction="vertical" size={4}>
+                    {opp.closed_outcome_at && (
+                      <span>Recorded {dayjs(opp.closed_outcome_at).format('MMM D, YYYY HH:mm')}</span>
+                    )}
+                    {opp.loss_notes && (
+                      <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>{opp.loss_notes}</Typography.Text>
+                    )}
+                  </Space>
+                }
+              />
+            </Card>
+          )}
 
           <Card title="Requirements" style={{ marginTop: 16 }}>
             <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{opp.requirements}</Typography.Paragraph>
@@ -323,6 +398,57 @@ const OpportunityDetailPage: React.FC = () => {
         onOk={() => rejectMut.mutate()} confirmLoading={rejectMut.isPending}
         okButtonProps={{ disabled: !rejectReason.trim() }}>
         <Input.TextArea rows={4} placeholder="Rejection reason (required)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} maxLength={1000} showCount />
+      </Modal>
+
+      <Modal
+        title={closeModal === 'won' ? 'Mark as Won' : 'Mark as Lost'}
+        open={closeModal !== null}
+        onCancel={() => setCloseModal(null)}
+        onOk={() => closeMut.mutate()}
+        confirmLoading={closeMut.isPending}
+        okText={closeModal === 'won' ? 'Mark Won' : 'Mark Lost'}
+        okButtonProps={{ disabled: closeModal === 'lost' && !lossReason }}
+      >
+        {closeModal === 'won' ? (
+          <Typography.Paragraph>
+            This is final: a closed deal cannot be reopened or closed again. It stays
+            in the partner&apos;s approved total and counts towards their tier.
+          </Typography.Paragraph>
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Typography.Paragraph style={{ marginBottom: 0 }}>
+              This is final, and it removes the deal from the partner&apos;s approved
+              total. A reason is required so losses can be counted.
+            </Typography.Paragraph>
+            <Select
+              placeholder="Reason (required)"
+              style={{ width: '100%' }}
+              value={lossReason}
+              onChange={setLossReason}
+              options={(lossReasonOptions ?? []).map((o) => ({ value: o.value, label: o.label }))}
+            />
+            <Input.TextArea
+              rows={3}
+              placeholder="Notes (optional)"
+              value={lossNotes}
+              onChange={(e) => setLossNotes(e.target.value)}
+              maxLength={2000}
+              showCount
+            />
+          </Space>
+        )}
+      </Modal>
+
+      <Modal title="Release Review" open={releaseModal} onCancel={() => setReleaseModal(false)}
+        onOk={() => releaseMut.mutate()} confirmLoading={releaseMut.isPending} okText="Release">
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Typography.Paragraph style={{ marginBottom: 0 }}>
+            The opportunity goes back to pending review, loses its reviewer, and the
+            partner can edit it again. Use this when a claimed review has stalled.
+          </Typography.Paragraph>
+          <Input.TextArea rows={3} placeholder="Reason (optional — shown to the previous reviewer)"
+            value={releaseReason} onChange={(e) => setReleaseReason(e.target.value)} maxLength={500} />
+        </Space>
       </Modal>
 
       <Modal title="Add Internal Note" open={noteModal} onCancel={() => setNoteModal(false)}

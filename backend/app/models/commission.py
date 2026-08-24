@@ -97,21 +97,9 @@ class Commission(Base):
     user = relationship("User")
 
 
-class CommissionStatement(Base):
-    """
-    A rolled-up monthly statement for a company — aggregates Commission rows
-    within a period. Lightweight for now; PDF path is optional so statements
-    can be generated lazily.
-    """
-    __tablename__ = "commission_statements"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
-    period_start = Column(Date, nullable=False)
-    period_end = Column(Date, nullable=False)
-    total_amount = Column(Numeric(14, 2), nullable=False, default=0)
-    commission_count = Column(Integer, nullable=False, default=0)
-    pdf_url = Column(String(500), nullable=True)
-    generated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+# CommissionStatement used to live here. Statements are computed on demand from
+# Commission rows (commission_service.list_statements / build_statement) and
+# the table was never read — only written by the demo seed, which made it look
+# populated in dev and empty everywhere else. Dropped in migration 020.
 
-    company = relationship("Company")

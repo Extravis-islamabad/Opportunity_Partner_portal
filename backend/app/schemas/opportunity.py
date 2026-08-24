@@ -50,6 +50,27 @@ class OpportunityRejectRequest(BaseModel):
     rejection_reason: str = Field(..., min_length=1, max_length=1000)
 
 
+LOSS_REASON_PATTERN = "^(price|competitor|no_budget|timing|technical_fit|no_decision)$"
+
+
+class OpportunityCloseRequest(BaseModel):
+    """Record the outcome of an approved opportunity.
+
+    `won=False` requires a loss_reason — the whole point of closing a deal as
+    lost is being able to count why. Notes are optional detail on top.
+    """
+    won: bool
+    loss_reason: Optional[str] = Field(None, pattern=LOSS_REASON_PATTERN)
+    loss_notes: Optional[str] = None
+
+
+class LossReasonCount(BaseModel):
+    reason: str
+    label: str
+    count: int
+    total_worth: Decimal
+
+
 class OpportunityInternalNoteRequest(BaseModel):
     internal_notes: str = Field(..., min_length=1)
 
@@ -81,6 +102,10 @@ class OpportunityResponse(BaseModel):
     preferred_partner: bool
     multi_partner_alert: bool
     rejection_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    loss_reason_label: Optional[str] = None
+    loss_notes: Optional[str] = None
+    closed_outcome_at: Optional[datetime] = None
     internal_notes: Optional[str] = None
     submitted_by: int
     submitted_by_name: Optional[str] = None

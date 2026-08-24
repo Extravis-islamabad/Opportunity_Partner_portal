@@ -126,12 +126,24 @@ class FunnelStage(BaseModel):
     count: int
 
 
+class LossReasonBreakdown(BaseModel):
+    """Why deals were lost, over the scoped set. Only closed-lost
+    opportunities appear — an open deal has no reason yet."""
+    reason: str
+    label: str
+    count: int
+    total_worth: Decimal
+
+
 class AnalyticsResponse(BaseModel):
     regions: List[RegionBreakdown]
     tiers: List[TierDistribution]
     industries: List[IndustryBreakdown]
     top_companies: List[TopCompany]
     funnel: List[FunnelStage]
+    # Empty until deals start being closed as lost — a system with no closed
+    # losses genuinely has nothing to report here.
+    loss_reasons: List[LossReasonBreakdown] = []
     recent_activity: List["RecentActivityItem"]
 
 

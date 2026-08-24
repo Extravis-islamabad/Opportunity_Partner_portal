@@ -26,7 +26,7 @@ from reportlab.platypus import (
 from app.models.company import Company
 from app.models.customer_license import CustomerLicense
 from app.models.deal_registration import DealRegistration
-from app.models.opportunity import Opportunity
+from app.models.opportunity import LOSS_REASON_LABELS, Opportunity
 from app.models.poc import POC_STAGE_KEYS, POC_STAGE_LABELS, Poc
 
 BRAND_COLOR = colors.HexColor("#1a237e")
@@ -145,7 +145,8 @@ def _xlsx_to_bytes(wb: Workbook) -> bytes:
 
 OPP_HEADERS = [
     "ID", "Name", "Customer", "Company", "Country", "Region",
-    "Worth (USD)", "Closing Date", "Status", "Submitted By", "Created",
+    "Worth (USD)", "Closing Date", "Status", "Loss Reason",
+    "Submitted By", "Created",
 ]
 
 
@@ -160,6 +161,8 @@ def _opportunity_row(opp: Opportunity) -> list[str]:
         f"{float(opp.worth):,.2f}" if opp.worth is not None else "",
         opp.closing_date.strftime("%Y-%m-%d") if opp.closing_date else "",
         opp.status.value.replace("_", " ").title() if opp.status else "",
+        # Blank for everything that is not a closed loss, which is most rows.
+        LOSS_REASON_LABELS[opp.loss_reason] if opp.loss_reason else "",
         opp.submitted_by_user.full_name if opp.submitted_by_user else "",
         opp.created_at.strftime("%Y-%m-%d") if opp.created_at else "",
     ]
@@ -175,7 +178,14 @@ def build_opportunity_pdf(opportunities: Iterable[Opportunity], subtitle: str | 
         styles = getSampleStyleSheet()
         elements.append(Paragraph("No opportunities match the current filters.", styles["Italic"]))
     else:
-        col_widths = [14 * mm, 44 * mm, 40 * mm, 40 * mm, 22 * mm, 22 * mm, 24 * mm, 22 * mm, 24 * mm, 30 * mm, 22 * mm]
+        # 12 columns summing to 272mm, inside the 273mm of content a landscape
+        # A4 page has after its 12mm side margins. The previous 11 columns
+        # already came to 304mm and were overflowing the page; adding Loss
+        # Reason was the prompt to fix that rather than make it worse.
+        col_widths = [
+            10 * mm, 34 * mm, 30 * mm, 30 * mm, 18 * mm, 18 * mm,
+            22 * mm, 20 * mm, 20 * mm, 24 * mm, 26 * mm, 20 * mm,
+        ]
         elements.append(_pdf_table(OPP_HEADERS, rows, col_widths))
 
     doc.build(elements)

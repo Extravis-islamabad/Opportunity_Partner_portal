@@ -38,6 +38,31 @@ async def _license_status_refresher(logger) -> None:
         await asyncio.sleep(24 * 60 * 60)
 
 
+async def _daily(name: str, job, logger) -> None:
+    """Run one job at startup and every 24h thereafter.
+
+    A generalisation of the licence refresher above, because the review SLA
+    sweep needs exactly the same shape and the workflows still to come
+    (exclusivity expiry, renewals, tier reviews) will too. Each job gets its
+    own session and its own failure boundary: one job throwing must not stop
+    the others, and must not stop itself running tomorrow.
+    """
+    from app.core.database import async_session_factory
+
+    while True:
+        try:
+            async with async_session_factory() as session:
+                result = await job(session)
+                await session.commit()
+            if result:
+                logger.info(f"{name}_ran", **(result if isinstance(result, dict) else {"result": result}))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a scheduled loop must survive
+            logger.warning(f"{name}_failed", error=str(exc))
+        await asyncio.sleep(24 * 60 * 60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
@@ -48,15 +73,25 @@ async def lifespan(app: FastAPI):
     from app.core.init_db import create_superadmin
     await create_superadmin()
 
-    refresher = asyncio.create_task(_license_status_refresher(logger))
+    from app.services.review_sla_service import sweep_stale_reviews
+
+    # Held in a list, not bare create_task calls: asyncio keeps only a weak
+    # reference to a running task, so one whose handle nobody holds can be
+    # collected mid-run.
+    jobs = [
+        asyncio.create_task(_license_status_refresher(logger)),
+        asyncio.create_task(_daily("review_sla_sweep", sweep_stale_reviews, logger)),
+    ]
 
     yield
 
-    refresher.cancel()
-    try:
-        await refresher
-    except asyncio.CancelledError:
-        pass
+    for task in jobs:
+        task.cancel()
+    for task in jobs:
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
     from app.core.redis import redis_client
     await redis_client.aclose()

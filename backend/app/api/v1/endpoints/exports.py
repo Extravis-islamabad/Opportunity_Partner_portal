@@ -73,6 +73,9 @@ async def _fetch_opportunities(
     country: Optional[str],
     region: Optional[str],
     search: Optional[str],
+    product: Optional[str] = None,
+    industry: Optional[str] = None,
+    time_frame: Optional[str] = None,
 ) -> list[Opportunity]:
     query = (
         select(Opportunity)
@@ -114,6 +117,13 @@ async def _fetch_opportunities(
         query = query.where(Opportunity.country == country)
     if region:
         query = query.where(Opportunity.region == region)
+    # Mirrors the list filters, so an export matches what is on screen.
+    if product:
+        query = query.where(Opportunity.product == product)
+    if industry:
+        query = query.where(Opportunity.industry == industry)
+    if time_frame:
+        query = query.where(Opportunity.time_frame == time_frame)
     if search:
         query = query.where(
             or_(
@@ -233,6 +243,9 @@ async def export_opportunities_pdf(
     country: Optional[str] = None,
     region: Optional[str] = None,
     search: Optional[str] = None,
+    product: Optional[str] = None,
+    industry: Optional[str] = None,
+    time_frame: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
@@ -244,6 +257,9 @@ async def export_opportunities_pdf(
         country=country,
         region=region,
         search=search,
+        product=product,
+        industry=industry,
+        time_frame=time_frame,
     )
     subtitle_parts = []
     if status:
@@ -265,6 +281,9 @@ async def export_opportunities_xlsx(
     country: Optional[str] = None,
     region: Optional[str] = None,
     search: Optional[str] = None,
+    product: Optional[str] = None,
+    industry: Optional[str] = None,
+    time_frame: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
@@ -276,6 +295,9 @@ async def export_opportunities_xlsx(
         country=country,
         region=region,
         search=search,
+        product=product,
+        industry=industry,
+        time_frame=time_frame,
     )
     xlsx_bytes = build_opportunity_xlsx(opps)
     return _stream(

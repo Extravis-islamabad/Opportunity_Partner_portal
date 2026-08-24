@@ -20,6 +20,7 @@ import OpportunityListPage from '@/pages/opportunities/OpportunityListPage';
 import OpportunityCreatePage from '@/pages/opportunities/OpportunityCreatePage';
 import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage';
 import DuplicateReviewPage from '@/pages/opportunities/DuplicateReviewPage';
+import StaleReviewsPage from '@/pages/opportunities/StaleReviewsPage';
 import KnowledgeBasePage from '@/pages/knowledge-base/KnowledgeBasePage';
 import LmsPage from '@/pages/lms/LmsPage';
 import CourseDetailPage from '@/pages/lms/CourseDetailPage';
@@ -36,6 +37,7 @@ import ActivityLogPage from '@/pages/activities/ActivityLogPage';
 import OpportunityEditPage from '@/pages/opportunities/OpportunityEditPage';
 import AuditLogsPage from '@/pages/audit/AuditLogsPage';
 import BulkImportPage from '@/pages/admin/BulkImportPage';
+import EmailLogPage from '@/pages/admin/EmailLogPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,6 +83,7 @@ const App: React.FC = () => {
                 {/* Audit log + bulk import are superadmin-only tools */}
                 <Route path="/audit-logs" element={<ProtectedRoute requiredRole="superadmin"><AuditLogsPage /></ProtectedRoute>} />
                 <Route path="/admin/bulk-import" element={<ProtectedRoute requiredRole="superadmin"><BulkImportPage /></ProtectedRoute>} />
+                <Route path="/admin/email-log" element={<ProtectedRoute requiredRole="superadmin"><EmailLogPage /></ProtectedRoute>} />
 
                 {/* Pipeline — visible to all authenticated roles, each
                     scoped by the backend (partners own, sales reps assigned,
@@ -89,6 +92,8 @@ const App: React.FC = () => {
                 <Route path="/opportunities/create" element={<ProtectedRoute requiredRole="partner"><OpportunityCreatePage /></ProtectedRoute>} />
                 {/* Static paths declared BEFORE :id so they don't get caught by the param route */}
                 <Route path="/opportunities/duplicates" element={<ProtectedRoute requiredRole="admin"><DuplicateReviewPage /></ProtectedRoute>} />
+                {/* Declared above /opportunities/:id so the static path wins. */}
+                <Route path="/opportunities/stale-reviews" element={<ProtectedRoute requiredRole="admin"><StaleReviewsPage /></ProtectedRoute>} />
                 <Route path="/opportunities/:id/edit" element={<ProtectedRoute requiredRole="partner"><OpportunityEditPage /></ProtectedRoute>} />
                 <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
                 {/* POC visible to all (partners read-only); Deployment is

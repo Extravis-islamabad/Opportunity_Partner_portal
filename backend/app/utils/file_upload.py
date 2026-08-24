@@ -107,16 +107,6 @@ def _validate_bytes_and_name(content: bytes, filename: str | None, declared_ct: 
     return sorted(sig["extensions"])[0]
 
 
-def validate_file(file: UploadFile) -> None:
-    """Header-only pre-check kept for backwards compatibility. The real
-    validation happens in save_upload once the bytes are available."""
-    if file.content_type and file.content_type not in settings.ALLOWED_FILE_TYPES:
-        raise BadRequestException(
-            code="INVALID_FILE_TYPE",
-            message=f"File type '{file.content_type}' is not allowed",
-            details={"allowed_types": settings.ALLOWED_FILE_TYPES},
-        )
-
 
 async def save_upload(
     file: UploadFile,
@@ -164,13 +154,3 @@ async def save_upload(
     }
 
 
-async def delete_upload(file_url: str) -> bool:
-    if not file_url.startswith("/uploads/"):
-        return False
-    relative_path = file_url.replace("/uploads/", "")
-    file_path = Path(settings.UPLOAD_DIR) / relative_path
-    if file_path.exists():
-        os.remove(file_path)
-        logger.info("file_deleted", path=relative_path)
-        return True
-    return False

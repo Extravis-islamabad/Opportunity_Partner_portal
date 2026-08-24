@@ -27,6 +27,8 @@ import {
   UploadOutlined,
   HistoryOutlined,
   CalendarOutlined,
+  ClockCircleOutlined,
+  MailOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -99,6 +101,7 @@ const AppLayout: React.FC = () => {
     ...(isSuperadmin ? [{ key: '/users', icon: <TeamOutlined />, label: 'Users' }] : []),
     { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: isSuperadmin ? 'Opportunities' : 'Pipeline' },
     { key: '/opportunities/duplicates', icon: <ExclamationCircleOutlined />, label: 'Duplicate Review' },
+    { key: '/opportunities/stale-reviews', icon: <ClockCircleOutlined />, label: 'Stuck Reviews' },
     { key: '/poc', icon: <RocketOutlined />, label: 'POC Tracking' },
     { key: '/deployment', icon: <DeploymentUnitOutlined />, label: 'Deployment' },
     { key: '/activities', icon: <CalendarOutlined />, label: 'Activity Log' },
@@ -112,6 +115,7 @@ const AppLayout: React.FC = () => {
     ...(isSuperadmin
       ? [
           { key: '/admin/bulk-import', icon: <UploadOutlined />, label: 'Bulk Import' },
+          { key: '/admin/email-log', icon: <MailOutlined />, label: 'Email Log' },
           { key: '/audit-logs', icon: <HistoryOutlined />, label: 'Audit Logs' },
         ]
       : []),

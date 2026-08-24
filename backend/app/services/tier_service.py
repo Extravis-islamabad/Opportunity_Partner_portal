@@ -161,13 +161,13 @@ async def measure_company(db, company_id: int) -> tuple[int, float]:
     from sqlalchemy import func, select
 
     from app.models.enrollment import Enrollment, EnrollmentStatus
-    from app.models.opportunity import Opportunity, OpportunityStatus
+    from app.models.opportunity import ACCEPTED_STATUSES, Opportunity
     from app.models.user import User
 
     approved = (await db.execute(
         select(func.count(Opportunity.id)).where(
             Opportunity.company_id == company_id,
-            Opportunity.status == OpportunityStatus.APPROVED,
+            Opportunity.status.in_(ACCEPTED_STATUSES),
             Opportunity.deleted_at.is_(None),
         )
     )).scalar() or 0

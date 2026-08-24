@@ -15,6 +15,7 @@ from app.core.deps import (
     assert_can_access_opportunity,
     is_poc_team_member,
 )
+from app.models.opportunity import LOSS_REASON_LABELS
 from app.models.user import User, UserRole
 from app.schemas.opportunity import (
     OpportunityCreateRequest,
@@ -23,10 +24,11 @@ from app.schemas.opportunity import (
     OpportunityApproveRequest,
     OpportunityRejectRequest,
     OpportunityInternalNoteRequest,
+    OpportunityCloseRequest,
     OppDocumentResponse,
 )
 from app.schemas.common import MessageResponse
-from app.services import opportunity_service, duplicate_service
+from app.services import opportunity_service, duplicate_service, review_sla_service
 from app.utils.file_upload import save_upload
 from app.core.exceptions import ForbiddenException
 
@@ -50,6 +52,12 @@ async def _assert_admin_manages(db: AsyncSession, admin: User, opp_id: int) -> N
 # ---------------------------------------------------------------------------
 # Duplicate detection endpoints
 # ---------------------------------------------------------------------------
+
+class ReviewReleaseRequest(BaseModel):
+    """Why the claim is being released. Optional, but it is what the previous
+    reviewer sees, so it is worth filling in."""
+    reason: Optional[str] = Field(None, max_length=500)
+
 
 class DuplicateCheckRequest(BaseModel):
     customer_name: str = Field(..., min_length=2, max_length=200)
@@ -104,6 +112,33 @@ async def list_duplicate_review_queue(
     }
 
 
+@router.get("/stale-reviews", status_code=200)
+async def list_stale_reviews(
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Claimed reviews that have stopped moving, oldest first.
+
+    Scoped like everything else an admin sees. Declared above /{opp_id} for
+    the same reason as loss-reasons.
+    """
+    scope = await get_admin_scope(db, admin)
+    return await review_sla_service.list_stale_reviews(db, scope)
+
+
+@router.get("/loss-reasons", status_code=200)
+async def list_loss_reasons(_user: User = Depends(get_current_user)):
+    """The fixed reason list, so the form does not hardcode it.
+
+    Declared above /{opp_id}: FastAPI matches in declaration order, and a
+    static path registered after a parameterised one at the same depth is
+    never reached — the router tries to parse "loss-reasons" as an int first.
+    """
+    return [
+        {"value": r.value, "label": label} for r, label in LOSS_REASON_LABELS.items()
+    ]
+
+
 @router.post("", response_model=OpportunityResponse, status_code=201)
 async def create_opportunity(
     data: OpportunityCreateRequest,
@@ -123,6 +158,9 @@ async def list_opportunities(
     region: Optional[str] = None,
     search: Optional[str] = None,
     channel_manager_id: Optional[int] = None,
+    product: Optional[str] = None,
+    industry: Optional[str] = None,
+    time_frame: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -154,6 +192,7 @@ async def list_opportunities(
         db, page, page_size, status, company_id, country, region, search,
         submitted_by, channel_manager_id, sales_rep_id=sales_rep_id,
         company_ids=company_ids,
+        product=product, industry=industry, time_frame=time_frame,
     )
     return {
         "items": [item.model_dump(mode="json") for item in items],
@@ -257,6 +296,42 @@ async def mark_under_review(
 ):
     await _assert_admin_manages(db, admin, opp_id)
     return await opportunity_service.mark_under_review(db, opp_id, admin)
+
+
+@router.post("/{opp_id}/close", response_model=OpportunityResponse, status_code=200)
+async def close_opportunity(
+    opp_id: int,
+    data: OpportunityCloseRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record whether an approved opportunity was won or lost.
+
+    Admin-only and scoped, like the other outcome decisions on an
+    opportunity — it is Extravis recording a result, not the partner
+    self-reporting one.
+    """
+    await _assert_admin_manages(db, admin, opp_id)
+    return await opportunity_service.close_opportunity(db, opp_id, data, admin)
+
+
+
+
+@router.post("/{opp_id}/release", response_model=MessageResponse, status_code=200)
+async def release_review(
+    opp_id: int,
+    data: ReviewReleaseRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hand a claimed review back to the queue so someone else can take it.
+
+    Any scoped admin, not just the claimant — the situation this exists for is
+    a reviewer who is not around to release it themselves.
+    """
+    await _assert_admin_manages(db, admin, opp_id)
+    await review_sla_service.release_review_claim(db, opp_id, admin, data.reason)
+    return MessageResponse(message="Review released — the opportunity is back in the queue")
 
 
 @router.delete("/{opp_id}", response_model=MessageResponse, status_code=200)

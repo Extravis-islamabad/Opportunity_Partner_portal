@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_partner_pipeline_scope
 from app.models.company import CHANNEL_COMPANY_TYPES, Company, PartnerTier
 from app.models.user import User, UserRole
-from app.models.opportunity import Opportunity, OpportunityStatus
+from app.models.opportunity import (
+    ACCEPTED_STATUSES,
+    LOSS_REASON_LABELS,
+    Opportunity,
+    OpportunityStatus,
+)
 from app.models.enrollment import Enrollment, EnrollmentStatus
 from app.models.doc_request import DocRequest, DocRequestStatus
 from app.models.deal_registration import DealRegistration, DealStatus
@@ -28,6 +33,7 @@ from app.schemas.dashboard import (
     IndustryBreakdown,
     TopCompany,
     FunnelStage,
+    LossReasonBreakdown,
     RecentActivityItem,
     ProductBreakdown,
     OppIndustryBreakdown,
@@ -91,7 +97,7 @@ async def get_admin_dashboard_stats(
     partner_count = await db.execute(select(func.count(User.id)).where(*partner_filter))
     opp_count = await db.execute(select(func.count(Opportunity.id)).where(*opp_scope))
     approved_count = await db.execute(
-        select(func.count(Opportunity.id)).where(*opp_scope, Opportunity.status == OpportunityStatus.APPROVED)
+        select(func.count(Opportunity.id)).where(*opp_scope, Opportunity.status.in_(ACCEPTED_STATUSES))
     )
     rejected_count = await db.execute(
         select(func.count(Opportunity.id)).where(*opp_scope, Opportunity.status == OpportunityStatus.REJECTED)
@@ -107,7 +113,7 @@ async def get_admin_dashboard_stats(
     )
     approved_worth = await db.execute(
         select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
-            *opp_scope, Opportunity.status == OpportunityStatus.APPROVED
+            *opp_scope, Opportunity.status.in_(ACCEPTED_STATUSES)
         )
     )
 
@@ -204,7 +210,7 @@ async def get_monthly_opportunity_data(
         select(
             month_col.label('month'),
             func.count(Opportunity.id).label('submitted'),
-            func.sum(case((Opportunity.status == OpportunityStatus.APPROVED, 1), else_=0)).label('approved'),
+            func.sum(case((Opportunity.status.in_(ACCEPTED_STATUSES), 1), else_=0)).label('approved'),
             func.sum(case((Opportunity.status == OpportunityStatus.REJECTED, 1), else_=0)).label('rejected'),
         )
         .where(*filters)
@@ -232,7 +238,7 @@ async def get_company_performance(db: AsyncSession, company_id: int) -> CompanyP
     won = await db.execute(
         select(func.count(Opportunity.id)).where(
             Opportunity.company_id == company_id,
-            Opportunity.status == OpportunityStatus.APPROVED,
+            Opportunity.status.in_(ACCEPTED_STATUSES),
             Opportunity.deleted_at.is_(None),
         )
     )
@@ -251,7 +257,7 @@ async def get_company_performance(db: AsyncSession, company_id: int) -> CompanyP
     approved_worth_result = await db.execute(
         select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
             Opportunity.company_id == company_id,
-            Opportunity.status == OpportunityStatus.APPROVED,
+            Opportunity.status.in_(ACCEPTED_STATUSES),
             Opportunity.deleted_at.is_(None),
         )
     )
@@ -307,7 +313,7 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
 
     my_opps = (await db.execute(select(func.count(Opportunity.id)).where(*base_filter))).scalar() or 0
     my_approved = (await db.execute(
-        select(func.count(Opportunity.id)).where(*base_filter, Opportunity.status == OpportunityStatus.APPROVED)
+        select(func.count(Opportunity.id)).where(*base_filter, Opportunity.status.in_(ACCEPTED_STATUSES))
     )).scalar() or 0
     my_rejected = (await db.execute(
         select(func.count(Opportunity.id)).where(*base_filter, Opportunity.status == OpportunityStatus.REJECTED)
@@ -326,7 +332,7 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
     )).scalar() or Decimal("0")
     my_approved_worth = (await db.execute(
         select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
-            *base_filter, Opportunity.status == OpportunityStatus.APPROVED
+            *base_filter, Opportunity.status.in_(ACCEPTED_STATUSES)
         )
     )).scalar() or Decimal("0")
 
@@ -420,7 +426,7 @@ async def get_channel_manager_dashboard(
                 else_=0,
             )).label("pending_opps"),
             func.sum(case(
-                (Opportunity.status == OpportunityStatus.APPROVED, 1),
+                (Opportunity.status.in_(ACCEPTED_STATUSES), 1),
                 else_=0,
             )).label("approved_opps"),
         )
@@ -512,7 +518,7 @@ async def get_partner_timeline(
         select(
             month_col.label('month'),
             func.count(Opportunity.id).label('submitted'),
-            func.sum(case((Opportunity.status == OpportunityStatus.APPROVED, 1), else_=0)).label('approved'),
+            func.sum(case((Opportunity.status.in_(ACCEPTED_STATUSES), 1), else_=0)).label('approved'),
             func.sum(case((Opportunity.status == OpportunityStatus.REJECTED, 1), else_=0)).label('rejected'),
         )
         .where(
@@ -558,7 +564,7 @@ async def get_admin_analytics(
             func.coalesce(
                 func.sum(
                     case(
-                        (Opportunity.status == OpportunityStatus.APPROVED, Opportunity.worth),
+                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth),
                         else_=0,
                     )
                 ),
@@ -646,12 +652,12 @@ async def get_admin_analytics(
             Company.company_type,
             Company.region,
             func.count(
-                case((Opportunity.status == OpportunityStatus.APPROVED, 1))
+                case((Opportunity.status.in_(ACCEPTED_STATUSES), 1))
             ).label("won"),
             func.coalesce(
                 func.sum(
                     case(
-                        (Opportunity.status == OpportunityStatus.APPROVED, Opportunity.worth),
+                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth),
                         else_=0,
                     )
                 ),
@@ -669,7 +675,7 @@ async def get_admin_analytics(
             func.coalesce(
                 func.sum(
                     case(
-                        (Opportunity.status == OpportunityStatus.APPROVED, Opportunity.worth),
+                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth),
                         else_=0,
                     )
                 ),
@@ -700,11 +706,16 @@ async def get_admin_analytics(
     funnel_base = [Opportunity.deleted_at.is_(None)]
     if is_scoped:
         funnel_base.append(Opportunity.company_id.in_(scope_company_ids))
+    # One row per stage, so this compares a single status rather than using
+    # ACCEPTED_STATUSES. WON and LOST are appended because a funnel that stops
+    # at "approved" loses every deal that reached an outcome.
     for status in [
         OpportunityStatus.DRAFT,
         OpportunityStatus.PENDING_REVIEW,
         OpportunityStatus.UNDER_REVIEW,
         OpportunityStatus.APPROVED,
+        OpportunityStatus.WON,
+        OpportunityStatus.LOST,
     ]:
         c = (await db.execute(
             select(func.count(Opportunity.id)).where(
@@ -758,12 +769,39 @@ async def get_admin_analytics(
         for row in activity_rows
     ]
 
+    # Why we lose. Grouped over closed-lost opportunities only: an open deal
+    # has no reason, and counting it as "unknown" would swamp the real ones.
+    loss_rows = (await db.execute(
+        select(
+            Opportunity.loss_reason,
+            func.count(Opportunity.id),
+            func.coalesce(func.sum(Opportunity.worth), 0),
+        )
+        .where(
+            *([Opportunity.deleted_at.is_(None), Opportunity.status == OpportunityStatus.LOST]
+              + ([Opportunity.company_id.in_(scope_company_ids)] if scope_company_ids is not None else [])),
+            Opportunity.loss_reason.isnot(None),
+        )
+        .group_by(Opportunity.loss_reason)
+        .order_by(func.count(Opportunity.id).desc())
+    )).all()
+    loss_reasons = [
+        LossReasonBreakdown(
+            reason=row[0].value,
+            label=LOSS_REASON_LABELS[row[0]],
+            count=row[1],
+            total_worth=row[2] or Decimal("0"),
+        )
+        for row in loss_rows
+    ]
+
     return AnalyticsResponse(
         regions=regions,
         tiers=tiers,
         industries=industries,
         top_companies=top_companies,
         funnel=funnel,
+        loss_reasons=loss_reasons,
         recent_activity=recent_activity,
     )
 

@@ -98,6 +98,13 @@ export const ROUTES: RouteDescriptor[] = [
     keywords: ['audit', 'history', 'activity', 'log', 'trail'],
   },
   {
+    path: '/admin/email-log',
+    label: 'Email Log',
+    section: 'Administration',
+    roles: ['superadmin'],
+    keywords: ['email', 'smtp', 'mail', 'delivery', 'failed', 'skipped', 'notification'],
+  },
+  {
     path: '/admin/bulk-import',
     label: 'Bulk Import',
     section: 'Administration',
@@ -117,6 +124,13 @@ export const ROUTES: RouteDescriptor[] = [
     section: 'Pipeline',
     roles: ['admin'],
     keywords: ['duplicate', 'dedupe', 'merge', 'review', 'conflict'],
+  },
+  {
+    path: '/opportunities/stale-reviews',
+    label: 'Stuck Reviews',
+    section: 'Pipeline',
+    roles: ['admin'],
+    keywords: ['stuck', 'stale', 'sla', 'review', 'claimed', 'release', 'overdue'],
   },
   {
     path: '/companies/create',

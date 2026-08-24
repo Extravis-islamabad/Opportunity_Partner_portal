@@ -27,14 +27,58 @@ except FileNotFoundError:
     logger.warning("email_logo_missing", path=str(LOGO_PATH))
 
 
+async def _record(
+    status: str,
+    to_emails: List[str],
+    subject: str,
+    template: Optional[str],
+    error: Optional[str] = None,
+) -> None:
+    """Write one row to the delivery log.
+
+    Opens its own short-lived session rather than taking one as a parameter,
+    for two reasons: the mailer is called from request handlers, background
+    tasks and scheduled jobs alike, and threading a session through all of
+    them would mean some caller eventually forgets. And a send that already
+    failed must not also roll back the caller's transaction.
+
+    Never raises. A logging problem must not turn a successful send into a
+    failure, and must not break the caller either.
+    """
+    try:
+        from app.core.database import async_session_factory
+        from app.models.email_delivery import EmailDelivery, EmailStatus
+
+        async with async_session_factory() as session:
+            session.add(
+                EmailDelivery(
+                    recipients=", ".join(to_emails)[:8000],
+                    subject=subject[:500],
+                    template=template,
+                    status=EmailStatus(status),
+                    error=error,
+                )
+            )
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        logger.warning("email_delivery_log_failed", error=str(exc))
+
+
 async def send_email(
     to_emails: List[str],
     subject: str,
     html_body: str,
     attachments: Optional[List[dict]] = None,
+    template: Optional[str] = None,
 ) -> bool:
-    if not settings.SMTP_PASSWORD:
-        logger.warning("email_skipped", reason="SMTP_PASSWORD not configured", to=to_emails, subject=subject)
+    # Every path out of this function records what happened, including the one
+    # where nothing was attempted. A skipped send used to leave only a log
+    # line, which is why a deployment that could not mail anyone still looked
+    # completely healthy.
+    if not settings.email_is_configured:
+        reason = "SMTP is not configured (needs SMTP_HOST, SMTP_PASSWORD, SMTP_FROM_EMAIL)"
+        logger.warning("email_skipped", reason=reason, to=to_emails, subject=subject)
+        await _record("skipped", to_emails, subject, template, reason)
         return False
 
     # Use multipart/related so the inline logo image (referenced by cid:) is
@@ -84,9 +128,11 @@ async def send_email(
             start_tls=use_starttls,
         )
         logger.info("email_sent", to=to_emails, subject=subject)
+        await _record("sent", to_emails, subject, template)
         return True
     except Exception as e:
         logger.error("email_send_failed", error=str(e), to=to_emails, subject=subject)
+        await _record("failed", to_emails, subject, template, str(e))
         return False
 
 
@@ -104,4 +150,6 @@ async def send_template_email(
         context["content"] = context.get("content", subject)
 
     html_body = template.render(**context, app_name=settings.APP_NAME, frontend_url=settings.FRONTEND_URL)
-    return await send_email(to_emails, subject, html_body, attachments)
+    return await send_email(
+        to_emails, subject, html_body, attachments, template=template_name
+    )

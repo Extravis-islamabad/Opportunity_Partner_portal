@@ -15,6 +15,51 @@ class OpportunityStatus(str, enum.Enum):
     REJECTED = "rejected"
     REMOVED = "removed"
     MULTI_PARTNER_FLAGGED = "multi_partner_flagged"
+    # Final outcome. APPROVED means Extravis accepted the registration; these
+    # two say what became of the deal, which is a different question and used
+    # to be inferable only from the POC and the licence.
+    WON = "won"
+    LOST = "lost"
+
+
+class LossReason(str, enum.Enum):
+    """Why a deal was lost. A fixed list rather than free text, because the
+    point is to be able to count them — "price" written six different ways
+    reports as six different reasons. `loss_notes` carries the detail."""
+
+    PRICE = "price"
+    COMPETITOR = "competitor"
+    NO_BUDGET = "no_budget"
+    TIMING = "timing"
+    TECHNICAL_FIT = "technical_fit"
+    NO_DECISION = "no_decision"
+
+
+LOSS_REASON_LABELS: dict[LossReason, str] = {
+    LossReason.PRICE: "Price",
+    LossReason.COMPETITOR: "Lost to competitor",
+    LossReason.NO_BUDGET: "No budget",
+    LossReason.TIMING: "Timing",
+    LossReason.TECHNICAL_FIT: "Technical fit",
+    LossReason.NO_DECISION: "No decision made",
+}
+
+
+# Statuses meaning Extravis accepted the registration. WON belongs here: a deal
+# that was approved and then won is not less approved than one still open, and
+# every count of "approved opportunities" — tier progression, dashboards,
+# company performance — must include it or winning a deal would silently
+# subtract from the partner's record.
+ACCEPTED_STATUSES: tuple[OpportunityStatus, ...] = (
+    OpportunityStatus.APPROVED,
+    OpportunityStatus.WON,
+)
+
+# Terminal outcomes. Nothing further happens to these.
+CLOSED_STATUSES: tuple[OpportunityStatus, ...] = (
+    OpportunityStatus.WON,
+    OpportunityStatus.LOST,
+)
 
 
 class Opportunity(Base):
@@ -47,6 +92,30 @@ class Opportunity(Base):
     preferred_partner = Column(Boolean, default=False, nullable=False)
     multi_partner_alert = Column(Boolean, default=False, nullable=False)
     rejection_reason = Column(Text, nullable=True)
+
+    # Review ageing. An admin opening a pending opportunity claims it — the
+    # status moves to under_review and the partner can no longer edit. If that
+    # admin then goes on leave, nothing used to move it again: the deal sat
+    # locked with nobody chasing, and the partner could not even withdraw it.
+    #
+    # These three timestamps are what make the claim visible and chaseable:
+    # when it was taken, and whether the reviewer has already been reminded or
+    # the claim escalated — so neither happens twice.
+    review_claimed_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    review_reminded_at = Column(DateTime(timezone=True), nullable=True)
+    review_escalated_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Closure. Set together when an opportunity reaches WON or LOST;
+    # loss_reason is required for a loss and meaningless for a win.
+    loss_reason = Column(
+        Enum(LossReason, values_callable=lambda x: [e.value for e in x]),
+        nullable=True,
+    )
+    loss_notes = Column(Text, nullable=True)
+    closed_outcome_at = Column(DateTime(timezone=True), nullable=True)
+    closed_outcome_by = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     internal_notes = Column(Text, nullable=True)
 
     # AI-generated fields (populated asynchronously by ai_service)

@@ -337,6 +337,21 @@ const AdminDashboard: React.FC = () => {
     ];
   }, [monthly]);
 
+  // Real month-over-month change in submitted opportunities. The hero cards
+  // used to carry hardcoded trends — 12% "vs last quarter", 8% "new this
+  // month", 24%, 18% — none of which came from anything. Three of the four
+  // have no historical series behind them at all, so they now carry no trend
+  // rather than an invented one; this is the one that can be computed.
+  const opportunityTrend = useMemo(() => {
+    if (!monthly || monthly.length < 2) return undefined;
+    const arr = monthly as MonthlyOpportunityData[];
+    const last = arr[arr.length - 1];
+    const prev = arr[arr.length - 2];
+    if (!last || !prev || !prev.submitted) return undefined;
+    const pct = Math.round(((last.submitted - prev.submitted) / prev.submitted) * 100);
+    return { value: pct, label: 'submitted vs last month' };
+  }, [monthly]);
+
   // Region grouped column
   const regionColumnData = useMemo(() => {
     if (!analytics?.regions) return [];
@@ -524,7 +539,6 @@ const AdminDashboard: React.FC = () => {
             value={stats.total_companies}
             icon={<BankOutlined />}
             gradient={`linear-gradient(135deg, ${BRAND.royal500} 0%, ${BRAND.royal400} 100%)`}
-            trend={{ value: 12, label: 'vs last quarter' }}
             onClick={() => navigate('/companies')}
           />
         </Col>
@@ -534,7 +548,6 @@ const AdminDashboard: React.FC = () => {
             value={stats.total_partners}
             icon={<TeamOutlined />}
             gradient={`linear-gradient(135deg, ${BRAND.violet600} 0%, ${BRAND.violet500} 100%)`}
-            trend={{ value: 8, label: 'new this month' }}
             // /users is superadmin-only; channel managers reach their partners
             // through their managed companies instead of a silent redirect.
             onClick={() => navigate(isSuperadmin ? '/users' : '/companies')}
@@ -546,7 +559,7 @@ const AdminDashboard: React.FC = () => {
             value={stats.total_opportunities}
             icon={<FundProjectionScreenOutlined />}
             gradient={`linear-gradient(135deg, ${BRAND.navy} 0%, ${BRAND.royal500} 100%)`}
-            trend={{ value: 24, label: 'pipeline growth' }}
+            trend={opportunityTrend}
             onClick={() => navigate('/opportunities')}
           />
         </Col>
@@ -556,7 +569,6 @@ const AdminDashboard: React.FC = () => {
             value={formatChartUsd(Number(stats.total_worth))}
             icon={<DollarOutlined />}
             gradient={`linear-gradient(135deg, ${BRAND.violet700} 0%, ${BRAND.violet500} 100%)`}
-            trend={{ value: 18, label: 'YoY growth' }}
           />
         </Col>
       </Row>
@@ -1052,6 +1064,52 @@ const AdminDashboard: React.FC = () => {
           </Card>
         </Col>
       </Row>
+
+      {/* ---------------- Why deals were lost ------------------------------- */}
+      {(analytics?.loss_reasons?.length ?? 0) > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card
+              title={
+                <Space>
+                  <AppstoreOutlined style={{ color: '#ff7a45' }} />
+                  <span>Why Deals Were Lost</span>
+                </Space>
+              }
+              extra={
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  closed-lost only
+                </Typography.Text>
+              }
+              variant="borderless"
+              style={{ borderRadius: 12 }}
+            >
+              <Table
+                rowKey="reason"
+                size="small"
+                pagination={false}
+                dataSource={analytics?.loss_reasons ?? []}
+                columns={[
+                  { title: 'Reason', dataIndex: 'label' },
+                  {
+                    title: 'Deals',
+                    dataIndex: 'count',
+                    width: 100,
+                    align: 'right' as const,
+                  },
+                  {
+                    title: 'Value',
+                    dataIndex: 'total_worth',
+                    width: 140,
+                    align: 'right' as const,
+                    render: (v: string) => formatChartUsd(Number(v)),
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* ---------------- Industry bar + Approvals line --------------------- */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>

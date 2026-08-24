@@ -21,7 +21,6 @@ from sqlalchemy.orm import joinedload
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.models.commission import (
     Commission,
-    CommissionStatement,
     CommissionStatus,
     TierCommissionRate,
 )

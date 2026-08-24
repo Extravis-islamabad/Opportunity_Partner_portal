@@ -8,7 +8,13 @@ from typing import Optional
 import structlog
 
 from app.utils.file_tokens import signed_file_url
-from app.models.opportunity import Opportunity, OpportunityStatus
+from app.models.opportunity import (
+    ACCEPTED_STATUSES,
+    LOSS_REASON_LABELS,
+    LossReason,
+    Opportunity,
+    OpportunityStatus,
+)
 from app.models.opp_document import OppDocument
 from app.models.user import User, UserRole
 from app.models.company import Company
@@ -29,6 +35,19 @@ from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_all_admins, notify_user
 
 logger = structlog.get_logger()
+
+# asyncio keeps only a weak reference to a running task. A bare
+# `asyncio.create_task(...)` whose result nobody holds can therefore be
+# collected mid-flight, and the AI scoring simply never finishes — silently,
+# and more often under load, which is when it is hardest to notice. Holding a
+# strong reference until the task completes is the documented fix.
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
 async def _ai_score_opportunity_bg(opp_id: int) -> None:
@@ -98,6 +117,12 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         preferred_partner=opp.preferred_partner,
         multi_partner_alert=opp.multi_partner_alert,
         rejection_reason=opp.rejection_reason,
+        loss_reason=opp.loss_reason.value if opp.loss_reason else None,
+        loss_reason_label=(
+            LOSS_REASON_LABELS[opp.loss_reason] if opp.loss_reason else None
+        ),
+        loss_notes=opp.loss_notes,
+        closed_outcome_at=opp.closed_outcome_at,
         internal_notes=opp.internal_notes,
         submitted_by=opp.submitted_by,
         submitted_by_name=opp.submitted_by_user.full_name if opp.submitted_by_user else None,
@@ -213,7 +238,7 @@ async def create_opportunity(
 
     # Fire-and-forget AI scoring for submitted opportunities
     if opp.status == OpportunityStatus.PENDING_REVIEW and settings.ai_is_configured:
-        asyncio.create_task(_ai_score_opportunity_bg(opp.id))
+        _spawn_background(_ai_score_opportunity_bg(opp.id))
 
     return _build_opportunity_response(opp)
 
@@ -259,6 +284,9 @@ async def get_opportunities(
     date_to: Optional[str] = None,
     sales_rep_id: Optional[int] = None,
     company_ids: Optional[list[int]] = None,
+    product: Optional[str] = None,
+    industry: Optional[str] = None,
+    time_frame: Optional[str] = None,
 ) -> tuple[list, int]:
     """`company_ids` is a hard scope, not a user-supplied filter: callers pass
     the set of companies the caller is allowed to read (see
@@ -297,6 +325,19 @@ async def get_opportunities(
     if sales_rep_id:
         query = query.where(Opportunity.sales_rep_id == sales_rep_id)
         count_query = count_query.where(Opportunity.sales_rep_id == sales_rep_id)
+    # Product / industry / quarter used to be applied in the browser, to the
+    # page already fetched — so the total and the page count described the
+    # unfiltered set while the rows described the filtered one, and anything
+    # matching on page 2 was invisible. They belong in the query.
+    if product:
+        query = query.where(Opportunity.product == product)
+        count_query = count_query.where(Opportunity.product == product)
+    if industry:
+        query = query.where(Opportunity.industry == industry)
+        count_query = count_query.where(Opportunity.industry == industry)
+    if time_frame:
+        query = query.where(Opportunity.time_frame == time_frame)
+        count_query = count_query.where(Opportunity.time_frame == time_frame)
     if search:
         sf = or_(
             Opportunity.name.ilike(f"%{search}%"),
@@ -389,7 +430,7 @@ async def update_opportunity(
     if opp.submitted_by != partner_user.id:
         raise ForbiddenException(message="You can only edit your own opportunities")
 
-    if opp.status in (OpportunityStatus.UNDER_REVIEW, OpportunityStatus.APPROVED):
+    if opp.status in (OpportunityStatus.UNDER_REVIEW, *ACCEPTED_STATUSES, OpportunityStatus.LOST):
         raise ConflictException(
             code="OPPORTUNITY_LOCKED",
             message="This opportunity can no longer be edited. An admin is reviewing it.",
@@ -519,7 +560,7 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
 
     # Fire-and-forget AI scoring
     if settings.ai_is_configured:
-        asyncio.create_task(_ai_score_opportunity_bg(opp.id))
+        _spawn_background(_ai_score_opportunity_bg(opp.id))
 
     return _build_opportunity_response(opp)
 
@@ -741,6 +782,11 @@ async def auto_mark_under_review(
         before_status = opp.status.value
         opp.status = OpportunityStatus.UNDER_REVIEW
         opp.reviewed_by = admin_user.id
+        # Start the clock. Without this the claim has no age, and an
+        # abandoned review is indistinguishable from one taken this morning.
+        opp.review_claimed_at = datetime.now(timezone.utc)
+        opp.review_reminded_at = None
+        opp.review_escalated_at = None
         await write_audit_log(db, admin_user.id, "UPDATE", "opportunity", opp.id,
                               {"before": {"status": before_status}, "after": {"status": "under_review"}})
         await db.flush()
@@ -845,3 +891,76 @@ async def remove_opp_document(
         "opportunity_id": opp_id,
         "file_name": doc.file_name,
     })
+
+
+async def close_opportunity(
+    db: AsyncSession, opp_id: int, data, admin_user: User
+) -> OpportunityResponse:
+    """Record what became of an approved opportunity.
+
+    Only from APPROVED. A deal cannot be won before Extravis has accepted the
+    registration, and re-closing an already-closed one would overwrite the
+    reason someone recorded at the time — reopening is a deliberate,
+    separate act rather than a side effect of closing again.
+    """
+    opp = await get_opportunity_or_404(db, opp_id)
+
+    if opp.status in (OpportunityStatus.WON, OpportunityStatus.LOST):
+        raise ConflictException(
+            code="ALREADY_CLOSED",
+            message=f"This opportunity was already closed as {opp.status.value}",
+        )
+    if opp.status != OpportunityStatus.APPROVED:
+        raise BadRequestException(
+            code="NOT_APPROVED",
+            message="Only an approved opportunity can be closed as won or lost",
+        )
+
+    if not data.won and not data.loss_reason:
+        raise BadRequestException(
+            code="LOSS_REASON_REQUIRED",
+            message="A lost opportunity needs a reason",
+        )
+
+    before = opp.status.value
+    opp.status = OpportunityStatus.WON if data.won else OpportunityStatus.LOST
+    # A win carries no reason, and clearing rather than ignoring means a deal
+    # closed lost and later corrected cannot keep a stale one.
+    opp.loss_reason = None if data.won else LossReason(data.loss_reason)
+    opp.loss_notes = data.loss_notes
+    opp.closed_outcome_at = datetime.now(timezone.utc)
+    opp.closed_outcome_by = admin_user.id
+    await db.flush()
+
+    await write_audit_log(
+        db, admin_user.id, "UPDATE", "opportunity", opp.id,
+        {
+            "before": {"status": before},
+            "after": {
+                "status": opp.status.value,
+                "loss_reason": opp.loss_reason.value if opp.loss_reason else None,
+            },
+        },
+    )
+
+    outcome = "won" if data.won else "lost"
+    await notify_user(
+        db, opp.submitted_by, f"opportunity_{outcome}",
+        f"Opportunity {outcome}",
+        f"{opp.customer_name} — {opp.name} has been closed as {outcome}."
+        + (
+            f" Reason: {LOSS_REASON_LABELS[opp.loss_reason]}."
+            if opp.loss_reason
+            else ""
+        ),
+        "opportunity", opp.id,
+    )
+
+    # Winning counts as approved (ACCEPTED_STATUSES), so a win can be the
+    # thing that tips a company over a tier threshold.
+    if opp.company_id:
+        from app.services.dashboard_service import evaluate_tier_upgrade
+
+        await evaluate_tier_upgrade(db, opp.company_id)
+
+    return await get_opportunity_detail(db, opp_id)

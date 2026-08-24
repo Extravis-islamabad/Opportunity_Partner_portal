@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
 
+    # Review SLA. How long a claimed opportunity review may sit before the
+    # reviewer is reminded, and before it goes over their head. Configurable
+    # because the right numbers depend on how the team actually works.
+    REVIEW_REMINDER_DAYS: int = 3
+    REVIEW_ESCALATION_DAYS: int = 7
+
     # Support
     SUPPORT_EMAIL: str = "support@extravis.com"
 
@@ -152,6 +158,17 @@ class Settings(BaseSettings):
                for o in self.CORS_ORIGINS):
             problems.append("CORS_ORIGINS contains a non-local plaintext http:// origin")
 
+        # Email is not optional in production. An activation link is the only
+        # way a new user can ever set a password, so a deployment that cannot
+        # send mail cannot onboard anyone — and it fails silently, because the
+        # mailer logs a warning and returns False that nobody checks.
+        if not self.email_is_configured:
+            problems.append(
+                "SMTP is not configured (SMTP_HOST, SMTP_FROM_EMAIL and "
+                "SMTP_PASSWORD are all required) — without it no user can be "
+                "activated or notified"
+            )
+
         if problems:
             raise ValueError(
                 "Insecure configuration for APP_ENV=production:\n  - "
@@ -167,6 +184,21 @@ class Settings(BaseSettings):
     @property
     def ai_is_configured(self) -> bool:
         return self.AI_ENABLED and bool(self.GROQ_API_KEY)
+
+    @property
+    def email_is_configured(self) -> bool:
+        """Whether a send has any chance of leaving the process.
+
+        All three are needed: a host to talk to, a password to authenticate
+        with, and an address to send from. The mailer previously tested only
+        SMTP_PASSWORD, so a deployment with a password and no host looked
+        configured and failed at connect time instead.
+        """
+        return bool(
+            self.SMTP_HOST.strip()
+            and self.SMTP_PASSWORD.strip()
+            and self.SMTP_FROM_EMAIL.strip()
+        )
 
 
 settings = Settings()

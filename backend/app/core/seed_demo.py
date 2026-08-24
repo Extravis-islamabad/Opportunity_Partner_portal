@@ -37,7 +37,6 @@ from app.core.security import hash_password
 from app.models.audit_log import AuditLog
 from app.models.commission import (
     Commission,
-    CommissionStatement,
     CommissionStatus,
     TierCommissionRate,
 )
@@ -386,7 +385,6 @@ async def reset_demo_data(db) -> None:
     # Order matters for FK constraints
     await db.execute(delete(AuditLog))
     await db.execute(delete(Notification))
-    await db.execute(delete(CommissionStatement))
     await db.execute(delete(Commission))
     await db.execute(delete(Enrollment))
     await db.execute(delete(Course))
@@ -777,14 +775,6 @@ async def seed_commission_statements(db, companies: list[Company]) -> None:
         if not commissions:
             continue
         total = sum((Decimal(c.amount) for c in commissions), Decimal("0"))
-        db.add(CommissionStatement(
-            company_id=company.id,
-            period_start=last_month_start,
-            period_end=last_month_end,
-            total_amount=total,
-            commission_count=len(commissions),
-            generated_at=NOW - timedelta(days=2),
-        ))
 
 
 async def seed_kb_documents(db, admin: User) -> list[KBDocument]:

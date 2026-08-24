@@ -14,6 +14,9 @@ import type {
   OpportunityResponse,
   OpportunityListItem,
   OpportunityCreateRequest,
+  LossReasonOption,
+  StaleReview,
+  EmailLogResponse,
   KBDocumentResponse,
   KBCategoryResponse,
   CourseResponse,
@@ -139,6 +142,17 @@ export const opportunitiesApi = {
     apiClient.delete<MessageResponse>(`/opportunities/${id}`),
   addNote: (id: number, internal_notes: string) =>
     apiClient.post<OpportunityResponse>(`/opportunities/${id}/notes`, { internal_notes }),
+  // Recording the outcome of an approved deal. A loss needs a reason: the
+  // point of the field is being able to count it.
+  close: (id: number, data: { won: boolean; loss_reason?: string; loss_notes?: string }) =>
+    apiClient.post<OpportunityResponse>(`/opportunities/${id}/close`, data),
+  lossReasons: () =>
+    apiClient.get<LossReasonOption[]>('/opportunities/loss-reasons'),
+  // Review ageing: the queue of claims that stopped moving, and handing one back.
+  staleReviews: () =>
+    apiClient.get<StaleReview[]>('/opportunities/stale-reviews'),
+  releaseReview: (id: number, reason?: string) =>
+    apiClient.post<MessageResponse>(`/opportunities/${id}/release`, { reason }),
   uploadDocument: (id: number, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -148,6 +162,12 @@ export const opportunitiesApi = {
   },
   deleteDocument: (id: number, docId: number) =>
     apiClient.delete<void>(`/opportunities/${id}/documents/${docId}`),
+};
+
+// ==================== Email delivery log ====================
+export const emailLogApi = {
+  list: (params: Record<string, string | number | undefined>) =>
+    apiClient.get<EmailLogResponse>('/email-log', { params }),
 };
 
 // ==================== Knowledge Base ====================

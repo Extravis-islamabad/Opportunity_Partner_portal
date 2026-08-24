@@ -19,11 +19,13 @@ from app.api.v1.endpoints import (
     pocs,
     files,
     sales_activities,
+    email_log,
 )
 
 api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth.router)
+api_router.include_router(email_log.router)
 # Bulk-import routers are registered BEFORE companies/opportunities so their
 # static paths (…/bulk-import, …/bulk-import-template) match ahead of the
 # `/{id:int}` param routes. Registered after, FastAPI matched

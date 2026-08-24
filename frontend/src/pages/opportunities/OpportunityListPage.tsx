@@ -17,6 +17,7 @@ import dayjs from 'dayjs';
 const statusColors: Record<string, string> = {
   draft: 'default', pending_review: 'orange', under_review: 'processing',
   approved: 'green', rejected: 'red', removed: 'default', multi_partner_flagged: 'warning',
+  won: 'success', lost: 'volcano',
 };
 
 const OpportunityListPage: React.FC = () => {
@@ -38,17 +39,18 @@ const OpportunityListPage: React.FC = () => {
   const { data, isLoading, error } = useQuery({
     queryKey: ['opportunities', page, search, statusFilter, productFilter, industryFilter, quarterFilter],
     queryFn: async () => {
+      // All filtering is server-side. Product, industry and quarter used to be
+      // applied here, to the page already fetched — so `total` and the pager
+      // described the unfiltered set while the rows described the filtered
+      // one, and a match on page 2 was simply invisible.
       const params: Record<string, string | number | undefined> = { page, page_size: 20 };
       if (search) params['search'] = search;
       if (statusFilter) params['status'] = statusFilter;
+      if (productFilter) params['product'] = productFilter;
+      if (industryFilter) params['industry'] = industryFilter;
+      if (quarterFilter) params['time_frame'] = quarterFilter;
       const res = await opportunitiesApi.list(params);
-      const items = res.data.items as OpportunityListItem[];
-      const filtered = items.filter((o) =>
-        (!productFilter || o.product === productFilter) &&
-        (!industryFilter || o.industry === industryFilter) &&
-        (!quarterFilter || o.time_frame === quarterFilter),
-      );
-      return { ...res.data, items: filtered };
+      return res.data;
     },
   });
 
@@ -137,6 +139,12 @@ const OpportunityListPage: React.FC = () => {
   const exportParams: Record<string, string | number | undefined> = {};
   if (search) exportParams['search'] = search;
   if (statusFilter) exportParams['status'] = statusFilter;
+  // The export follows what is on screen. Before the filters moved to the
+  // server there was nothing to pass, so an export always ignored three of
+  // them and quietly returned more rows than the list showed.
+  if (productFilter) exportParams['product'] = productFilter;
+  if (industryFilter) exportParams['industry'] = industryFilter;
+  if (quarterFilter) exportParams['time_frame'] = quarterFilter;
 
   return (
     <>
@@ -175,16 +183,17 @@ const OpportunityListPage: React.FC = () => {
             { value: 'draft', label: 'Draft' }, { value: 'pending_review', label: 'Pending Review' },
             { value: 'under_review', label: 'Under Review' }, { value: 'approved', label: 'Approved' },
             { value: 'rejected', label: 'Rejected' },
+            { value: 'won', label: 'Won' }, { value: 'lost', label: 'Lost' },
           ]}
         />
-        <Select placeholder="Product" allowClear style={{ width: 140 }} onChange={setProductFilter}
+        <Select placeholder="Product" allowClear style={{ width: 140 }} onChange={(v) => { setProductFilter(v); setPage(1); }}
           options={[
             { value: 'MonetX', label: 'MonetX' },
             { value: 'PatchX', label: 'PatchX' },
             { value: 'SupportX', label: 'SupportX' },
           ]}
         />
-        <Select placeholder="Industry" allowClear style={{ width: 180 }} onChange={setIndustryFilter}
+        <Select placeholder="Industry" allowClear style={{ width: 180 }} onChange={(v) => { setIndustryFilter(v); setPage(1); }}
           options={[
             { value: 'FSI', label: 'FSI' },
             { value: 'Healthcare', label: 'Healthcare' },
@@ -197,7 +206,7 @@ const OpportunityListPage: React.FC = () => {
             { value: 'IT Services', label: 'IT Services' },
           ]}
         />
-        <Select placeholder="Quarter" allowClear style={{ width: 140 }} onChange={setQuarterFilter}
+        <Select placeholder="Quarter" allowClear style={{ width: 140 }} onChange={(v) => { setQuarterFilter(v); setPage(1); }}
           options={[
             { value: 'Q1 - 2027', label: 'Q1 - 2027' },
             { value: 'Q2 - 2027', label: 'Q2 - 2027' },
