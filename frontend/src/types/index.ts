@@ -29,6 +29,38 @@ export interface LoginResponse {
   user: UserBasic;
 }
 
+/**
+ * What /auth/login returns when the password is right but the account has a
+ * second factor. No session is issued yet: the challenge token only says "this
+ * person proved the password moments ago", and it expires in minutes.
+ */
+export interface MfaChallengeResponse {
+  mfa_required: true;
+  challenge_token: string;
+}
+
+/** Either half of a login, told apart by the `mfa_required` flag. */
+export type LoginOutcome = LoginResponse | MfaChallengeResponse;
+
+export function isMfaChallenge(outcome: LoginOutcome): outcome is MfaChallengeResponse {
+  return (outcome as MfaChallengeResponse).mfa_required === true;
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  /** Whether this account will eventually be refused a login without one. */
+  required: boolean;
+  recovery_codes_remaining: number;
+  grace_days: number;
+}
+
+/** Returned once, at setup. The secret is never shown again. */
+export interface MfaSetupResponse {
+  secret: string;
+  otpauth_uri: string;
+  qr_svg: string;
+}
+
 export interface RefreshResponse {
   access_token: string;
   token_type: string;

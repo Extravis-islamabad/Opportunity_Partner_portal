@@ -31,6 +31,22 @@ def create_refresh_token(data: Dict[str, Any], expires_delta: Optional[timedelta
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
+def create_mfa_challenge_token(user_id: int) -> str:
+    """A short-lived token proving the password step passed, nothing more.
+
+    Typed `mfa_challenge` so it cannot be presented as an access token: the
+    dependency that authenticates requests checks the type, and a token that
+    only survives the second-factor step is worth far less to an attacker who
+    intercepts it.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(minutes=5)
+    return jwt.encode(
+        {"sub": str(user_id), "exp": expire, "type": "mfa_challenge"},
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+
 def decode_token(token: str) -> Dict[str, Any]:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])

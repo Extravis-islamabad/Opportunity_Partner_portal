@@ -78,6 +78,16 @@ class Settings(BaseSettings):
     # Long enough to ask for an extension and have somebody decide it.
     EXCLUSIVITY_WARNING_DAYS: int = 14
 
+    # Two-factor authentication. Off by default: switching it on for admins
+    # is a deployment decision, not something a code change should impose on
+    # a live team overnight.
+    MFA_REQUIRED_FOR_ADMINS: bool = False
+    # How long an account that must use MFA can still log in without it,
+    # measured from when the account was created. This is the difference
+    # between rolling MFA out and locking the whole admin team out on the
+    # morning somebody flips the setting. Zero means immediately.
+    MFA_GRACE_DAYS: int = 14
+
     # How far ahead of a licence expiry the renewal chase starts. Deliberately
     # longer than customer_license.EXPIRING_SOON_DAYS (60), which is a display
     # status: by the time a licence *looks* urgent on a screen, the renewal

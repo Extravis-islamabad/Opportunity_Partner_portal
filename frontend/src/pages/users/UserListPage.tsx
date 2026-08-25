@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Table, Button, Input, Tag, Space, Select, Skeleton, Alert, Empty, Modal, Form, message, Popconfirm } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { usersApi, companiesApi } from '@/api/endpoints';
+import { usersApi, companiesApi, mfaApi } from '@/api/endpoints';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import HandoverModal from '@/components/users/HandoverModal';
 import type { UserResponse } from '@/types';
@@ -19,6 +20,7 @@ const UserListPage: React.FC = () => {
   const [editUser, setEditUser] = useState<UserResponse | null>(null);
   const [editForm] = Form.useForm();
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['users', page, search, roleFilter],
@@ -90,6 +92,15 @@ const UserListPage: React.FC = () => {
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['users'] }); void message.success('User reactivated'); },
   });
 
+  // The lockout escape hatch: somebody has lost both their phone and their
+  // recovery codes, and the alternative to this button is a database edit.
+  const resetMfaMut = useMutation({
+    mutationFn: (id: number) => mfaApi.resetForUser(id),
+    onSuccess: (res) => void message.success(res.data.message),
+    onError: (err: AxiosError<ErrorResponse>) =>
+      void message.error(err.response?.data?.message || 'Could not reset two-factor authentication'),
+  });
+
   const columns: ColumnsType<UserResponse> = [
     { title: 'Name', dataIndex: 'full_name', key: 'name' },
     { title: 'Email', dataIndex: 'email', key: 'email' },
@@ -112,6 +123,15 @@ const UserListPage: React.FC = () => {
             <Button type="link" size="small" onClick={() => setHandingOver(record)}>
               Hand over
             </Button>
+          )}
+          {currentUser?.is_superadmin && (
+            <Popconfirm
+              title="Reset two-factor authentication?"
+              description="They will sign in with their password alone until they set it up again."
+              onConfirm={() => resetMfaMut.mutate(record.id)}
+            >
+              <Button type="link" size="small">Reset 2FA</Button>
+            </Popconfirm>
           )}
           {record.status === 'active' ? (
             <Popconfirm title="Deactivate?" onConfirm={() => deactivateMut.mutate(record.id)}>

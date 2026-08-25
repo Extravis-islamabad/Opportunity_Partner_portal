@@ -1,14 +1,25 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { Modal } from 'antd';
-import type { UserBasic } from '@/types';
+import type { LoginResponse, UserBasic } from '@/types';
+import { isMfaChallenge } from '@/types';
 import { authApi } from '@/api/endpoints';
 import { logger } from '@/utils/logger';
+
+/**
+ * What a password step produced. On an account with a second factor the
+ * password is only half the answer, so login() can return without a session —
+ * the caller then has to ask for a code and call completeMfaLogin().
+ */
+export type LoginResult =
+  | { mfaRequired: false }
+  | { mfaRequired: true; challengeToken: string };
 
 interface AuthContextType {
   user: UserBasic | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  completeMfaLogin: (challengeToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -148,14 +159,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => clearExpiryTimer();
   }, [scheduleExpiryWarning, clearExpiryTimer]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const response = await authApi.login({ email, password });
-    const { access_token, user: userData } = response.data;
+  // Shared by the plain login and the second-factor completion, so a session
+  // established after MFA is exactly the session established without it.
+  const startSession = useCallback((data: LoginResponse) => {
+    const { access_token, user: userData } = data;
     localStorage.setItem('access_token', access_token);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
     scheduleExpiryWarning(access_token);
   }, [scheduleExpiryWarning]);
+
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
+    const response = await authApi.login({ email, password });
+    if (isMfaChallenge(response.data)) {
+      // Deliberately nothing stored: the challenge token is not a session, and
+      // parking it in localStorage would turn a half-finished login into one.
+      return { mfaRequired: true, challengeToken: response.data.challenge_token };
+    }
+    startSession(response.data);
+    return { mfaRequired: false };
+  }, [startSession]);
+
+  const completeMfaLogin = useCallback(async (challengeToken: string, code: string) => {
+    const response = await authApi.completeMfaLogin(challengeToken, code);
+    startSession(response.data);
+  }, [startSession]);
 
   const logout = useCallback(async () => {
     try {
@@ -171,7 +199,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [clearExpiryTimer]);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{ user, isAuthenticated, isLoading, login, completeMfaLogin, logout, refreshUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

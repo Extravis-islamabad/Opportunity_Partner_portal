@@ -3,6 +3,7 @@ import { Form, Input, Button, Typography, Alert, Checkbox } from 'antd';
 import {
   MailOutlined,
   LockOutlined,
+  SafetyOutlined,
   ThunderboltFilled,
   TrophyOutlined,
   SafetyCertificateOutlined,
@@ -36,7 +37,11 @@ const features = [
 const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { login } = useAuth();
+  // Set once the password has been accepted on an account with a second
+  // factor. Held in component state only — it is not a session, and it expires
+  // in minutes, so it has no business surviving a reload.
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const { login, completeMfaLogin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -46,11 +51,36 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      await login(values.email, values.password);
+      const result = await login(values.email, values.password);
+      if (result.mfaRequired) {
+        setChallengeToken(result.challengeToken);
+        return;
+      }
       navigate(from, { replace: true });
     } catch (err) {
       const axiosError = err as AxiosError<ErrorResponse>;
       setError(axiosError.response?.data?.message || 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onFinishMfa = async (values: { code: string }) => {
+    if (!challengeToken) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await completeMfaLogin(challengeToken, values.code);
+      navigate(from, { replace: true });
+    } catch (err) {
+      const axiosError = err as AxiosError<ErrorResponse>;
+      // An expired challenge cannot be retried with a fresh code — send them
+      // back to the password step rather than leaving them typing into a form
+      // that can no longer succeed.
+      if (axiosError.response?.data?.code === 'INVALID_MFA_CHALLENGE') {
+        setChallengeToken(null);
+      }
+      setError(axiosError.response?.data?.message || 'That code was not accepted.');
     } finally {
       setLoading(false);
     }
@@ -106,10 +136,12 @@ const LoginPage: React.FC = () => {
 
           <div className="login-form-header">
             <Title level={3} style={{ marginBottom: 6, color: '#1c1c3a', fontWeight: 700 }}>
-              Sign in to your account
+              {challengeToken ? 'Two-step verification' : 'Sign in to your account'}
             </Title>
             <Text type="secondary" style={{ fontSize: 14 }}>
-              Enter your credentials to access the partner portal
+              {challengeToken
+                ? 'Enter the 6-digit code from your authenticator app'
+                : 'Enter your credentials to access the partner portal'}
             </Text>
           </div>
 
@@ -124,6 +156,59 @@ const LoginPage: React.FC = () => {
             />
           )}
 
+          {challengeToken ? (
+            <Form
+              layout="vertical"
+              onFinish={onFinishMfa}
+              size="large"
+              autoComplete="off"
+              requiredMark={false}
+            >
+              <Form.Item
+                name="code"
+                label={<span style={{ fontWeight: 500 }}>Authentication code</span>}
+                rules={[{ required: true, message: 'Enter the code from your authenticator' }]}
+                extra="Lost your phone? Enter one of your recovery codes instead."
+              >
+                <Input
+                  prefix={<SafetyOutlined style={{ color: '#8c93f1' }} />}
+                  placeholder="123456"
+                  autoFocus
+                  autoComplete="one-time-code"
+                  style={{ borderRadius: 8, height: 46, letterSpacing: 2 }}
+                />
+              </Form.Item>
+
+              <Form.Item style={{ marginTop: 24, marginBottom: 8 }}>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  block
+                  loading={loading}
+                  style={{
+                    height: 48,
+                    borderRadius: 8,
+                    fontWeight: 600,
+                    fontSize: 15,
+                    boxShadow: '0 6px 16px rgba(55, 80, 237, 0.32)',
+                  }}
+                >
+                  Verify and Sign In
+                </Button>
+              </Form.Item>
+
+              <Button
+                type="link"
+                block
+                onClick={() => {
+                  setChallengeToken(null);
+                  setError(null);
+                }}
+              >
+                Back to sign in
+              </Button>
+            </Form>
+          ) : (
           <Form
             layout="vertical"
             onFinish={onFinish}
@@ -186,6 +271,7 @@ const LoginPage: React.FC = () => {
               </Button>
             </Form.Item>
           </Form>
+          )}
 
           <div className="login-help">
             <Text type="secondary" style={{ fontSize: 13 }}>

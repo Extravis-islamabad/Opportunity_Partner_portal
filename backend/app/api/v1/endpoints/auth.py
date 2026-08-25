@@ -10,6 +10,7 @@ from app.core.exceptions import UnauthorizedException
 from app.core.security import decode_token
 from app.models.user import User
 from app.schemas.auth import (
+    MfaLoginRequest,
     LoginRequest,
     LoginResponse,
     RefreshResponse,
@@ -45,6 +46,16 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
 @limiter.limit("10/minute")
 async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     result = await auth_service.login(db, data)
+
+    # An account with a second factor gets no session here — only a
+    # short-lived challenge to come back with a code. 200 rather than an
+    # error: the password was right, the login is simply not finished.
+    if result.get("mfa_required"):
+        return JSONResponse(content={
+            "mfa_required": True,
+            "challenge_token": result["challenge_token"],
+        })
+
     login_response = result["login_response"]
     refresh_token = result["refresh_token"]
 
@@ -60,6 +71,37 @@ async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends
 
     response = JSONResponse(content=login_response.model_dump())
     _set_refresh_cookie(response, refresh_token)
+    return response
+
+
+@router.post("/login/mfa", status_code=200)
+@limiter.limit("10/minute")
+async def login_mfa(
+    data: MfaLoginRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Finish a login on an account with two-factor authentication.
+
+    Rate limited like the password step: a six-digit code is guessable in a
+    way a password is not, and the challenge lives for minutes.
+    """
+    result = await auth_service.complete_mfa_login(
+        db, data.challenge_token, data.code
+    )
+    login_response = result["login_response"]
+
+    await write_audit_log(
+        db,
+        user_id=login_response.user.id,
+        action="LOGIN",
+        entity_type="user",
+        entity_id=login_response.user.id,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"second_factor": True},
+    )
+
+    response = JSONResponse(content=login_response.model_dump())
+    _set_refresh_cookie(response, result["refresh_token"])
     return response
 
 

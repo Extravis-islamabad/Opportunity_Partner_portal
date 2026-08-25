@@ -62,3 +62,15 @@ class UserBasicResponse(BaseModel):
 
 
 LoginResponse.model_rebuild()
+
+
+class MfaLoginRequest(BaseModel):
+    """The second half of a login: proof the password step just happened, and
+    a code from the authenticator (or a recovery code)."""
+
+    challenge_token: str
+    code: str = Field(..., min_length=4, max_length=32)
+
+
+class MfaConfirmRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=10)

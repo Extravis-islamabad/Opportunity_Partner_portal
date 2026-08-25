@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useMutation } from '@tanstack/react-query';
 import { usersApi, authApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
+import TwoFactorCard from '@/components/profile/TwoFactorCard';
 import { AxiosError } from 'axios';
 import type { ErrorResponse } from '@/types';
 
@@ -72,6 +73,8 @@ const ProfilePage: React.FC = () => {
               <Form.Item><Button type="primary" htmlType="submit" loading={passwordMut.isPending}>Change Password</Button></Form.Item>
             </Form>
           </Card>
+
+          <TwoFactorCard />
         </Col>
       </Row>
     </>

@@ -15,6 +15,12 @@ redis[hiredis]==5.2.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
+# TOTP multi-factor. pyotp is the standard implementation of RFC 6238 —
+# hand-rolling one-time passwords is not a place to be inventive. qrcode is
+# pure Python and renders the enrolment SVG server-side, so the frontend needs
+# no QR dependency of its own.
+pyotp==2.10.0
+qrcode==8.2
 
 # Validation & Settings
 pydantic==2.10.4

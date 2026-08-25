@@ -85,6 +85,20 @@ def _schema() -> None:
     command.upgrade(cfg, "head")
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits() -> None:
+    """Start every test with the per-IP rate limit counters empty.
+
+    slowapi keys on the client address, and every test in the suite arrives
+    from 127.0.0.1. Without this, a test that logs in a dozen times leaves the
+    /auth/login bucket full and the *next* test — testing something else
+    entirely — fails with a 429 depending on what ran before it.
+    """
+    from app.core.rate_limit import limiter
+
+    limiter.reset()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _fresh_pool() -> AsyncIterator[None]:
     """Drop the connection pool between tests.

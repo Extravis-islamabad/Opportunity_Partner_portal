@@ -2,6 +2,9 @@ import apiClient from './client';
 import type {
   LoginRequest,
   LoginResponse,
+  LoginOutcome,
+  MfaStatus,
+  MfaSetupResponse,
   RefreshResponse,
   UserBasic,
   UserResponse,
@@ -71,8 +74,11 @@ import type {
 
 // ==================== Auth ====================
 export const authApi = {
+  // Either a session or a second-factor challenge — see LoginOutcome.
   login: (data: LoginRequest) =>
-    apiClient.post<LoginResponse>('/auth/login', data),
+    apiClient.post<LoginOutcome>('/auth/login', data),
+  completeMfaLogin: (challenge_token: string, code: string) =>
+    apiClient.post<LoginResponse>('/auth/login/mfa', { challenge_token, code }),
   refresh: () =>
     apiClient.post<RefreshResponse>('/auth/refresh'),
   logout: () =>
@@ -87,6 +93,26 @@ export const authApi = {
     apiClient.post<MessageResponse>('/auth/change-password', { current_password, new_password }),
   getMe: () =>
     apiClient.get<UserBasic>('/auth/me'),
+};
+
+// ==================== Two-factor authentication ====================
+export const mfaApi = {
+  status: () =>
+    apiClient.get<MfaStatus>('/mfa/status'),
+  // Starts setup. Nothing is protected until confirm() succeeds, so a
+  // mistyped setup cannot lock anybody out.
+  setup: () =>
+    apiClient.post<MfaSetupResponse>('/mfa/setup'),
+  confirm: (code: string) =>
+    apiClient.post<{ enabled: boolean; recovery_codes: string[] }>('/mfa/confirm', { code }),
+  // The codes come back exactly once — they are stored hashed.
+  regenerateRecoveryCodes: () =>
+    apiClient.post<{ recovery_codes: string[] }>('/mfa/recovery-codes'),
+  disable: () =>
+    apiClient.delete<MessageResponse>('/mfa'),
+  // Superadmin only: the escape hatch for a lost phone and lost codes.
+  resetForUser: (userId: number) =>
+    apiClient.delete<MessageResponse>(`/mfa/users/${userId}`),
 };
 
 // ==================== Users ====================

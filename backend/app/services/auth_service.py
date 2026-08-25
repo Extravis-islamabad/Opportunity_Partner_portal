@@ -6,6 +6,7 @@ import structlog
 
 from app.core.config import settings
 from app.core.security import (
+    create_mfa_challenge_token,
     hash_password,
     verify_password,
     create_access_token,
@@ -98,11 +99,42 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
     if user.status == UserStatus.INACTIVE:
         raise UnauthorizedException(code="ACCOUNT_INACTIVE", message="Account has been deactivated")
 
+    # An account that must use a second factor and never enrolled is refused
+    # once its setup period has passed — before any token is issued.
+    from app.services import mfa_service
+
+    await mfa_service.assert_enrolment_not_overdue(db, user)
+
     user.failed_login_attempts = 0
     user.locked_until = None
+
+    # The password is right, but on an account with a second factor that is
+    # only half the answer. No session is issued here: the caller gets a
+    # short-lived challenge token and has to come back with a code. last_login
+    # is deliberately not stamped yet — they have not logged in.
+    if await mfa_service.is_active(db, user.id):
+        await db.flush()
+        return {
+            "mfa_required": True,
+            "challenge_token": create_mfa_challenge_token(user.id),
+        }
+
     user.last_login_at = now
     await db.flush()
 
+    return await _issue_session(db, user)
+
+
+
+
+
+async def _issue_session(db: AsyncSession, user: User) -> dict:
+    """Mint the tokens and build the login response.
+
+    Shared by the plain password login and the second-factor completion, so
+    the two cannot drift — a session issued after MFA has to be exactly the
+    session issued without it.
+    """
     token_data = {"sub": str(user.id), "role": user.role.value}
     if user.company_id:
         token_data["company_id"] = user.company_id
@@ -153,6 +185,40 @@ async def login(db: AsyncSession, data: LoginRequest) -> dict:
         "login_response": login_response,
         "refresh_token": refresh_token,
     }
+
+
+async def complete_mfa_login(db: AsyncSession, challenge_token: str, code: str) -> dict:
+    """Second half of a login on an account with MFA.
+
+    The challenge token only says "this person proved the password moments
+    ago"; the code is what finishes the login. Both are required, and the
+    challenge expires in minutes.
+    """
+    payload = decode_token(challenge_token)
+    if not payload or payload.get("type") != "mfa_challenge":
+        raise UnauthorizedException(
+            code="INVALID_MFA_CHALLENGE",
+            message="That sign-in attempt has expired. Please start again.",
+        )
+
+    user = (await db.execute(
+        select(User)
+        .options(joinedload(User.company))
+        .where(User.id == int(payload["sub"]), User.deleted_at.is_(None))
+    )).unique().scalar_one_or_none()
+    if user is None or user.status != UserStatus.ACTIVE:
+        raise UnauthorizedException(
+            code="INVALID_MFA_CHALLENGE",
+            message="That sign-in attempt is no longer valid",
+        )
+
+    from app.services import mfa_service
+
+    await mfa_service.verify_second_factor(db, user, code)
+
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.flush()
+    return await _issue_session(db, user)
 
 
 async def refresh_access_token(refresh_token: str) -> RefreshResponse:

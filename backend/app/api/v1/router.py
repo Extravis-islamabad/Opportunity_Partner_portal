@@ -22,6 +22,7 @@ from app.api.v1.endpoints import (
     renewals,
     currencies,
     legal,
+    mfa,
     email_log,
 )
 
@@ -55,3 +56,4 @@ api_router.include_router(sales_activities.router)
 api_router.include_router(renewals.router)
 api_router.include_router(currencies.router)
 api_router.include_router(legal.router)
+api_router.include_router(mfa.router)
