@@ -22,6 +22,8 @@ import type {
   EmailLogResponse,
   UpcomingRenewal,
   CurrencyListResponse,
+  LegalDocument,
+  LegalAcceptanceEntry,
   KBDocumentResponse,
   KBCategoryResponse,
   CourseResponse,
@@ -183,6 +185,25 @@ export const opportunitiesApi = {
   },
   deleteDocument: (id: number, docId: number) =>
     apiClient.delete<void>(`/opportunities/${id}/documents/${docId}`),
+};
+
+// ==================== Legal ====================
+export const legalApi = {
+  // Documents this user still has to accept. Empty for anybody they do not
+  // apply to, and empty when nothing has been published.
+  pending: () => apiClient.get<LegalDocument[]>('/legal/pending'),
+  accept: (documentId: number) =>
+    apiClient.post<{ id: number; document_id: number; accepted_at: string }>(
+      `/legal/${documentId}/accept`,
+    ),
+  myAcceptances: () =>
+    apiClient.get<LegalAcceptanceEntry[]>('/legal/my-acceptances'),
+  // Superadmin only — publishing asks every partner to agree again.
+  documents: () => apiClient.get<LegalDocument[]>('/legal/documents'),
+  publish: (data: { kind: string; version: string; title: string; body: string }) =>
+    apiClient.post<{ id: number; kind: string; version: string }>('/legal/documents', data),
+  userAcceptances: (userId: number) =>
+    apiClient.get<LegalAcceptanceEntry[]>(`/legal/users/${userId}/acceptances`),
 };
 
 // ==================== Currencies ====================

@@ -21,6 +21,7 @@ from app.api.v1.endpoints import (
     sales_activities,
     renewals,
     currencies,
+    legal,
     email_log,
 )
 
@@ -53,3 +54,4 @@ api_router.include_router(files.router)
 api_router.include_router(sales_activities.router)
 api_router.include_router(renewals.router)
 api_router.include_router(currencies.router)
+api_router.include_router(legal.router)

@@ -17,7 +17,7 @@ from app.schemas.dashboard import (
 )
 from app.core.exceptions import NotFoundException, BadRequestException, ConflictException
 from app.utils.audit import write_audit_log
-from app.services import currency_service
+from app.services import currency_service, legal_service
 from app.services.notification_service import notify_all_admins, notify_user
 
 logger = structlog.get_logger()
@@ -103,6 +103,7 @@ async def create_deal_registration(
         estimated_value=data.estimated_value,
         expected_close_date=date.fromisoformat(data.expected_close_date),
     )
+    await legal_service.assert_accepted(db, partner_user)
     await currency_service.stamp(db, deal, getattr(data, "currency", None))
 
     db.add(deal)

@@ -11,6 +11,7 @@ from app.models.audit_log import AuditLog
 from app.models.deal_extension import DealExtensionRequest, ExtensionStatus
 from app.models.currency import Currency, CurrencyRate
 from app.models.handover import UserHandover
+from app.models.legal import LegalAcceptance, LegalDocument
 from app.models.email_delivery import EmailDelivery, EmailStatus
 from app.models.opportunity_product import PRODUCTS, OpportunityProduct
 from app.models.deal_registration import DealRegistration
@@ -39,6 +40,8 @@ __all__ = [
     "OpportunityProduct",
     "PRODUCTS",
     "UserHandover",
+    "LegalDocument",
+    "LegalAcceptance",
     "Currency",
     "CurrencyRate",
     "EmailDelivery",

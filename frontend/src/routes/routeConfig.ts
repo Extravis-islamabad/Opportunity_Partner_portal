@@ -98,6 +98,13 @@ export const ROUTES: RouteDescriptor[] = [
     keywords: ['audit', 'history', 'activity', 'log', 'trail'],
   },
   {
+    path: '/admin/legal',
+    label: 'Legal Documents',
+    section: 'Administration',
+    roles: ['superadmin'],
+    keywords: ['legal', 'agreement', 'nda', 'contract', 'terms', 'accept'],
+  },
+  {
     path: '/admin/currencies',
     label: 'Currency Rates',
     section: 'Administration',

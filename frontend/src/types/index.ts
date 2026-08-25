@@ -204,6 +204,28 @@ export interface LossReasonOption {
 
 /** The product catalogue. Served by /opportunities/products so the form does
  *  not hardcode it; this type is for the values that come back. */
+// ==================== Legal ====================
+export type LegalDocumentKind = 'partner_agreement' | 'nda';
+
+export interface LegalDocument {
+  id: number;
+  kind: LegalDocumentKind;
+  label: string;
+  version: string;
+  title: string;
+  body: string;
+  published_at: string;
+}
+
+export interface LegalAcceptanceEntry {
+  id: number;
+  kind: LegalDocumentKind;
+  label: string;
+  version: string;
+  accepted_at: string;
+  ip_address: string | null;
+}
+
 // ==================== Handover ====================
 export interface WorkloadCounts {
   opportunities_submitted: number;

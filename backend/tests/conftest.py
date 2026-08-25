@@ -160,9 +160,23 @@ def unique(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
-async def make_user(db, *, role, company_id=None, is_superadmin=False, email=None):
+async def make_user(
+    db, *, role, company_id=None, is_superadmin=False, email=None,
+    accept_legal=True,
+):
+    """A fixture user, onboarded by default.
+
+    `accept_legal` matters because publishing a legal document blocks every
+    partner in the programme from registering business until they accept it —
+    which is the point of the feature, and would otherwise break every test
+    that creates an opportunity as soon as one document exists anywhere in the
+    shared test database. A fixture partner is meant to be somebody already
+    set up, so they accept whatever is currently published. Tests about the
+    gate itself publish *after* building their world, so their partner has not
+    accepted the new version.
+    """
     from app.core.security import hash_password
-    from app.models.user import User, UserStatus
+    from app.models.user import User, UserRole, UserStatus
 
     user = User(
         full_name=f"Test {role.value}",
@@ -176,6 +190,15 @@ async def make_user(db, *, role, company_id=None, is_superadmin=False, email=Non
     )
     db.add(user)
     await db.flush()
+
+    if accept_legal and role == UserRole.PARTNER:
+        from app.models.legal import LegalAcceptance
+        from app.services import legal_service
+
+        for document in await legal_service.current_documents(db):
+            db.add(LegalAcceptance(user_id=user.id, document_id=document.id))
+        await db.flush()
+
     return user
 
 

@@ -32,6 +32,7 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
+import LegalAcceptanceGate from '@/components/legal/LegalAcceptanceGate';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppTheme } from '@/contexts/ThemeContext';
 import { useQuery } from '@tanstack/react-query';
@@ -120,6 +121,7 @@ const AppLayout: React.FC = () => {
           { key: '/admin/bulk-import', icon: <UploadOutlined />, label: 'Bulk Import' },
           { key: '/admin/email-log', icon: <MailOutlined />, label: 'Email Log' },
           { key: '/admin/currencies', icon: <DollarOutlined />, label: 'Currency Rates' },
+          { key: '/admin/legal', icon: <FileTextOutlined />, label: 'Legal Documents' },
           { key: '/audit-logs', icon: <HistoryOutlined />, label: 'Audit Logs' },
         ]
       : []),
@@ -355,6 +357,11 @@ const AppLayout: React.FC = () => {
           minHeight: 360,
         }}>
           <RouteBreadcrumb />
+          {/* Sits over whatever page they are on: a partner who has not
+              accepted the current agreement cannot register business, and
+              finding that out when they try to submit a deal is a bad way to
+              learn. Renders nothing when there is nothing to accept. */}
+          <LegalAcceptanceGate />
           <Outlet />
         </Content>
       </Layout>

@@ -41,6 +41,7 @@ import AuditLogsPage from '@/pages/audit/AuditLogsPage';
 import BulkImportPage from '@/pages/admin/BulkImportPage';
 import EmailLogPage from '@/pages/admin/EmailLogPage';
 import CurrencyRatesPage from '@/pages/admin/CurrencyRatesPage';
+import LegalDocumentsPage from '@/pages/admin/LegalDocumentsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,6 +89,7 @@ const App: React.FC = () => {
                 <Route path="/admin/bulk-import" element={<ProtectedRoute requiredRole="superadmin"><BulkImportPage /></ProtectedRoute>} />
                 <Route path="/admin/email-log" element={<ProtectedRoute requiredRole="superadmin"><EmailLogPage /></ProtectedRoute>} />
                 <Route path="/admin/currencies" element={<ProtectedRoute requiredRole="superadmin"><CurrencyRatesPage /></ProtectedRoute>} />
+                <Route path="/admin/legal" element={<ProtectedRoute requiredRole="superadmin"><LegalDocumentsPage /></ProtectedRoute>} />
 
                 {/* Pipeline — visible to all authenticated roles, each
                     scoped by the backend (partners own, sales reps assigned,

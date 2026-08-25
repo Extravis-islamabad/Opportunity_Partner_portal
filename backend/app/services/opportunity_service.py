@@ -21,7 +21,7 @@ from app.models.opportunity_product import (
     primary_product,
     product_names,
 )
-from app.services import currency_service
+from app.services import currency_service, legal_service
 from app.models.opp_document import OppDocument
 from app.models.user import User, UserRole
 from app.models.company import Company
@@ -291,6 +291,12 @@ async def create_opportunity(
 
     if opp.status == OpportunityStatus.PENDING_REVIEW:
         opp.submitted_at = datetime.now(timezone.utc)
+
+    # Registering business is the thing the agreement governs, so it is the
+    # thing that is gated. Reading a dashboard is not — locking someone out of
+    # the portal entirely would leave them unable to reach the documents they
+    # are being asked to accept.
+    await legal_service.assert_accepted(db, partner_user)
 
     # Currency and its rate are stamped together, before the flush, so the
     # generated worth_usd column is right the first time.
