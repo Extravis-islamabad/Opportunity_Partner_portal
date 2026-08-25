@@ -15,6 +15,12 @@ from app.models.opportunity import (
     Opportunity,
     OpportunityStatus,
 )
+from app.models.opportunity_product import (
+    OpportunityProduct,
+    canonical_product,
+    primary_product,
+    product_names,
+)
 from app.models.opp_document import OppDocument
 from app.models.user import User, UserRole
 from app.models.company import Company
@@ -102,6 +108,70 @@ async def _ai_score_opportunity_bg(opp_id: int) -> None:
         logger.warning("ai.background_score_failed", opp_id=opp_id, error=str(exc))
 
 
+# ---------------------------------------------------------------------------
+# Product lines
+# ---------------------------------------------------------------------------
+
+def _product_lines(opp: Opportunity) -> list[dict]:
+    return [
+        {
+            "product": line.product,
+            "device_count": line.device_count,
+            "node_count": line.node_count,
+            "value": line.value,
+            "notes": line.notes,
+        }
+        for line in (opp.products or [])
+    ]
+
+
+async def set_product_lines(db: AsyncSession, opp: Opportunity, lines) -> None:
+    """Replace an opportunity's product lines with the ones given.
+
+    Replace rather than merge: the client sends the full set it wants, and
+    diffing on the server would leave a removed line behind whenever the
+    payload was built from a form that simply omits it. `None` means "not
+    mentioned" and leaves the existing lines alone, which is what an update
+    that only changes the closing date sends.
+    """
+    if lines is None:
+        return
+
+    from sqlalchemy import delete
+
+    await db.execute(
+        delete(OpportunityProduct).where(OpportunityProduct.opportunity_id == opp.id)
+    )
+    seen: set[str] = set()
+    for line in lines:
+        product = canonical_product(line.product)
+        if product is None:
+            raise BadRequestException(
+                code="UNKNOWN_PRODUCT",
+                message=f"{line.product} is not one of our products",
+            )
+        # Caught here rather than left to the unique index: the constraint
+        # would surface as a 500 on a request the caller can fix, and the two
+        # lines may only collide after canonicalisation ("monetx" and
+        # "MonetX"), which the client cannot be expected to know.
+        if product in seen:
+            raise BadRequestException(
+                code="DUPLICATE_PRODUCT",
+                message=f"{product} is listed twice — put the whole line on one row",
+            )
+        seen.add(product)
+        db.add(OpportunityProduct(
+            opportunity_id=opp.id,
+            product=product,
+            device_count=line.device_count,
+            node_count=line.node_count,
+            value=line.value,
+            notes=line.notes,
+        ))
+    await db.flush()
+    await db.refresh(opp, ["products"])
+
+
 def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
     return OpportunityResponse(
         id=opp.id,
@@ -134,7 +204,8 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         sales_rep_id=opp.sales_rep_id,
         sales_rep_name=opp.sales_rep.full_name if opp.sales_rep else None,
         industry=opp.industry,
-        product=opp.product,
+        products=_product_lines(opp),
+        product=primary_product(opp),
         stage_probability=opp.stage_probability,
         time_frame=opp.time_frame,
         submitted_at=opp.submitted_at,
@@ -205,7 +276,6 @@ async def create_opportunity(
         # queue picks it up
         multi_partner_alert=(dup_report["severity"] == "warn"),
         industry=data.industry,
-        product=data.product,
         stage_probability=data.stage_probability,
         time_frame=data.time_frame,
         sales_rep_id=data.sales_rep_id,
@@ -216,6 +286,8 @@ async def create_opportunity(
 
     db.add(opp)
     await db.flush()
+
+    await set_product_lines(db, opp, data.products)
 
     if opp.status == OpportunityStatus.PENDING_REVIEW:
         await _check_multi_partner_conflict(db, opp)
@@ -331,8 +403,13 @@ async def get_opportunities(
     # unfiltered set while the rows described the filtered one, and anything
     # matching on page 2 was invisible. They belong in the query.
     if product:
-        query = query.where(Opportunity.product == product)
-        count_query = count_query.where(Opportunity.product == product)
+        # A deal now carries several products, so the filter asks whether any
+        # of its lines is this one rather than comparing a single column.
+        line = select(OpportunityProduct.opportunity_id).where(
+            OpportunityProduct.product == product
+        )
+        query = query.where(Opportunity.id.in_(line))
+        count_query = count_query.where(Opportunity.id.in_(line))
     if industry:
         query = query.where(Opportunity.industry == industry)
         count_query = count_query.where(Opportunity.industry == industry)
@@ -379,7 +456,8 @@ async def get_opportunities(
             company_name=o.company.name if o.company else None,
             company_id=o.company_id,
             industry=o.industry,
-            product=o.product,
+            products=product_names(o),
+            product=primary_product(o),
             stage_probability=o.stage_probability,
             time_frame=o.time_frame,
             sales_rep_id=o.sales_rep_id,
@@ -444,6 +522,14 @@ async def update_opportunity(
         )
 
     update_data = data.model_dump(exclude_unset=True)
+    # Product lines are rows, not a column: setattr would try to assign request
+    # objects straight onto the relationship. Pulled out here and applied
+    # below, and popped from update_data so the audit diff does not try to
+    # serialise them either. None means the payload did not mention them, which
+    # set_product_lines reads as "leave them alone"; an empty list clears them.
+    product_lines = data.products
+    update_data.pop("products", None)
+
     before_state = {key: getattr(opp, key) for key in update_data}
     # Convert any non-serializable values in before_state
     for key, value in before_state.items():
@@ -452,6 +538,9 @@ async def update_opportunity(
 
     for key, value in update_data.items():
         setattr(opp, key, value)
+
+    if product_lines is not None:
+        await set_product_lines(db, opp, product_lines)
 
     # If customer_name or country changed, re-normalize and re-run duplicate
     # detection. Hard-block if a different company has exclusivity / ownership.

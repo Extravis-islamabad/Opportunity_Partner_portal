@@ -84,7 +84,6 @@ class Opportunity(Base):
 
     # Excel-driven fields (2027 Target Plan)
     industry = Column(String(100), nullable=True, index=True)
-    product = Column(String(50), nullable=True, index=True)
     stage_probability = Column(Numeric(3, 2), nullable=True)
     time_frame = Column(String(20), nullable=True, index=True)
     sales_rep_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -150,6 +149,20 @@ class Opportunity(Base):
     sales_rep = relationship("User", foreign_keys=[sales_rep_id])
     company = relationship("Company", back_populates="opportunities")
     documents = relationship("OppDocument", back_populates="opportunity", cascade="all, delete-orphan")
+
+    # What is being sold, and at what scale. Replaces a single free-text
+    # `product` column that could only ever name one of them.
+    # lazy="selectin" rather than an option on each query: every response
+    # builder needs the lines, there are eight places an opportunity is
+    # loaded, and a missed joinedload is a lazy load that raises on an async
+    # session — in production, from whichever path was forgotten.
+    products = relationship(
+        "OpportunityProduct",
+        back_populates="opportunity",
+        cascade="all, delete-orphan",
+        order_by="OpportunityProduct.id",
+        lazy="selectin",
+    )
     poc = relationship("Poc", back_populates="opportunity", uselist=False, cascade="all, delete-orphan")
     license = relationship(
         "CustomerLicense",

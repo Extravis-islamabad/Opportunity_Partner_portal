@@ -578,11 +578,11 @@ class TestServerSideFilters:
         # invisible. 25 rows forces more than one page.
         w = await build(db)
         for i in range(25):
-            opp = await make_opportunity(
+            await make_opportunity(
                 db, company_id=w.company.id, submitted_by=w.partner.id,
                 status=OpportunityStatus.APPROVED,
+                products=["MonetX" if i == 24 else "SupportX"],
             )
-            opp.product = "MonetX" if i == 24 else "SupportX"
         await db.commit()
 
         # Narrowed to this test's own company: a superadmin otherwise reads

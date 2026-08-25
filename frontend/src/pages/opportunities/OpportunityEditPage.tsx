@@ -18,6 +18,8 @@ import PageHeader from '@/components/common/PageHeader';
 import type { OpportunityCreateRequest, ErrorResponse } from '@/types';
 import type { AxiosError } from 'axios';
 import dayjs from 'dayjs';
+import ProductLinesField from '@/components/opportunities/ProductLinesField';
+import type { ProductLine } from '@/types';
 
 const OpportunityEditPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -46,7 +48,7 @@ const OpportunityEditPage: React.FC = () => {
       closing_date: opp.closing_date ? dayjs(opp.closing_date) : undefined,
       requirements: opp.requirements,
       industry: opp.industry || undefined,
-      product: opp.product || undefined,
+      products: opp.products ?? [],
       stage_probability: opp.stage_probability != null ? Number(opp.stage_probability) : undefined,
       time_frame: opp.time_frame || undefined,
     });
@@ -74,7 +76,7 @@ const OpportunityEditPage: React.FC = () => {
       closing_date: (values['closing_date'] as dayjs.Dayjs).format('YYYY-MM-DD'),
       requirements: values['requirements'] as string,
       industry: (values['industry'] as string) || undefined,
-      product: (values['product'] as string) || undefined,
+      products: (values['products'] as ProductLine[] | undefined)?.filter((l) => l.product),
       stage_probability: typeof values['stage_probability'] === 'number'
         ? (values['stage_probability'] as number)
         : undefined,
@@ -166,16 +168,8 @@ const OpportunityEditPage: React.FC = () => {
                   ]}
                 />
               </Form.Item>
-              <Form.Item name="product" label="Product">
-                <Select
-                  allowClear
-                  placeholder="Select product"
-                  options={[
-                    { value: 'MonetX', label: 'MonetX' },
-                    { value: 'PatchX', label: 'PatchX' },
-                    { value: 'SupportX', label: 'SupportX' },
-                  ]}
-                />
+              <Form.Item name="products" label="Products & Sizing">
+                <ProductLinesField />
               </Form.Item>
               <Form.Item name="stage_probability" label="Pipeline Stage">
                 <Select

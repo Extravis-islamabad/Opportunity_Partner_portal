@@ -36,6 +36,7 @@ from app.core.seed_excel import (
 )
 from app.utils.bulk_import import load_xlsx_bounded, read_rows_capped
 from app.models.company import Company, CompanyStatus, CompanyType, PartnerTier
+from app.models.opportunity_product import OpportunityProduct, canonical_product
 from app.models.opportunity import Opportunity
 from app.models.user import User, UserRole, UserStatus
 from app.utils.audit import write_audit_log
@@ -229,13 +230,23 @@ async def bulk_import_opportunities(
                 reviewed_at=reviewed_at,
                 internal_notes=f"Imported from 2027 Target Plan.",
                 industry=industry,
-                product=product,
                 stage_probability=Decimal(str(progress)).quantize(Decimal("0.01")),
                 time_frame=time_frame,
                 sales_rep_id=cm.id,
             )
             db.add(opp)
             await db.flush()
+
+            # One product line carrying the whole worth, matching what a
+            # single-product import means. An unrecognised name is skipped
+            # rather than failing the row: the import's job is the pipeline,
+            # and a typo in a product column should not lose the deal.
+            canonical = canonical_product(product)
+            if canonical:
+                db.add(OpportunityProduct(
+                    opportunity_id=opp.id, product=canonical, value=opp.worth
+                ))
+                await db.flush()
             await write_audit_log(
                 db, admin.id, "CREATE", "opportunity", opp.id,
                 {"source": "bulk_import", "customer": customer, "partner": partner_name},

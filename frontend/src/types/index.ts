@@ -202,7 +202,23 @@ export interface LossReasonOption {
   label: string;
 }
 
-export type ProductName = 'MonetX' | 'PatchX' | 'SupportX';
+/** The product catalogue. Served by /opportunities/products so the form does
+ *  not hardcode it; this type is for the values that come back. */
+export type ProductName = 'MonetX' | 'SupportX' | 'GreenX' | 'PatchX' | 'AgentX';
+
+export interface ProductOption {
+  value: string;
+  label: string;
+}
+
+/** One product on a deal, with the sizing the quote is built from. */
+export interface ProductLine {
+  product: string;
+  device_count: number | null;
+  node_count: number | null;
+  value: number | string | null;
+  notes?: string | null;
+}
 export type StageProbability = 0.1 | 0.3 | 0.6 | 0.7 | 0.9 | 1.0;
 
 export interface OpportunityResponse {
@@ -238,6 +254,9 @@ export interface OpportunityResponse {
   sales_rep_id: number | null;
   sales_rep_name: string | null;
   industry: string | null;
+  /** Every product on the deal, with its sizing and value. */
+  products: ProductLine[];
+  /** Derived one-word summary — the biggest line. Never stored. */
   product: string | null;
   stage_probability: string | null;
   time_frame: string | null;
@@ -266,6 +285,7 @@ export interface OpportunityListItem {
   company_name: string | null;
   company_id: number;
   industry: string | null;
+  products: string[];
   product: string | null;
   stage_probability: string | null;
   time_frame: string | null;
@@ -298,7 +318,11 @@ export interface OpportunityCreateRequest {
   requirements: string;
   status?: string;
   industry?: string;
-  product?: string;
+  /**
+   * The products on the deal, with sizing. Omitting the field on an update
+   * leaves the existing lines alone; sending an empty array clears them.
+   */
+  products?: ProductLine[];
   stage_probability?: number;
   time_frame?: string;
   sales_rep_id?: number;

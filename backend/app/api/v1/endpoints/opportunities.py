@@ -16,6 +16,7 @@ from app.core.deps import (
     is_poc_team_member,
 )
 from app.models.opportunity import LOSS_REASON_LABELS
+from app.models.opportunity_product import PRODUCTS
 from app.models.user import User, UserRole
 from app.schemas.opportunity import (
     OpportunityCreateRequest,
@@ -124,6 +125,16 @@ async def list_stale_reviews(
     """
     scope = await get_admin_scope(db, admin)
     return await review_sla_service.list_stale_reviews(db, scope)
+
+
+@router.get("/products", status_code=200)
+async def list_products(_user: User = Depends(get_current_user)):
+    """The product catalogue, so the form does not hardcode it.
+
+    Declared above /{opp_id} for the same reason as loss-reasons: FastAPI
+    matches in declaration order and would try to parse "products" as an int.
+    """
+    return [{"value": p, "label": p} for p in PRODUCTS]
 
 
 @router.get("/loss-reasons", status_code=200)

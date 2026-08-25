@@ -52,9 +52,9 @@ async def licensed(db, w, *, expires_in_days=45, **kwargs):
     opp = await make_opportunity(
         db, company_id=w.company.id, submitted_by=w.partner.id,
         status=OpportunityStatus.APPROVED,
+        products=["MonetX"],
     )
     opp.sales_rep_id = w.rep.id
-    opp.product = "MonetX"
     opp.industry = "Banking"
     await db.flush()
     lic = await make_license(db, opportunity_id=opp.id, expires_in_days=expires_in_days, **kwargs)
@@ -185,7 +185,9 @@ class TestCreateRenewal:
         )
         renewal = await self._renewal_row(db, lic.id)
         assert renewal.customer_name == opp.customer_name
-        assert renewal.product == opp.product
+        assert [l.product for l in renewal.products] == [
+            l.product for l in opp.products
+        ]
         assert renewal.industry == opp.industry
         assert renewal.country == opp.country
         assert renewal.company_id == opp.company_id
@@ -229,6 +231,25 @@ class TestCreateRenewal:
         renewal = await self._renewal_row(db, lic.id)
         assert renewal.worth == Decimal("77000.00")
         assert renewal.closing_date == target
+
+    async def test_the_product_lines_are_rescaled_to_an_overridden_value(
+        self, client, db
+    ):
+        # The lines came from a deal worth X; if the renewal is agreed at Y the
+        # lines have to move with it, or the breakdown stops adding up to the
+        # deal. Also the path where an overridden float meets a stored Decimal.
+        from decimal import Decimal
+
+        w = await build(db)
+        opp, lic = await licensed(db, w, po_value=Decimal("40000.00"))
+        await client.post(
+            f"/api/v1/renewals/{lic.id}", headers=auth_header(w.partner),
+            json={"worth": 80000},
+        )
+        renewal = await self._renewal_row(db, lic.id)
+        assert renewal.worth == Decimal("80000")
+        # One line, originally the whole 40k, doubled with the deal.
+        assert [l.value for l in renewal.products] == [Decimal("80000.00")]
 
     async def test_it_closes_by_the_expiry_date_by_default(self, client, db):
         # A renewal closing after the licence lapses is a gap in service.

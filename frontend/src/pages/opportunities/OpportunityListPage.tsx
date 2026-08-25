@@ -25,6 +25,12 @@ const OpportunityListPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [productFilter, setProductFilter] = useState<string | undefined>();
+
+  const { data: catalogue } = useQuery({
+    queryKey: ['product-catalogue'],
+    queryFn: async () => (await opportunitiesApi.products()).data,
+    staleTime: Infinity,
+  });
   const [industryFilter, setIndustryFilter] = useState<string | undefined>();
   const [quarterFilter, setQuarterFilter] = useState<string | undefined>();
   const navigate = useNavigate();
@@ -97,8 +103,13 @@ const OpportunityListPage: React.FC = () => {
         }]
       : []),
     {
-      title: 'Product', dataIndex: 'product', key: 'product',
-      render: (p: string | null) => p ? <Tag color="geekblue">{p}</Tag> : '—',
+      // Every product on the deal, not just the headline one: a two-product
+      // deal listed under one of them is how the old single column misled.
+      title: 'Products', dataIndex: 'products', key: 'products',
+      render: (products: string[]) =>
+        products?.length
+          ? <Space size={4} wrap>{products.map((p) => <Tag color="geekblue" key={p}>{p}</Tag>)}</Space>
+          : '—',
     },
     {
       title: 'Industry', dataIndex: 'industry', key: 'industry',
@@ -187,11 +198,9 @@ const OpportunityListPage: React.FC = () => {
           ]}
         />
         <Select placeholder="Product" allowClear style={{ width: 140 }} onChange={(v) => { setProductFilter(v); setPage(1); }}
-          options={[
-            { value: 'MonetX', label: 'MonetX' },
-            { value: 'PatchX', label: 'PatchX' },
-            { value: 'SupportX', label: 'SupportX' },
-          ]}
+          // From the catalogue rather than hardcoded, so a new product appears
+          // in the filter the moment it is added server-side.
+          options={(catalogue ?? []).map((o) => ({ value: o.value, label: o.label }))}
         />
         <Select placeholder="Industry" allowClear style={{ width: 180 }} onChange={(v) => { setIndustryFilter(v); setPage(1); }}
           options={[

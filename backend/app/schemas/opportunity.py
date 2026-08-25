@@ -4,6 +4,30 @@ from datetime import datetime, date
 from decimal import Decimal
 
 
+class ProductLineRequest(BaseModel):
+    """One product on a deal, with the sizing the quote is built from.
+
+    The counts are optional because a deal is usually qualified before they
+    are known, and a zero would read as "none needed" rather than "not yet
+    asked". `value` is this line's share of the deal and is deliberately not
+    forced to sum to the opportunity's worth — a deal can include services
+    that belong to no product line.
+    """
+    product: str = Field(..., max_length=50)
+    device_count: Optional[int] = Field(None, ge=0)
+    node_count: Optional[int] = Field(None, ge=0)
+    value: Optional[Decimal] = Field(None, ge=0, max_digits=15, decimal_places=2)
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+class ProductLineResponse(BaseModel):
+    product: str
+    device_count: Optional[int] = None
+    node_count: Optional[int] = None
+    value: Optional[Decimal] = None
+    notes: Optional[str] = None
+
+
 class OpportunityCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     customer_name: str = Field(..., min_length=1, max_length=200)
@@ -16,7 +40,7 @@ class OpportunityCreateRequest(BaseModel):
     status: Optional[str] = Field("draft", pattern="^(draft|pending_review)$")
     # 2027 Target Plan fields
     industry: Optional[str] = Field(None, max_length=100)
-    product: Optional[str] = Field(None, max_length=50)
+    products: Optional[List[ProductLineRequest]] = None
     stage_probability: Optional[Decimal] = Field(None, ge=0, le=1, max_digits=3, decimal_places=2)
     time_frame: Optional[str] = Field(None, max_length=20)
     sales_rep_id: Optional[int] = None
@@ -32,7 +56,8 @@ class OpportunityUpdateRequest(BaseModel):
     closing_date: Optional[date] = None
     requirements: Optional[str] = Field(None, min_length=1)
     industry: Optional[str] = Field(None, max_length=100)
-    product: Optional[str] = Field(None, max_length=50)
+    # Omitted means "leave the lines alone"; an empty list clears them.
+    products: Optional[List[ProductLineRequest]] = None
     stage_probability: Optional[Decimal] = Field(None, ge=0, le=1, max_digits=3, decimal_places=2)
     time_frame: Optional[str] = Field(None, max_length=20)
     sales_rep_id: Optional[int] = None
@@ -120,6 +145,10 @@ class OpportunityResponse(BaseModel):
     sales_rep_id: Optional[int] = None
     sales_rep_name: Optional[str] = None
     industry: Optional[str] = None
+    # The full set of product lines, and a derived one-word summary for the
+    # places that only have room for one (list columns, POC headers). The
+    # summary is computed on the way out, so it cannot disagree with the lines.
+    products: List[ProductLineResponse] = []
     product: Optional[str] = None
     stage_probability: Optional[Decimal] = None
     time_frame: Optional[str] = None
@@ -154,6 +183,9 @@ class OpportunityListResponse(BaseModel):
     company_name: Optional[str] = None
     company_id: int
     industry: Optional[str] = None
+    # Names only — the list has no room for sizing, and the summary keeps the
+    # column that was there before honest when a deal spans two products.
+    products: List[str] = []
     product: Optional[str] = None
     stage_probability: Optional[Decimal] = None
     time_frame: Optional[str] = None

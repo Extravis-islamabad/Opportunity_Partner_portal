@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_partner_pipeline_scope
 from app.models.company import CHANNEL_COMPANY_TYPES, Company, PartnerTier
 from app.models.user import User, UserRole
+from app.models.opportunity_product import OpportunityProduct
 from app.models.opportunity import (
     ACCEPTED_STATUSES,
     LOSS_REASON_LABELS,
@@ -866,17 +867,31 @@ async def get_target_plan_analytics(
         ).where(*base)
     )).one()
 
-    # By product
+    # By product line.
+    #
+    # Grouped over the lines rather than the opportunity, and summing the
+    # *line* value rather than the deal's worth. Attributing a whole two-product
+    # deal to both products would count the same money twice and make the
+    # product columns add up to more than the pipeline.
+    #
+    # Lines carry a value only when somebody has broken the deal down, so the
+    # totals here can fall short of total pipeline. That difference is reported
+    # as its own row rather than hidden: an "Unattributed" bucket that makes the
+    # breakdown reconcile with the headline number.
+    line_scope = list(base)
     by_product_rows = (await db.execute(
         select(
-            func.coalesce(Opportunity.product, "Unspecified"),
-            func.count(Opportunity.id),
-            worth_expr,
-            weighted_expr,
+            OpportunityProduct.product,
+            func.count(func.distinct(OpportunityProduct.opportunity_id)),
+            func.coalesce(func.sum(OpportunityProduct.value), 0),
+            func.coalesce(
+                func.sum(OpportunityProduct.value * Opportunity.stage_probability), 0
+            ),
         )
-        .where(*base)
-        .group_by(Opportunity.product)
-        .order_by(weighted_expr.desc())
+        .join(Opportunity, OpportunityProduct.opportunity_id == Opportunity.id)
+        .where(*line_scope)
+        .group_by(OpportunityProduct.product)
+        .order_by(func.coalesce(func.sum(OpportunityProduct.value), 0).desc())
     )).all()
     by_product = [
         ProductBreakdown(
@@ -887,6 +902,24 @@ async def get_target_plan_analytics(
         )
         for row in by_product_rows
     ]
+
+    attributed = sum((p.total_worth for p in by_product), Decimal("0"))
+    unattributed = Decimal(total_q[1] or 0) - attributed
+    if unattributed > 0:
+        attributed_weighted = sum(
+            (p.weighted_pipeline for p in by_product), Decimal("0")
+        )
+        by_product.append(ProductBreakdown(
+            product="Unattributed",
+            # Not a count of deals: it is the remainder of the money, and
+            # counting deals here would double-count every partially broken
+            # down one.
+            opportunity_count=0,
+            total_worth=unattributed,
+            weighted_pipeline=max(
+                Decimal("0"), Decimal(total_q[2] or 0) - attributed_weighted
+            ),
+        ))
 
     # By industry (from opportunity, not company)
     by_industry_rows = (await db.execute(

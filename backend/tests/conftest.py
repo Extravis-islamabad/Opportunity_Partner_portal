@@ -201,7 +201,7 @@ async def make_company(db, *, channel_manager_id, company_type=None,
     return company
 
 
-async def make_opportunity(db, *, company_id, submitted_by, name=None, status=None):
+async def make_opportunity(db, *, company_id, submitted_by, name=None, status=None, products=None):
     from datetime import date
     from decimal import Decimal
 
@@ -225,6 +225,21 @@ async def make_opportunity(db, *, company_id, submitted_by, name=None, status=No
     )
     db.add(opp)
     await db.flush()
+
+    # `products` takes either a bare product name or a (name, value) pair, so a
+    # test that only cares which product it is does not have to say how much of
+    # the deal it accounts for.
+    if products:
+        from app.models.opportunity_product import OpportunityProduct
+
+        for entry in products:
+            product, value = entry if isinstance(entry, tuple) else (entry, opp.worth)
+            db.add(OpportunityProduct(
+                opportunity_id=opp.id, product=product, value=value
+            ))
+        await db.flush()
+        await db.refresh(opp, ["products"])
+
     return opp
 
 

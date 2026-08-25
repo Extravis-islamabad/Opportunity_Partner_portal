@@ -26,6 +26,7 @@ from reportlab.platypus import (
 from app.models.company import Company
 from app.models.customer_license import CustomerLicense
 from app.models.deal_registration import DealRegistration
+from app.models.opportunity_product import product_names
 from app.models.opportunity import LOSS_REASON_LABELS, Opportunity
 from app.models.poc import POC_STAGE_KEYS, POC_STAGE_LABELS, Poc
 
@@ -144,7 +145,7 @@ def _xlsx_to_bytes(wb: Workbook) -> bytes:
 # ------------------------------ Opportunities --------------------------------
 
 OPP_HEADERS = [
-    "ID", "Name", "Customer", "Company", "Country", "Region",
+    "ID", "Name", "Customer", "Company", "Country", "Region", "Products",
     "Worth (USD)", "Closing Date", "Status", "Loss Reason",
     "Submitted By", "Created",
 ]
@@ -158,6 +159,9 @@ def _opportunity_row(opp: Opportunity) -> list[str]:
         opp.company.name if opp.company else "",
         opp.country,
         opp.region,
+        # Every product on the deal, not just the headline one: a report that
+        # names one of two products understates the other product's pipeline.
+        ", ".join(product_names(opp)),
         f"{float(opp.worth):,.2f}" if opp.worth is not None else "",
         opp.closing_date.strftime("%Y-%m-%d") if opp.closing_date else "",
         opp.status.value.replace("_", " ").title() if opp.status else "",
@@ -178,13 +182,13 @@ def build_opportunity_pdf(opportunities: Iterable[Opportunity], subtitle: str | 
         styles = getSampleStyleSheet()
         elements.append(Paragraph("No opportunities match the current filters.", styles["Italic"]))
     else:
-        # 12 columns summing to 272mm, inside the 273mm of content a landscape
-        # A4 page has after its 12mm side margins. The previous 11 columns
-        # already came to 304mm and were overflowing the page; adding Loss
+        # 13 columns summing to 270mm, inside the 273mm of content a landscape
+        # A4 page has after its 12mm side margins. An earlier 11-column layout
+        # already came to 304mm and was overflowing the page; adding Loss
         # Reason was the prompt to fix that rather than make it worse.
         col_widths = [
-            10 * mm, 34 * mm, 30 * mm, 30 * mm, 18 * mm, 18 * mm,
-            22 * mm, 20 * mm, 20 * mm, 24 * mm, 26 * mm, 20 * mm,
+            10 * mm, 30 * mm, 28 * mm, 26 * mm, 16 * mm, 16 * mm, 22 * mm,
+            20 * mm, 18 * mm, 18 * mm, 22 * mm, 24 * mm, 20 * mm,
         ]
         elements.append(_pdf_table(OPP_HEADERS, rows, col_widths))
 

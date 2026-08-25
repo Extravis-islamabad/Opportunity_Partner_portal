@@ -11,6 +11,7 @@ from sqlalchemy import select, func, case, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.models.opportunity_product import primary_product
 from app.core.exceptions import (
     BadRequestException,
     ConflictException,
@@ -213,7 +214,7 @@ def to_poc_response(poc: Poc, *, viewer: User) -> PocResponse:
         country=opp.country if opp else None,
         city=opp.city if opp else None,
         region=opp.region if opp else None,
-        product=opp.product if opp else None,
+        product=primary_product(opp) if opp else None,
         worth=opp.worth if opp else None,
         sales_rep_name=opp.sales_rep.full_name if opp and opp.sales_rep else None,
         closed_by_name=poc.closed_by_user.full_name if poc.closed_by_user else None,
@@ -260,7 +261,7 @@ def to_license_response(lic: CustomerLicense) -> LicenseResponse:
         customer_name=opp.customer_name if opp else None,
         company_name=opp.company.name if opp and opp.company else None,
         country=opp.country if opp else None,
-        product=opp.product if opp else None,
+        product=primary_product(opp) if opp else None,
         created_at=lic.created_at,
         updated_at=lic.updated_at,
     )

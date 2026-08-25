@@ -16,6 +16,7 @@ import type {
   OpportunityListItem,
   OpportunityCreateRequest,
   LossReasonOption,
+  ProductOption,
   StaleReview,
   EmailLogResponse,
   UpcomingRenewal,
@@ -154,6 +155,8 @@ export const opportunitiesApi = {
   // point of the field is being able to count it.
   close: (id: number, data: { won: boolean; loss_reason?: string; loss_notes?: string }) =>
     apiClient.post<OpportunityResponse>(`/opportunities/${id}/close`, data),
+  products: () =>
+    apiClient.get<ProductOption[]>('/opportunities/products'),
   lossReasons: () =>
     apiClient.get<LossReasonOption[]>('/opportunities/loss-reasons'),
   // Review ageing: the queue of claims that stopped moving, and handing one back.

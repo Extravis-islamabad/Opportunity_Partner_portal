@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Descriptions, Card, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Modal, Input, Select, Checkbox, Upload, List, message, Typography, Popconfirm } from 'antd';
+import { Descriptions, Card, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Modal, Input, Select, Checkbox, Upload, List, Table, message, Typography, Popconfirm } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { opportunitiesApi, aiApi } from '@/api/endpoints';
@@ -206,7 +206,15 @@ const OpportunityDetailPage: React.FC = () => {
                   <Tag color="cyan" icon={<ReloadOutlined />}>Renewal</Tag>
                 </Descriptions.Item>
               )}
-              {opp.product && <Descriptions.Item label="Product"><Tag color="geekblue">{opp.product}</Tag></Descriptions.Item>}
+              {opp.products.length > 0 && (
+                <Descriptions.Item label="Products">
+                  <Space size={4} wrap>
+                    {opp.products.map((line) => (
+                      <Tag color="geekblue" key={line.product}>{line.product}</Tag>
+                    ))}
+                  </Space>
+                </Descriptions.Item>
+              )}
               {opp.industry && <Descriptions.Item label="Industry">{opp.industry}</Descriptions.Item>}
               {opp.stage_probability && (
                 <Descriptions.Item label="Stage">
@@ -242,6 +250,41 @@ const OpportunityDetailPage: React.FC = () => {
                     )}
                   </Space>
                 }
+              />
+            </Card>
+          )}
+
+          {opp.products.length > 0 && (
+            <Card title="Products & Sizing" style={{ marginTop: 16 }}>
+              <Table
+                rowKey="product"
+                size="small"
+                pagination={false}
+                dataSource={opp.products}
+                columns={[
+                  { title: 'Product', dataIndex: 'product' },
+                  {
+                    title: 'Devices',
+                    dataIndex: 'device_count',
+                    align: 'right' as const,
+                    // Blank rather than 0: the count has not been asked yet,
+                    // which is not the same as none being needed.
+                    render: (v: number | null) => (v ?? '—'),
+                  },
+                  {
+                    title: 'Nodes',
+                    dataIndex: 'node_count',
+                    align: 'right' as const,
+                    render: (v: number | null) => (v ?? '—'),
+                  },
+                  {
+                    title: 'Value',
+                    dataIndex: 'value',
+                    align: 'right' as const,
+                    render: (v: string | number | null) =>
+                      v === null || v === undefined ? '—' : `$${Number(v).toLocaleString()}`,
+                  },
+                ]}
               />
             </Card>
           )}

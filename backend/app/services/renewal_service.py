@@ -19,6 +19,7 @@ The commission engine is untouched: the renewal earns exactly what any other
 registered deal earns, at the company's tier when it is approved.
 """
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +34,7 @@ from app.core.exceptions import (
 from app.models.customer_license import CustomerLicense
 from app.models.deal_registration import DealRegistration, DealStatus
 from app.models.opportunity import Opportunity, OpportunityStatus
+from app.models.opportunity_product import OpportunityProduct, primary_product
 from app.models.user import User, UserRole
 from app.services.notification_service import notify_user
 from app.utils.audit import write_audit_log
@@ -217,13 +219,15 @@ async def create_renewal(
         # The value of a renewal is the licence that is being renewed, which is
         # what the customer actually pays today — not the original deal's
         # worth, which may have included one-off services.
-        worth=worth if worth is not None else (lic.po_value or source.worth),
+        # Decimal, not the float that arrived on the request: this is money,
+        # and it is about to be divided by another Decimal to rescale the
+        # product lines. str() first so 77000.1 does not become 77000.099999.
+        worth=Decimal(str(worth)) if worth is not None else (lic.po_value or source.worth),
         # Renewals land on the expiry date unless somebody says otherwise: a
         # renewal closing after the licence lapses is a gap in service.
         closing_date=closing_date or expires,
         requirements=f"Renewal of the licence expiring {expires}.",
         industry=source.industry,
-        product=source.product,
         time_frame=source.time_frame,
         company_id=source.company_id,
         submitted_by=source.submitted_by,
@@ -232,6 +236,27 @@ async def create_renewal(
         renewal_of_license_id=lic.id,
     )
     db.add(renewal)
+    await db.flush()
+
+    # The product lines come across with their sizing: a renewal is the same
+    # deployment for another term, so retyping what it consists of is exactly
+    # the mistake this whole path exists to avoid. Values carry too, and are
+    # rescaled if the renewal's total was overridden, so the lines still add up
+    # to the deal.
+    scale = (
+        (renewal.worth / source.worth)
+        if source.worth and renewal.worth and source.worth != renewal.worth
+        else None
+    )
+    for line in source.products:
+        db.add(OpportunityProduct(
+            opportunity_id=renewal.id,
+            product=line.product,
+            device_count=line.device_count,
+            node_count=line.node_count,
+            value=(line.value * scale if (scale and line.value) else line.value),
+            notes=line.notes,
+        ))
     await db.flush()
 
     # Sizing carried in the description rather than as columns: the renewal's
@@ -326,7 +351,7 @@ async def upcoming_renewals(
             "customer_name": lic.opportunity.customer_name,
             "company_id": lic.opportunity.company_id,
             "company_name": lic.opportunity.company.name if lic.opportunity.company else None,
-            "product": lic.opportunity.product,
+            "product": primary_product(lic.opportunity),
             "po_value": lic.po_value,
             "device_count": lic.device_count,
             "node_count": lic.node_count,

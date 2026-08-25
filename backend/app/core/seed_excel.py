@@ -33,6 +33,7 @@ from sqlalchemy import select
 from app.core.database import async_session_factory
 from app.core.security import hash_password
 from app.models.company import Company, CompanyStatus, CompanyType, PartnerTier
+from app.models.opportunity_product import OpportunityProduct, canonical_product
 from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.user import User, UserRole, UserStatus
 from app.utils.audit import write_audit_log
@@ -309,13 +310,20 @@ async def create_opportunities(
             internal_notes=f"Imported from 2027 Target Plan.",
             # Excel-driven fields
             industry=r["industry"],
-            product=r["product"],
             stage_probability=Decimal(str(r["progress"])).quantize(Decimal("0.01")),
             time_frame=r["time_frame"],
             sales_rep_id=reviewer.id,
         )
         db.add(opp)
         await db.flush()
+
+        canonical = canonical_product(r["product"])
+        if canonical:
+            db.add(OpportunityProduct(
+                opportunity_id=opp.id, product=canonical, value=opp.worth
+            ))
+            await db.flush()
+
         await write_audit_log(
             db, superadmin.id, "CREATE", "opportunity", opp.id,
             {"source": "seed_excel", "customer": r["customer"], "partner": r["partner"]},

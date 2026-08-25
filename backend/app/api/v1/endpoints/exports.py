@@ -26,6 +26,7 @@ from app.core.exceptions import ForbiddenException
 from app.models.company import Company
 from app.models.customer_license import CustomerLicense
 from app.models.deal_registration import DealRegistration
+from app.models.opportunity_product import OpportunityProduct
 from app.models.opportunity import Opportunity
 from app.models.poc import Poc
 from app.models.user import User, UserRole
@@ -119,7 +120,13 @@ async def _fetch_opportunities(
         query = query.where(Opportunity.region == region)
     # Mirrors the list filters, so an export matches what is on screen.
     if product:
-        query = query.where(Opportunity.product == product)
+        # Mirrors the list filter: a deal now carries several products, so ask
+        # whether any of its lines is this one.
+        query = query.where(Opportunity.id.in_(
+            select(OpportunityProduct.opportunity_id).where(
+                OpportunityProduct.product == product
+            )
+        ))
     if industry:
         query = query.where(Opportunity.industry == industry)
     if time_frame:

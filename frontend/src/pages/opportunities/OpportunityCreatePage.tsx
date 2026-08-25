@@ -29,6 +29,8 @@ import type { OpportunityCreateRequest } from '@/types';
 import { AxiosError } from 'axios';
 import type { ErrorResponse } from '@/types';
 import dayjs from 'dayjs';
+import ProductLinesField from '@/components/opportunities/ProductLinesField';
+import type { ProductLine } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Duplicate warning panel — renders the result of /opportunities/check-duplicate
@@ -233,7 +235,7 @@ const OpportunityCreatePage: React.FC = () => {
       requirements: values['requirements'] as string,
       status: values['submit'] ? 'pending_review' : 'draft',
       industry: (values['industry'] as string) || undefined,
-      product: (values['product'] as string) || undefined,
+      products: (values['products'] as ProductLine[] | undefined)?.filter((l) => l.product),
       stage_probability: typeof values['stage_probability'] === 'number'
         ? (values['stage_probability'] as number)
         : undefined,
@@ -312,16 +314,12 @@ const OpportunityCreatePage: React.FC = () => {
               ]}
             />
           </Form.Item>
-          <Form.Item name="product" label="Product">
-            <Select
-              allowClear
-              placeholder="Select product"
-              options={[
-                { value: 'MonetX', label: 'MonetX' },
-                { value: 'PatchX', label: 'PatchX' },
-                { value: 'SupportX', label: 'SupportX' },
-              ]}
-            />
+          <Form.Item
+            name="products"
+            label="Products & Sizing"
+            tooltip="Device and node counts are what the quote is priced from, so they belong here rather than on the licence after the PO."
+          >
+            <ProductLinesField />
           </Form.Item>
           <Form.Item name="stage_probability" label="Pipeline Stage">
             <Select

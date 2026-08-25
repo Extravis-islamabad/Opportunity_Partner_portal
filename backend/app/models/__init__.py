@@ -10,6 +10,7 @@ from app.models.notification import Notification
 from app.models.audit_log import AuditLog
 from app.models.deal_extension import DealExtensionRequest, ExtensionStatus
 from app.models.email_delivery import EmailDelivery, EmailStatus
+from app.models.opportunity_product import PRODUCTS, OpportunityProduct
 from app.models.deal_registration import DealRegistration
 from app.models.partner_tier import PartnerTierHistory
 from app.models.commission import Commission, TierCommissionRate
@@ -33,6 +34,8 @@ __all__ = [
     "AuditLog",
     "DealExtensionRequest",
     "ExtensionStatus",
+    "OpportunityProduct",
+    "PRODUCTS",
     "EmailDelivery",
     "EmailStatus",
     "PocTeamMember",
