@@ -7,6 +7,7 @@ import type {
   UserResponse,
   UserCreateRequest,
   UserUpdateRequest,
+  WorkloadResponse,
   CompanyResponse,
   CompanyDetailResponse,
   CompanyCreateRequest,
@@ -100,6 +101,14 @@ export const usersApi = {
   // AdminUserUpdateRequest). Kept permissive so the edit modal can send status.
   adminUpdate: (id: number, data: Partial<UserUpdateRequest> & { status?: string }) =>
     apiClient.put<UserResponse>(`/users/${id}`, data),
+  // What an account still holds, and who has taken over from whom before.
+  // Deactivation is refused while the total is non-zero.
+  workload: (id: number) =>
+    apiClient.get<WorkloadResponse>(`/users/${id}/workload`),
+  handOver: (id: number, to_user_id: number, notes?: string) =>
+    apiClient.post<{ id: number; to_user_id: number; moved: Record<string, number> }>(
+      `/users/${id}/handover`, { to_user_id, notes },
+    ),
   update: (id: number, data: UserUpdateRequest) =>
     apiClient.put<UserResponse>(`/users/${id}`, data),
   updateProfile: (data: UserUpdateRequest) =>

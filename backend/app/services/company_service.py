@@ -16,6 +16,7 @@ from app.schemas.company import (
     ResellerBrief,
 )
 from app.core.exceptions import NotFoundException, ConflictException, BadRequestException
+from app.services import handover_service
 from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_user
 
@@ -492,6 +493,11 @@ async def deactivate_company(db: AsyncSession, company_id: int, admin_user: User
     )
     partners = partners_result.scalars().all()
     for partner in partners:
+        # Same rule as deactivating one person: a partner still holding live
+        # work cannot be switched off silently, even as part of closing their
+        # company. The whole company deactivation is refused so the caller
+        # hands the pipeline over first rather than losing half of it.
+        await handover_service.assert_ready_to_deactivate(db, partner)
         partner.status = UserStatus.INACTIVE
         partner.deleted_at = datetime.now(timezone.utc)
 

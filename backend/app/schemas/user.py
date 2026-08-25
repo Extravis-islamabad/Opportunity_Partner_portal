@@ -48,3 +48,16 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+
+
+class HandoverRequest(BaseModel):
+    """Who takes over a leaver's open work.
+
+    One successor rather than one per kind: in practice everything a person
+    holds is the same shape as the person (a partner's pipeline, an admin's
+    book), and the service refuses a successor who cannot hold what is being
+    moved rather than splitting it silently.
+    """
+
+    to_user_id: int
+    notes: Optional[str] = Field(None, max_length=2000)

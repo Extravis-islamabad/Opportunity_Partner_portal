@@ -13,13 +13,14 @@ from app.core.deps import (
 )
 from app.models.user import User
 from app.schemas.user import (
+    HandoverRequest,
     UserCreateRequest,
     UserUpdateRequest,
     AdminUserUpdateRequest,
     UserResponse,
 )
 from app.schemas.common import MessageResponse
-from app.services import partner_service
+from app.services import handover_service, partner_service
 
 router = APIRouter(prefix="/users", tags=["Users & Partners"])
 
@@ -128,6 +129,56 @@ async def update_my_profile(
         phone=data.phone,
     )
     return await partner_service.update_partner(db, current_user.id, admin_data, current_user)
+
+
+@router.get("/{user_id}/workload", status_code=200)
+async def get_workload(
+    user_id: int,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """What this account still holds, and its handover history.
+
+    Backs the confirmation screen: an admin about to switch somebody off
+    should see what is going to be orphaned before they try.
+    """
+    target = await partner_service.load_user_or_404(db, user_id)
+    await assert_can_manage_user(db, admin, target)
+
+    work = await handover_service.outstanding_work(db, target)
+    return {
+        **work,
+        "history": await handover_service.history(db, user_id),
+    }
+
+
+@router.post("/{user_id}/handover", status_code=200)
+async def hand_over_work(
+    user_id: int,
+    data: HandoverRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move everything this account still holds to somebody else.
+
+    Scoped on both ends: an admin can only do this for people they manage, and
+    only to people they manage — otherwise it becomes a way to push work into
+    another manager's book.
+    """
+    leaver = await partner_service.load_user_or_404(db, user_id)
+    await assert_can_manage_user(db, admin, leaver)
+
+    successor = await handover_service.load_successor(db, data.to_user_id)
+    await assert_can_manage_user(db, admin, successor)
+
+    record = await handover_service.hand_over(
+        db, leaver, successor, admin, data.notes
+    )
+    return {
+        "id": record.id,
+        "to_user_id": record.to_user_id,
+        "moved": record.moved,
+    }
 
 
 @router.post("/{user_id}/deactivate", response_model=MessageResponse, status_code=200)

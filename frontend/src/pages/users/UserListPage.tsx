@@ -4,6 +4,7 @@ import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi, companiesApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
+import HandoverModal from '@/components/users/HandoverModal';
 import type { UserResponse } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import { AxiosError } from 'axios';
@@ -64,9 +65,24 @@ const UserListPage: React.FC = () => {
     });
   };
 
+  const [handingOver, setHandingOver] = useState<UserResponse | null>(null);
+
   const deactivateMut = useMutation({
     mutationFn: (id: number) => usersApi.deactivate(id),
     onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['users'] }); void message.success('User deactivated'); },
+    onError: (e: unknown, id: number) => {
+      const err = e as { response?: { status?: number; data?: { code?: string; message?: string } } };
+      // The API refuses to switch off an account that still holds live work.
+      // That is not a failure to report and forget — it is the moment to open
+      // the handover, which is the thing the admin actually needs to do.
+      if (err.response?.data?.code === 'HANDOVER_REQUIRED') {
+        const target = data?.items.find((u) => u.id === id) ?? null;
+        setHandingOver(target);
+        void message.warning(err.response.data.message ?? 'Hand the work over first');
+        return;
+      }
+      void message.error(err.response?.data?.message ?? 'Could not deactivate the user');
+    },
   });
 
   const reactivateMut = useMutation({
@@ -92,6 +108,11 @@ const UserListPage: React.FC = () => {
       title: 'Actions', key: 'actions', render: (_, record) => (
         <Space>
           <Button type="link" size="small" onClick={() => openEdit(record)}>Edit</Button>
+          {record.status === 'active' && (
+            <Button type="link" size="small" onClick={() => setHandingOver(record)}>
+              Hand over
+            </Button>
+          )}
           {record.status === 'active' ? (
             <Popconfirm title="Deactivate?" onConfirm={() => deactivateMut.mutate(record.id)}>
               <Button type="link" danger size="small">Deactivate</Button>
@@ -177,6 +198,13 @@ const UserListPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      <HandoverModal
+        user={handingOver}
+        // Everyone on this page is a candidate; the API refuses one who
+        // cannot hold what is being moved, and says why.
+        candidates={data?.items ?? []}
+        onClose={() => setHandingOver(null)}
+      />
     </>
   );
 };

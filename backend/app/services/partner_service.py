@@ -246,6 +246,13 @@ async def deactivate_partner(db: AsyncSession, user_id: int, admin_user: User) -
     if not user:
         raise NotFoundException(code="USER_NOT_FOUND", message="User not found")
 
+    # Everything this account still holds has to belong to somebody who can
+    # act on it first. Without this the work stays assigned to a login nobody
+    # can use — invisible rather than gone, which is worse.
+    from app.services import handover_service
+
+    await handover_service.assert_ready_to_deactivate(db, user)
+
     user.status = UserStatus.INACTIVE
     await db.flush()
     await write_audit_log(db, admin_user.id, "UPDATE", "user", user.id, {"status": "inactive"})

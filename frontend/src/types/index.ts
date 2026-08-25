@@ -204,6 +204,35 @@ export interface LossReasonOption {
 
 /** The product catalogue. Served by /opportunities/products so the form does
  *  not hardcode it; this type is for the values that come back. */
+// ==================== Handover ====================
+export interface WorkloadCounts {
+  opportunities_submitted: number;
+  opportunities_as_sales_rep: number;
+  companies_managed: number;
+  deal_registrations_pending: number;
+  poc_team_seats: number;
+  poc_stages_owned: number;
+}
+
+export interface HandoverEntry {
+  id: number;
+  from_user_id: number;
+  from_user_name: string | null;
+  to_user_id: number;
+  to_user_name: string | null;
+  performed_by_name: string | null;
+  moved: Partial<WorkloadCounts>;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface WorkloadResponse {
+  counts: WorkloadCounts;
+  /** Zero means the account can be deactivated; anything else has to move first. */
+  total: number;
+  history: HandoverEntry[];
+}
+
 // ==================== Currency ====================
 export type CurrencyCode = 'USD' | 'SAR' | 'AED' | 'PKR';
 
