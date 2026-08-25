@@ -158,7 +158,14 @@ async def calculate_commission_for_deal(
     tier: PartnerTier = deal.company.tier
     rate = await _get_active_rate(db, tier, as_of=date.today())
 
-    deal_value = Decimal(deal.estimated_value)
+    # The reporting value, not the native one: otherwise a PKR deal and a USD
+    # deal of the same face number earn the same commission, which is a
+    # 275-fold overpayment on one of them.
+    from app.services import currency_service
+
+    deal_value = currency_service.reporting_value(
+        deal.estimated_value, deal.exchange_rate_to_usd
+    )
     amount = _quantize(deal_value * rate / Decimal("100"))
 
     commission = Commission(
@@ -437,7 +444,7 @@ async def get_scorecard(
 
     # Total closed value (approved deals)
     total_value_result = await db.execute(
-        select(func.coalesce(func.sum(DealRegistration.estimated_value), 0)).where(
+        select(func.coalesce(func.sum(DealRegistration.estimated_value_usd), 0)).where(
             DealRegistration.company_id == company_id,
             DealRegistration.status == DealStatus.APPROVED,
             DealRegistration.deleted_at.is_(None),

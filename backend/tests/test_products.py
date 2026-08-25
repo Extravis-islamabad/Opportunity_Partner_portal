@@ -105,6 +105,19 @@ class TestLines:
         line = created.json()["products"][0]
         assert (line["device_count"], line["node_count"]) == (40, 3)
 
+    async def test_a_deal_with_no_products_still_saves(self, client, db):
+        # Not every deal names a product up front. The response reads the
+        # lines, and on a row that has just been inserted the collection has
+        # never been loaded — touching it then is a lazy load, which inside an
+        # async session raises rather than quietly querying.
+        w = await build(db)
+        r = await client.post(
+            "/api/v1/opportunities", headers=auth_header(w.partner), json=_payload(),
+        )
+        assert r.status_code == 201, r.text[:400]
+        assert r.json()["products"] == []
+        assert r.json()["product"] is None
+
     async def test_the_summary_names_the_biggest_line(self, client, db):
         # One word for the places that only have room for one, derived rather
         # than stored so it cannot disagree with the lines.

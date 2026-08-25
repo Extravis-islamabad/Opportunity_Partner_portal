@@ -9,6 +9,7 @@ import AIScoreBadge from '@/components/ai/AIScoreBadge';
 import OpportunityPocPanel from '@/components/poc/OpportunityPocPanel';
 import { StarFilled, WarningOutlined, UploadOutlined, FileOutlined, ThunderboltOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import { formatMoney, reportingSuffix } from '@/utils/money';
 
 const statusColors: Record<string, string> = {
   draft: 'default', pending_review: 'orange', under_review: 'processing',
@@ -194,7 +195,16 @@ const OpportunityDetailPage: React.FC = () => {
                   {opp.preferred_partner && <Tag color="gold" icon={<StarFilled />}>Preferred Partner</Tag>}
                 </Space>
               </Descriptions.Item>
-              <Descriptions.Item label="Worth">${Number(opp.worth).toLocaleString()}</Descriptions.Item>
+              <Descriptions.Item label="Worth">
+                <Space direction="vertical" size={0}>
+                  <span>{formatMoney(opp.worth, opp.currency)}</span>
+                  {reportingSuffix(opp.currency, opp.worth_usd) && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {reportingSuffix(opp.currency, opp.worth_usd)}
+                    </Typography.Text>
+                  )}
+                </Space>
+              </Descriptions.Item>
               <Descriptions.Item label="Customer">{opp.customer_name}</Descriptions.Item>
               <Descriptions.Item label="Company">{opp.company_name}</Descriptions.Item>
               <Descriptions.Item label="Region">{opp.region}</Descriptions.Item>
@@ -281,8 +291,10 @@ const OpportunityDetailPage: React.FC = () => {
                     title: 'Value',
                     dataIndex: 'value',
                     align: 'right' as const,
+                    // In the deal's currency, not dollars: a PKR line
+                    // rendered with a $ reads as 275 times its value.
                     render: (v: string | number | null) =>
-                      v === null || v === undefined ? '—' : `$${Number(v).toLocaleString()}`,
+                      v === null || v === undefined ? '—' : formatMoney(v, opp.currency),
                   },
                 ]}
               />

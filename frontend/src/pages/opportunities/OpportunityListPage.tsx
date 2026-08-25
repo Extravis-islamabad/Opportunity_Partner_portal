@@ -13,6 +13,7 @@ import AIScoreBadge from '@/components/ai/AIScoreBadge';
 import type { OpportunityListItem } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { formatMoney, reportingSuffix } from '@/utils/money';
 
 const statusColors: Record<string, string> = {
   draft: 'default', pending_review: 'orange', under_review: 'processing',
@@ -124,7 +125,19 @@ const OpportunityListPage: React.FC = () => {
       title: 'Time Frame', dataIndex: 'time_frame', key: 'time_frame',
       render: (t: string | null) => t ?? '—',
     },
-    { title: 'Worth (USD)', dataIndex: 'worth', key: 'worth', render: (v: string) => `$${Number(v).toLocaleString()}` },
+    {
+      title: 'Worth', dataIndex: 'worth', key: 'worth',
+      render: (v: string, r: OpportunityListItem) => (
+        <Space direction="vertical" size={0}>
+          <span>{formatMoney(v, r.currency)}</span>
+          {reportingSuffix(r.currency, r.worth_usd) && (
+            <span style={{ fontSize: 11, color: '#8c8c8c' }}>
+              {reportingSuffix(r.currency, r.worth_usd)}
+            </span>
+          )}
+        </Space>
+      ),
+    },
     ...(isAdmin ? [{
       title: 'Sales Rep', dataIndex: 'sales_rep_name' as const, key: 'sales_rep',
       render: (n: string | null) => n ?? '—',

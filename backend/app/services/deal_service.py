@@ -17,6 +17,7 @@ from app.schemas.dashboard import (
 )
 from app.core.exceptions import NotFoundException, BadRequestException, ConflictException
 from app.utils.audit import write_audit_log
+from app.services import currency_service
 from app.services.notification_service import notify_all_admins, notify_user
 
 logger = structlog.get_logger()
@@ -54,6 +55,10 @@ def to_deal_response(
         customer_name=deal.customer_name,
         deal_description=deal.deal_description,
         estimated_value=deal.estimated_value,
+        currency=deal.currency.value,
+        estimated_value_usd=currency_service.reporting_value(
+            deal.estimated_value, deal.exchange_rate_to_usd
+        ),
         expected_close_date=str(deal.expected_close_date),
         status=deal.status.value,
         exclusivity_start=str(deal.exclusivity_start) if deal.exclusivity_start else None,
@@ -98,6 +103,8 @@ async def create_deal_registration(
         estimated_value=data.estimated_value,
         expected_close_date=date.fromisoformat(data.expected_close_date),
     )
+    await currency_service.stamp(db, deal, getattr(data, "currency", None))
+
     db.add(deal)
     await db.flush()
 

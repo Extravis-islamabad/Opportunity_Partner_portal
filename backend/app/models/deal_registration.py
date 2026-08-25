@@ -1,7 +1,11 @@
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Text, Date, Numeric
+from sqlalchemy import (
+    Column, Computed, Integer, String, DateTime, Enum, ForeignKey, Text, Date,
+    Numeric,
+)
 from sqlalchemy.orm import relationship
+from app.models.currency import Currency
 from app.core.database import Base
 
 
@@ -22,6 +26,25 @@ class DealRegistration(Base):
     customer_name = Column(String(200), nullable=False)
     deal_description = Column(Text, nullable=False)
     estimated_value = Column(Numeric(15, 2), nullable=False)
+
+    # Same shape as an opportunity's: the currency the deal is in, the rate
+    # that was true when it was registered, and the reporting value Postgres
+    # derives from the two. Commission is calculated from the USD figure, so
+    # a partner in Karachi and one in Dubai are paid on comparable numbers.
+    currency = Column(
+        Enum(Currency, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        server_default=Currency.USD.value,
+        default=Currency.USD,
+        index=True,
+    )
+    exchange_rate_to_usd = Column(
+        Numeric(18, 6), nullable=False, server_default="1.0", default=1
+    )
+    estimated_value_usd = Column(
+        Numeric(18, 2),
+        Computed("estimated_value * exchange_rate_to_usd", persisted=True),
+    )
     expected_close_date = Column(Date, nullable=False)
     status = Column(Enum(DealStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=DealStatus.PENDING)
     exclusivity_start = Column(Date, nullable=True)

@@ -19,9 +19,12 @@ import type { ProductLine } from '@/types';
 interface Props {
   value?: ProductLine[];
   onChange?: (lines: ProductLine[]) => void;
+  /** The deal's currency, so a line value is not labelled in dollars on a
+   *  deal the customer pays for in rupees. */
+  currency?: string;
 }
 
-const ProductLinesField: React.FC<Props> = ({ value, onChange }) => {
+const ProductLinesField: React.FC<Props> = ({ value, onChange, currency = 'USD' }) => {
   const lines = value ?? [];
 
   const { data: catalogue } = useQuery({
@@ -86,7 +89,7 @@ const ProductLinesField: React.FC<Props> = ({ value, onChange }) => {
                 <InputNumber
                   style={{ width: '100%' }}
                   min={0}
-                  prefix="$"
+                  prefix={currency}
                   placeholder="Line value"
                   value={line.value !== null && line.value !== undefined ? Number(line.value) : null}
                   onChange={(v) => update(index, { value: v ?? null })}

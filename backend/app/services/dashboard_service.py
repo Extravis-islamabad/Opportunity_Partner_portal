@@ -110,10 +110,10 @@ async def get_admin_dashboard_stats(
         )
     )
     total_worth = await db.execute(
-        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(*opp_scope)
+        select(func.coalesce(func.sum(Opportunity.worth_usd), 0)).where(*opp_scope)
     )
     approved_worth = await db.execute(
-        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
+        select(func.coalesce(func.sum(Opportunity.worth_usd), 0)).where(
             *opp_scope, Opportunity.status.in_(ACCEPTED_STATUSES)
         )
     )
@@ -135,7 +135,10 @@ async def get_admin_dashboard_stats(
             Opportunity.name,
             Company.name.label("company_name"),
             Opportunity.closing_date,
-            Opportunity.worth,
+            # The reporting value, like every other figure on this dashboard.
+            # Showing the native amount here would put a PKR number in a
+            # column of dollars with nothing to say which was which.
+            Opportunity.worth_usd.label("worth"),
             Opportunity.status,
         )
         .join(Company, Opportunity.company_id == Company.id)
@@ -251,12 +254,12 @@ async def get_company_performance(db: AsyncSession, company_id: int) -> CompanyP
         )
     )
     total_worth_result = await db.execute(
-        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
+        select(func.coalesce(func.sum(Opportunity.worth_usd), 0)).where(
             Opportunity.company_id == company_id, Opportunity.deleted_at.is_(None)
         )
     )
     approved_worth_result = await db.execute(
-        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
+        select(func.coalesce(func.sum(Opportunity.worth_usd), 0)).where(
             Opportunity.company_id == company_id,
             Opportunity.status.in_(ACCEPTED_STATUSES),
             Opportunity.deleted_at.is_(None),
@@ -329,10 +332,10 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
         select(func.count(Opportunity.id)).where(*base_filter, Opportunity.status == OpportunityStatus.DRAFT)
     )).scalar() or 0
     my_total_worth = (await db.execute(
-        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(*base_filter)
+        select(func.coalesce(func.sum(Opportunity.worth_usd), 0)).where(*base_filter)
     )).scalar() or Decimal("0")
     my_approved_worth = (await db.execute(
-        select(func.coalesce(func.sum(Opportunity.worth), 0)).where(
+        select(func.coalesce(func.sum(Opportunity.worth_usd), 0)).where(
             *base_filter, Opportunity.status.in_(ACCEPTED_STATUSES)
         )
     )).scalar() or Decimal("0")
@@ -580,11 +583,11 @@ async def get_admin_analytics(
             Company.region,
             func.count(func.distinct(Company.id)).label("company_count"),
             func.count(Opportunity.id).label("opp_count"),
-            func.coalesce(func.sum(Opportunity.worth), 0).label("total_worth"),
+            func.coalesce(func.sum(Opportunity.worth_usd), 0).label("total_worth"),
             func.coalesce(
                 func.sum(
                     case(
-                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth),
+                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth_usd),
                         else_=0,
                     )
                 ),
@@ -598,7 +601,7 @@ async def get_admin_analytics(
         )
         .where(*company_filter)
         .group_by(Company.region)
-        .order_by(func.coalesce(func.sum(Opportunity.worth), 0).desc())
+        .order_by(func.coalesce(func.sum(Opportunity.worth_usd), 0).desc())
     )).all()
     regions = [
         RegionBreakdown(
@@ -618,7 +621,7 @@ async def get_admin_analytics(
         select(
             Company.tier,
             func.count(func.distinct(Company.id)).label("company_count"),
-            func.coalesce(func.sum(Opportunity.worth), 0).label("total_worth"),
+            func.coalesce(func.sum(Opportunity.worth_usd), 0).label("total_worth"),
         )
         .select_from(Company)
         .outerjoin(
@@ -677,7 +680,7 @@ async def get_admin_analytics(
             func.coalesce(
                 func.sum(
                     case(
-                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth),
+                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth_usd),
                         else_=0,
                     )
                 ),
@@ -695,7 +698,7 @@ async def get_admin_analytics(
             func.coalesce(
                 func.sum(
                     case(
-                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth),
+                        (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth_usd),
                         else_=0,
                     )
                 ),
@@ -795,7 +798,7 @@ async def get_admin_analytics(
         select(
             Opportunity.loss_reason,
             func.count(Opportunity.id),
-            func.coalesce(func.sum(Opportunity.worth), 0),
+            func.coalesce(func.sum(Opportunity.worth_usd), 0),
         )
         .where(
             *([Opportunity.deleted_at.is_(None), Opportunity.status == OpportunityStatus.LOST]
@@ -855,8 +858,8 @@ async def get_target_plan_analytics(
     if scope_company_ids is not None:
         base.append(Opportunity.company_id.in_(scope_company_ids))
 
-    weighted_expr = func.coalesce(func.sum(Opportunity.worth * Opportunity.stage_probability), 0)
-    worth_expr = func.coalesce(func.sum(Opportunity.worth), 0)
+    weighted_expr = func.coalesce(func.sum(Opportunity.worth_usd * Opportunity.stage_probability), 0)
+    worth_expr = func.coalesce(func.sum(Opportunity.worth_usd), 0)
 
     # Totals
     total_q = (await db.execute(
@@ -1089,7 +1092,7 @@ async def get_poc_summary(
         select(
             Poc.status,
             func.count(Poc.id),
-            func.coalesce(func.sum(Opportunity.worth), 0),
+            func.coalesce(func.sum(Opportunity.worth_usd), 0),
         )
         .select_from(Poc)
         .join(Opportunity, Poc.opportunity_id == Opportunity.id)
@@ -1173,7 +1176,7 @@ async def get_poc_summary(
             func.sum(case((Poc.status == PocStatus.RUNNING, 1), else_=0)),
             func.sum(case((Poc.status == PocStatus.SUCCESSFUL, 1), else_=0)),
             func.sum(case((Poc.status == PocStatus.UNSUCCESSFUL, 1), else_=0)),
-            func.coalesce(func.sum(Opportunity.worth), 0),
+            func.coalesce(func.sum(Opportunity.worth_usd), 0),
         )
         .select_from(Poc)
         .join(Opportunity, Poc.opportunity_id == Opportunity.id)
@@ -1389,9 +1392,9 @@ async def get_city_funnel(
         literal("Q").op("||")(func.substring(Opportunity.time_frame, "[Qq]([1-4])")),
         "Unspecified",
     )
-    worth_expr = func.coalesce(func.sum(Opportunity.worth), 0)
+    worth_expr = func.coalesce(func.sum(Opportunity.worth_usd), 0)
     weighted_expr = func.coalesce(
-        func.sum(Opportunity.worth * Opportunity.stage_probability), 0
+        func.sum(Opportunity.worth_usd * Opportunity.stage_probability), 0
     )
 
     rows = (await db.execute(

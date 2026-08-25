@@ -204,6 +204,24 @@ export interface LossReasonOption {
 
 /** The product catalogue. Served by /opportunities/products so the form does
  *  not hardcode it; this type is for the values that come back. */
+// ==================== Currency ====================
+export type CurrencyCode = 'USD' | 'SAR' | 'AED' | 'PKR';
+
+export interface CurrencyRateInfo {
+  currency: CurrencyCode;
+  /** A string, not a number: JSON floats mangle a rate like 0.0036. */
+  rate_to_usd: string;
+  effective_from: string | null;
+  /** True when this is the built-in fallback rather than a published rate. */
+  is_default: boolean;
+  is_reporting_currency: boolean;
+}
+
+export interface CurrencyListResponse {
+  reporting_currency: CurrencyCode;
+  currencies: CurrencyRateInfo[];
+}
+
 export type ProductName = 'MonetX' | 'SupportX' | 'GreenX' | 'PatchX' | 'AgentX';
 
 export interface ProductOption {
@@ -229,6 +247,10 @@ export interface OpportunityResponse {
   country: string;
   city: string;
   worth: string;
+  /** The currency the deal was done in. */
+  currency: CurrencyCode;
+  /** worth converted at the rate stamped on the record. Reports use this. */
+  worth_usd: string | null;
   closing_date: string;
   requirements: string;
   status: OpportunityStatus;
@@ -277,6 +299,8 @@ export interface OpportunityListItem {
   customer_name: string;
   country: string;
   worth: string;
+  currency: CurrencyCode;
+  worth_usd: string | null;
   closing_date: string;
   status: OpportunityStatus;
   preferred_partner: boolean;
@@ -314,6 +338,8 @@ export interface OpportunityCreateRequest {
   country: string;
   city: string;
   worth: number;
+  /** Omitted means USD. */
+  currency?: CurrencyCode;
   closing_date: string;
   requirements: string;
   status?: string;
@@ -596,6 +622,8 @@ export interface DealRegistrationResponse {
   customer_name: string;
   deal_description: string;
   estimated_value: string;
+  currency: CurrencyCode;
+  estimated_value_usd: string | null;
   expected_close_date: string;
   status: string;
   exclusivity_start: string | null;

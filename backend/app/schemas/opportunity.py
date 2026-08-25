@@ -35,6 +35,9 @@ class OpportunityCreateRequest(BaseModel):
     country: str = Field(..., min_length=1, max_length=100)
     city: str = Field(..., min_length=1, max_length=100)
     worth: Decimal = Field(..., gt=0, max_digits=15, decimal_places=2)
+    # The currency the deal is done in. Absent means USD, which is what every
+    # value in the system was implicitly before this existed.
+    currency: Optional[str] = Field(None, pattern="^(USD|SAR|AED|PKR)$")
     closing_date: date
     requirements: str = Field(..., min_length=1)
     status: Optional[str] = Field("draft", pattern="^(draft|pending_review)$")
@@ -53,6 +56,7 @@ class OpportunityUpdateRequest(BaseModel):
     country: Optional[str] = Field(None, min_length=1, max_length=100)
     city: Optional[str] = Field(None, min_length=1, max_length=100)
     worth: Optional[Decimal] = Field(None, gt=0, max_digits=15, decimal_places=2)
+    currency: Optional[str] = Field(None, pattern="^(USD|SAR|AED|PKR)$")
     closing_date: Optional[date] = None
     requirements: Optional[str] = Field(None, min_length=1)
     industry: Optional[str] = Field(None, max_length=100)
@@ -121,6 +125,11 @@ class OpportunityResponse(BaseModel):
     country: str
     city: str
     worth: Decimal
+    # What the deal is in, and what it is worth in the reporting currency at
+    # the rate stamped on the record. Reports use the second; the customer
+    # signed the first.
+    currency: str = "USD"
+    worth_usd: Optional[Decimal] = None
     closing_date: date
     requirements: str
     status: str
@@ -175,6 +184,8 @@ class OpportunityListResponse(BaseModel):
     customer_name: str
     country: str
     worth: Decimal
+    currency: str = "USD"
+    worth_usd: Optional[Decimal] = None
     closing_date: date
     status: str
     preferred_partner: bool

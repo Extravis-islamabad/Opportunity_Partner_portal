@@ -119,6 +119,7 @@ const AppLayout: React.FC = () => {
       ? [
           { key: '/admin/bulk-import', icon: <UploadOutlined />, label: 'Bulk Import' },
           { key: '/admin/email-log', icon: <MailOutlined />, label: 'Email Log' },
+          { key: '/admin/currencies', icon: <DollarOutlined />, label: 'Currency Rates' },
           { key: '/audit-logs', icon: <HistoryOutlined />, label: 'Audit Logs' },
         ]
       : []),

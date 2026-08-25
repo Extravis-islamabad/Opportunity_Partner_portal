@@ -11,6 +11,7 @@ import ExportMenu from '@/components/common/ExportMenu';
 import type { DealRegistrationResponse } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { formatMoney, reportingSuffix } from '@/utils/money';
 
 const statusColors: Record<string, string> = { pending: 'orange', approved: 'green', rejected: 'red', expired: 'default' };
 
@@ -69,7 +70,19 @@ const DealsPage: React.FC = () => {
   const columns: ColumnsType<DealRegistrationResponse> = [
     { title: 'Customer', dataIndex: 'customer_name', key: 'customer' },
     ...(isAdmin ? [{ title: 'Company', dataIndex: 'company_name' as const, key: 'company' }] : []),
-    { title: 'Value', dataIndex: 'estimated_value', key: 'value', render: (v: string) => `$${Number(v).toLocaleString()}` },
+    {
+      title: 'Value', dataIndex: 'estimated_value', key: 'value',
+      render: (v: string, r: DealRegistrationResponse) => (
+        <Space direction="vertical" size={0}>
+          <span>{formatMoney(v, r.currency)}</span>
+          {reportingSuffix(r.currency, r.estimated_value_usd) && (
+            <span style={{ fontSize: 11, color: '#8c8c8c' }}>
+              {reportingSuffix(r.currency, r.estimated_value_usd)}
+            </span>
+          )}
+        </Space>
+      ),
+    },
     { title: 'Close Date', dataIndex: 'expected_close_date', key: 'date' },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={statusColors[s] ?? 'default'}>{s.toUpperCase()}</Tag> },
     {

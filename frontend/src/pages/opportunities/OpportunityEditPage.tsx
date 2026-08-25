@@ -13,18 +13,22 @@ import {
 } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { opportunitiesApi } from '@/api/endpoints';
+import { opportunitiesApi, currenciesApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
 import type { OpportunityCreateRequest, ErrorResponse } from '@/types';
 import type { AxiosError } from 'axios';
 import dayjs from 'dayjs';
 import ProductLinesField from '@/components/opportunities/ProductLinesField';
-import type { ProductLine } from '@/types';
+import type { CurrencyCode, ProductLine } from '@/types';
 
 const OpportunityEditPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const oppId = Number(id);
   const [form] = Form.useForm();
+  // The currency the form currently has, so the product lines can label their
+  // values in it rather than always in dollars.
+  const selectedCurrency = (Form.useWatch('currency', form) as string) || 'USD';
+
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +49,7 @@ const OpportunityEditPage: React.FC = () => {
       country: opp.country,
       city: opp.city,
       worth: Number(opp.worth),
+      currency: opp.currency,
       closing_date: opp.closing_date ? dayjs(opp.closing_date) : undefined,
       requirements: opp.requirements,
       industry: opp.industry || undefined,
@@ -53,6 +58,12 @@ const OpportunityEditPage: React.FC = () => {
       time_frame: opp.time_frame || undefined,
     });
   }, [opp, form]);
+
+  const { data: currencies } = useQuery({
+    queryKey: ['currencies'],
+    queryFn: async () => (await currenciesApi.list()).data,
+    staleTime: Infinity,
+  });
 
   const mutation = useMutation({
     mutationFn: (data: Partial<OpportunityCreateRequest>) => opportunitiesApi.update(oppId, data),
@@ -73,6 +84,7 @@ const OpportunityEditPage: React.FC = () => {
       country: values['country'] as string,
       city: values['city'] as string,
       worth: values['worth'] as number,
+      currency: (values['currency'] as CurrencyCode) || undefined,
       closing_date: (values['closing_date'] as dayjs.Dayjs).format('YYYY-MM-DD'),
       requirements: values['requirements'] as string,
       industry: (values['industry'] as string) || undefined,
@@ -148,9 +160,22 @@ const OpportunityEditPage: React.FC = () => {
               <Form.Item name="city" label="City" rules={[{ required: true, message: 'Required' }]}>
                 <Input placeholder="City" />
               </Form.Item>
-              <Form.Item name="worth" label="Opportunity Worth (USD)" rules={[{ required: true, message: 'Required' }]}>
-                <InputNumber style={{ width: '100%' }} min={0.01} precision={2} placeholder="0.00" prefix="$" />
+              <Form.Item name="worth" label="Opportunity Worth" rules={[{ required: true, message: 'Required' }]}>
+                <InputNumber style={{ width: '100%' }} min={0.01} precision={2} placeholder="0.00" />
               </Form.Item>
+            <Form.Item
+              name="currency"
+              label="Currency"
+              tooltip="The currency the customer actually pays in. Reports convert everything to USD at the rate on the day the deal is recorded."
+            >
+              <Select
+                placeholder="USD"
+                options={(currencies?.currencies ?? []).map((c) => ({
+                  value: c.currency,
+                  label: c.currency,
+                }))}
+              />
+            </Form.Item>
               <Form.Item name="industry" label="Customer Industry">
                 <Select
                   allowClear
@@ -169,7 +194,7 @@ const OpportunityEditPage: React.FC = () => {
                 />
               </Form.Item>
               <Form.Item name="products" label="Products & Sizing">
-                <ProductLinesField />
+                <ProductLinesField currency={selectedCurrency} />
               </Form.Item>
               <Form.Item name="stage_probability" label="Pipeline Stage">
                 <Select

@@ -36,6 +36,7 @@ from app.models.deal_registration import DealRegistration, DealStatus
 from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.opportunity_product import OpportunityProduct, primary_product
 from app.models.user import User, UserRole
+from app.services import currency_service
 from app.services.notification_service import notify_user
 from app.utils.audit import write_audit_log
 
@@ -235,6 +236,11 @@ async def create_renewal(
         status=OpportunityStatus.DRAFT,
         renewal_of_license_id=lic.id,
     )
+    # The renewal is the same customer paying again, so it is in the same
+    # currency — restamped at today's rate, because that is when this deal is
+    # being valued.
+    await currency_service.stamp(db, renewal, source.currency)
+
     db.add(renewal)
     await db.flush()
 
@@ -283,6 +289,7 @@ async def create_renewal(
         expected_close_date=renewal.closing_date,
         status=DealStatus.PENDING,
     )
+    await currency_service.stamp(db, deal, renewal.currency)
     db.add(deal)
     await db.flush()
 

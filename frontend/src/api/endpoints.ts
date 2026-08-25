@@ -20,6 +20,7 @@ import type {
   StaleReview,
   EmailLogResponse,
   UpcomingRenewal,
+  CurrencyListResponse,
   KBDocumentResponse,
   KBCategoryResponse,
   CourseResponse,
@@ -173,6 +174,17 @@ export const opportunitiesApi = {
   },
   deleteDocument: (id: number, docId: number) =>
     apiClient.delete<void>(`/opportunities/${id}/documents/${docId}`),
+};
+
+// ==================== Currencies ====================
+export const currenciesApi = {
+  list: () => apiClient.get<CurrencyListResponse>('/currencies'),
+  // Superadmin only. Deals already recorded keep the rate they used, so this
+  // changes what future deals are worth, not what past ones were.
+  setRate: (currency: string, rate_to_usd: string) =>
+    apiClient.put<{ currency: string; rate_to_usd: string; effective_from: string }>(
+      `/currencies/${currency}`, { rate_to_usd },
+    ),
 };
 
 // ==================== Renewals ====================

@@ -187,6 +187,9 @@ class DealRegistrationCreateRequest(BaseModel):
     customer_name: str
     deal_description: str
     estimated_value: Decimal
+    # Absent means USD — what every value in the system was implicitly before
+    # multi-currency existed.
+    currency: Optional[str] = Field(None, pattern="^(USD|SAR|AED|PKR)$")
     expected_close_date: str
     opportunity_id: Optional[int] = None
 
@@ -200,6 +203,11 @@ class DealRegistrationResponse(BaseModel):
     customer_name: str
     deal_description: str
     estimated_value: Decimal
+    # The currency the registration is in, and its value in the reporting
+    # currency at the rate stamped when it was registered. Commission is
+    # calculated from the second.
+    currency: str = "USD"
+    estimated_value_usd: Optional[Decimal] = None
     expected_close_date: str
     status: str
     exclusivity_start: Optional[str] = None

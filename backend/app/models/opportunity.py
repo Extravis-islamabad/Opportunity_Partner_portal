@@ -1,9 +1,11 @@
 import enum
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, String, DateTime, Enum, ForeignKey, Text, Numeric, Boolean, Date
+    Column, Computed, Integer, String, DateTime, Enum, ForeignKey, Text, Numeric,
+    Boolean, Date
 )
 from sqlalchemy.orm import relationship
+from app.models.currency import Currency
 from app.core.database import Base
 
 
@@ -79,6 +81,30 @@ class Opportunity(Base):
     country = Column(String(100), nullable=False)
     city = Column(String(100), nullable=False)
     worth = Column(Numeric(15, 2), nullable=False)
+
+    # The currency the deal is actually done in, and the rate that was true
+    # when its value was last set. The rate is stored on the row rather than
+    # looked up at read time so a historic report does not move when the rate
+    # does: this is what the deal was worth when it was done.
+    currency = Column(
+        Enum(Currency, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        server_default=Currency.USD.value,
+        default=Currency.USD,
+        index=True,
+    )
+    exchange_rate_to_usd = Column(
+        Numeric(18, 6), nullable=False, server_default="1.0", default=1
+    )
+
+    # worth × rate, maintained by Postgres. A generated column rather than
+    # arithmetic at seventeen call sites: every total, chart and export sums
+    # this one column, and the database — not each query's author — guarantees
+    # it agrees with the two columns it comes from.
+    worth_usd = Column(
+        Numeric(18, 2),
+        Computed("worth * exchange_rate_to_usd", persisted=True),
+    )
     closing_date = Column(Date, nullable=False)
     requirements = Column(Text, nullable=False)
 

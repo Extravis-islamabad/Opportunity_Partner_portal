@@ -21,6 +21,7 @@ from app.models.opportunity_product import (
     primary_product,
     product_names,
 )
+from app.services import currency_service
 from app.models.opp_document import OppDocument
 from app.models.user import User, UserRole
 from app.models.company import Company
@@ -134,10 +135,15 @@ async def set_product_lines(db: AsyncSession, opp: Opportunity, lines) -> None:
     mentioned" and leaves the existing lines alone, which is what an update
     that only changes the closing date sends.
     """
-    if lines is None:
-        return
-
     from sqlalchemy import delete
+
+    if lines is None:
+        # Nothing to change — but the collection still has to be loaded before
+        # the response builder reads it. A row that has just been inserted has
+        # never loaded it, and touching it then is a lazy load, which inside an
+        # async session raises rather than quietly querying.
+        await db.refresh(opp, ["products"])
+        return
 
     await db.execute(
         delete(OpportunityProduct).where(OpportunityProduct.opportunity_id == opp.id)
@@ -181,6 +187,8 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
         country=opp.country,
         city=opp.city,
         worth=opp.worth,
+        currency=opp.currency.value,
+        worth_usd=currency_service.reporting_value(opp.worth, opp.exchange_rate_to_usd),
         closing_date=opp.closing_date,
         requirements=opp.requirements,
         status=opp.status.value,
@@ -283,6 +291,10 @@ async def create_opportunity(
 
     if opp.status == OpportunityStatus.PENDING_REVIEW:
         opp.submitted_at = datetime.now(timezone.utc)
+
+    # Currency and its rate are stamped together, before the flush, so the
+    # generated worth_usd column is right the first time.
+    await currency_service.stamp(db, opp, data.currency)
 
     db.add(opp)
     await db.flush()
@@ -456,6 +468,8 @@ async def get_opportunities(
             company_name=o.company.name if o.company else None,
             company_id=o.company_id,
             industry=o.industry,
+            currency=o.currency.value,
+            worth_usd=currency_service.reporting_value(o.worth, o.exchange_rate_to_usd),
             products=product_names(o),
             product=primary_product(o),
             stage_probability=o.stage_probability,
@@ -538,6 +552,13 @@ async def update_opportunity(
 
     for key, value in update_data.items():
         setattr(opp, key, value)
+
+    # Re-stamp whenever the money or the currency moved. A row whose currency
+    # changed without its rate would report riyals converted at the dollar
+    # rate; re-stamping on a worth change is deliberate too, since the deal is
+    # being re-valued as of now.
+    if "currency" in update_data or "worth" in update_data:
+        await currency_service.stamp(db, opp, opp.currency)
 
     if product_lines is not None:
         await set_product_lines(db, opp, product_lines)
