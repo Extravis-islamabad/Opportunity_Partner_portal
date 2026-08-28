@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Table, Button, Input, Tag, Space, Select, Skeleton, Alert, Empty, Modal, Form, message, Popconfirm } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { usersApi, companiesApi, mfaApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,6 +22,24 @@ const UserListPage: React.FC = () => {
   const [editForm] = Form.useForm();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Deep link from elsewhere in the app: /users?action=create&company_id=12
+  // opens the create form with the partner + company already chosen. These
+  // params were being ignored, so the link landed on a plain list and looked
+  // like the click had done nothing.
+  useEffect(() => {
+    if (searchParams.get('action') !== 'create') return;
+    const companyId = Number(searchParams.get('company_id'));
+    setCreateModal(true);
+    createForm.setFieldsValue(
+      Number.isFinite(companyId) && companyId > 0
+        ? { role: 'partner', company_id: companyId }
+        : {},
+    );
+    // Consume them, so a refresh or a back-navigation doesn't reopen the form.
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams, createForm]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['users', page, search, roleFilter],
@@ -40,7 +59,13 @@ const UserListPage: React.FC = () => {
 
   const createMut = useMutation({
     mutationFn: (values: { full_name: string; email: string; role: string; job_title?: string; company_id?: number }) => usersApi.create(values),
-    onSuccess: () => { setCreateModal(false); createForm.resetFields(); void queryClient.invalidateQueries({ queryKey: ['users'] }); void message.success('User created'); },
+    onSuccess: (res) => {
+      setCreateModal(false); createForm.resetFields();
+      void queryClient.invalidateQueries({ queryKey: ['users'] });
+      // Name the address the activation link went to — the account cannot be
+      // used until that mail is acted on.
+      void message.success(`User created — an activation email has been sent to ${res.data.email}`);
+    },
     onError: (err: AxiosError<ErrorResponse>) => void message.error(err.response?.data?.message || 'Failed'),
   });
 

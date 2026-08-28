@@ -149,6 +149,12 @@ export interface CompanyResponse {
   parent_distributor_name: string | null;
   partner_count: number;
   opportunity_count: number;
+  /**
+   * Only present on the create response: what happened to the contact's
+   * account invite — 'sent', 'existing_user' (the address already had an
+   * account), or 'failed' (account made, mail did not go out).
+   */
+  contact_invite?: 'sent' | 'existing_user' | 'failed' | null;
   created_at: string;
   updated_at: string;
 }
@@ -183,6 +189,12 @@ export interface CompanyCreateRequest {
   city: string;
   industry: string;
   contact_email: string;
+  /**
+   * The person behind contact_email. Creating the company provisions their
+   * portal account and mails an activation link; falls back to the company
+   * name when omitted.
+   */
+  contact_name?: string;
   channel_manager_id: number;
   /** Required — classification governs what the company's users can reach. */
   company_type: CompanyType;

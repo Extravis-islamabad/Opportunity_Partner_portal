@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Descriptions, Card, Table, Tag, Skeleton, Alert, Empty, Button, Space, Row, Col, Statistic, Progress, Tooltip, Typography } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import PageHeader from '@/components/common/PageHeader';
 import type { PartnerAccountBrief, ResellerBrief, ScorecardRead } from '@/types';
 import { companyTypeMeta, isChannelCompanyType } from '@/utils/companyType';
 import TierHistoryCard from '@/components/common/TierHistoryCard';
+import AddPartnerModal from '@/components/companies/AddPartnerModal';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, TrophyOutlined, StarFilled, DollarOutlined, RiseOutlined } from '@ant-design/icons';
 
@@ -21,6 +22,7 @@ const CompanyDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const companyId = Number(id);
+  const [addPartner, setAddPartner] = useState(false);
 
   const { data: company, isLoading, error } = useQuery({
     queryKey: ['company', companyId],
@@ -100,7 +102,7 @@ const CompanyDetailPage: React.FC = () => {
         extra={
           <Space>
             <Button icon={<EditOutlined />} onClick={() => navigate(`/companies/${companyId}/edit`)}>Edit</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate(`/users?action=create&company_id=${companyId}`)}>Add Partner</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddPartner(true)}>Add Partner</Button>
           </Space>
         }
       />
@@ -259,6 +261,13 @@ const CompanyDetailPage: React.FC = () => {
           <Empty description="No partner accounts" />
         )}
       </Card>
+
+      <AddPartnerModal
+        open={addPartner}
+        companyId={companyId}
+        companyName={company.name}
+        onClose={() => setAddPartner(false)}
+      />
     </>
   );
 };

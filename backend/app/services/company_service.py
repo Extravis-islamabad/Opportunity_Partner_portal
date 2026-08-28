@@ -16,7 +16,7 @@ from app.schemas.company import (
     ResellerBrief,
 )
 from app.core.exceptions import NotFoundException, ConflictException, BadRequestException
-from app.services import handover_service
+from app.services import handover_service, partner_service
 from app.utils.audit import write_audit_log
 from app.services.notification_service import notify_user
 
@@ -183,6 +183,19 @@ async def create_company(
         "company", company.id,
     )
 
+    # Give the contact a way in. Creating a company used to notify only the
+    # channel manager, so the company's own contact was never told the portal
+    # existed and no account was ever made for them — the credentials mail
+    # people expected here simply had nothing to trigger it.
+    contact_user, contact_invite = await partner_service.invite_company_contact(
+        db, company, data.contact_name,
+    )
+    if contact_user is not None:
+        await write_audit_log(db, admin_user.id, "CREATE", "user", contact_user.id, {
+            "email": contact_user.email, "role": contact_user.role.value,
+            "company_id": company.id, "via": "company_create",
+        })
+
     return CompanyResponse(
         id=company.id,
         name=company.name,
@@ -198,8 +211,9 @@ async def create_company(
         channel_manager_name=channel_manager.full_name,
         parent_distributor_id=company.parent_distributor_id,
         parent_distributor_name=parent.name if parent else None,
-        partner_count=0,
+        partner_count=1 if contact_user is not None else 0,
         opportunity_count=0,
+        contact_invite=contact_invite,
         created_at=company.created_at,
         updated_at=company.updated_at,
     )

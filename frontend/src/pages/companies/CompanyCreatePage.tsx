@@ -22,7 +22,28 @@ const CompanyCreatePage: React.FC = () => {
 
   const mutation = useMutation({
     mutationFn: (data: CompanyCreateRequest) => companiesApi.create(data),
-    onSuccess: (res) => { void message.success('Company created'); navigate(`/companies/${res.data.id}`); },
+    onSuccess: (res) => {
+      // Creating the company also provisions its contact's account and mails
+      // an activation link. Say which of those happened — the whole point of
+      // the step is invisible otherwise.
+      const email = res.data.contact_email;
+      switch (res.data.contact_invite) {
+        case 'sent':
+          void message.success(`Company created — an activation email has been sent to ${email}`);
+          break;
+        case 'existing_user':
+          void message.warning(`Company created. ${email} already has an account, so no invite was sent.`);
+          break;
+        case 'failed':
+          void message.warning(
+            `Company created and an account made for ${email}, but the invite email could not be sent — check the Email Log and re-send.`,
+          );
+          break;
+        default:
+          void message.success('Company created');
+      }
+      navigate(`/companies/${res.data.id}`);
+    },
     onError: (err: AxiosError<ErrorResponse>) => setError(err.response?.data?.message || 'Failed to create company'),
   });
 
@@ -89,8 +110,19 @@ const CompanyCreatePage: React.FC = () => {
           <Form.Item name="industry" label="Industry" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Industry" maxLength={255} />
           </Form.Item>
-          <Form.Item name="contact_email" label="Contact Email" rules={[{ required: true, type: 'email', message: 'Valid email required' }]}>
+          <Form.Item
+            name="contact_email" label="Contact Email"
+            rules={[{ required: true, type: 'email', message: 'Valid email required' }]}
+            extra="A portal account is created for this address and an activation link is emailed to it."
+          >
             <Input placeholder="contact@company.com" />
+          </Form.Item>
+          <Form.Item
+            name="contact_name"
+            label="Contact Name"
+            extra="Optional. Used to greet them in the activation email; the company name is used if left blank."
+          >
+            <Input placeholder="Primary contact's full name" maxLength={255} />
           </Form.Item>
           <Form.Item name="channel_manager_id" label="Channel Manager" rules={[{ required: true, message: 'Required' }]}>
             <Select placeholder="Select channel manager" showSearch optionFilterProp="label"

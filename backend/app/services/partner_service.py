@@ -14,6 +14,94 @@ from app.utils.audit import write_audit_log
 from app.utils.email import send_template_email
 
 
+async def _provision_pending_user(
+    db: AsyncSession,
+    *,
+    full_name: str,
+    email: str,
+    role: UserRole,
+    company_id: Optional[int],
+    company_name: str,
+    job_title: Optional[str] = None,
+    phone: Optional[str] = None,
+) -> tuple[User, str]:
+    """Create a PENDING_ACTIVATION account and mail its activation link.
+
+    Shared by the two ways an account comes into being — an admin adding a
+    user, and a company being created with a contact address. Both must send
+    the same mail: an account nobody was told about is an account nobody can
+    use, which is exactly how companies ended up with no reachable login.
+
+    Flushes but does not commit; the caller's transaction owns the row.
+    Returns the user and the invite outcome ("sent" or "failed"). A mail
+    failure is reported, not raised — the account is real either way, and
+    utils.email already records the failure in the delivery log so the invite
+    can be re-sent.
+    """
+    activation_token = generate_token()
+    user = User(
+        full_name=full_name,
+        email=email,
+        # Placeholder only. The account is unusable until the activation link
+        # is followed and a real password is set.
+        password_hash=hash_password(activation_token[:16]),
+        role=role,
+        status=UserStatus.PENDING_ACTIVATION,
+        job_title=job_title,
+        phone=phone,
+        company_id=company_id,
+        activation_token=activation_token,
+        activation_token_expires=datetime.now(timezone.utc) + timedelta(hours=settings.ACTIVATION_TOKEN_EXPIRE_HOURS),
+    )
+    db.add(user)
+    await db.flush()
+
+    delivered = await send_template_email(
+        to_emails=[user.email],
+        subject="Welcome to Extravis Partner Portal",
+        template_name="welcome",
+        context={
+            "name": user.full_name,
+            "company_name": company_name,
+            "activation_token": activation_token,
+            "expire_hours": settings.ACTIVATION_TOKEN_EXPIRE_HOURS,
+        },
+    )
+    return user, ("sent" if delivered else "failed")
+
+
+async def invite_company_contact(
+    db: AsyncSession, company: Company, contact_name: Optional[str]
+) -> tuple[Optional[User], str]:
+    """Give a newly created company's contact address a portal account.
+
+    Applies to every company type. A customer's contact needs a login for the
+    same reason a partner's does — the portal is how they are dealt with — and
+    what a customer may actually reach is settled by company_type on the
+    reads, not by withholding the account.
+
+    Never raises. A company must still be created when its contact address
+    already belongs to somebody (a person can be the contact for more than one
+    company, and a User belongs to exactly one), so that case returns
+    "existing_user" and leaves the existing account alone.
+    """
+    clash = await db.execute(
+        select(User).where(User.email == company.contact_email, User.deleted_at.is_(None))
+    )
+    if clash.scalar_one_or_none():
+        return None, "existing_user"
+
+    user, outcome = await _provision_pending_user(
+        db,
+        full_name=contact_name or company.name,
+        email=company.contact_email,
+        role=UserRole.PARTNER,
+        company_id=company.id,
+        company_name=company.name,
+    )
+    return user, outcome
+
+
 async def create_partner_account(
     db: AsyncSession, data: UserCreateRequest, admin_user: User
 ) -> UserResponse:
@@ -36,40 +124,23 @@ async def create_partner_account(
     else:
         company = None
 
-    activation_token = generate_token()
-    temp_hash = hash_password(activation_token[:16])
-
-    user = User(
+    company_name = company.name if company else "Extravis"
+    user, _invite = await _provision_pending_user(
+        db,
         full_name=data.full_name,
         email=data.email,
-        password_hash=temp_hash,
         role=UserRole(data.role),
-        status=UserStatus.PENDING_ACTIVATION,
+        # Not company.id: only a partner is resolved to a Company above, and an
+        # admin or sales rep created against one keeps whatever was asked for.
+        company_id=data.company_id,
+        company_name=company_name,
         job_title=data.job_title,
         phone=data.phone,
-        company_id=data.company_id,
-        activation_token=activation_token,
-        activation_token_expires=datetime.now(timezone.utc) + timedelta(hours=settings.ACTIVATION_TOKEN_EXPIRE_HOURS),
     )
-    db.add(user)
-    await db.flush()
 
     await write_audit_log(db, admin_user.id, "CREATE", "user", user.id, {
         "email": data.email, "role": data.role, "company_id": data.company_id,
     })
-
-    company_name = company.name if company else "Extravis"
-    await send_template_email(
-        to_emails=[user.email],
-        subject="Welcome to Extravis Partner Portal",
-        template_name="welcome",
-        context={
-            "name": user.full_name,
-            "company_name": company_name,
-            "activation_token": activation_token,
-            "expire_hours": settings.ACTIVATION_TOKEN_EXPIRE_HOURS,
-        },
-    )
 
     return UserResponse(
         id=user.id,

@@ -13,6 +13,10 @@ class CompanyCreateRequest(BaseModel):
     city: str = Field(..., min_length=1, max_length=100)
     industry: str = Field(..., min_length=1, max_length=255)
     contact_email: EmailStr
+    # The person behind contact_email. Creating the company provisions a
+    # portal account for them and mails an activation link, so this is the
+    # name that greets them — falls back to the company name when omitted.
+    contact_name: Optional[str] = Field(None, max_length=255)
     channel_manager_id: int
     # Required, with no default: classifying the company is a decision the
     # creator has to make, and it governs what that company's users can reach.
@@ -60,6 +64,12 @@ class CompanyResponse(BaseModel):
     parent_distributor_name: Optional[str] = None
     partner_count: int = 0
     opportunity_count: int = 0
+    # Only set on the create response: what happened to the contact's account
+    # invite. One of "sent", "existing_user" (the address already had an
+    # account, so nothing was created) or "failed" (the account exists but the
+    # mail did not go out — re-send it from the user list). Read paths leave
+    # it null; there is nothing to report about a company that already exists.
+    contact_invite: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
