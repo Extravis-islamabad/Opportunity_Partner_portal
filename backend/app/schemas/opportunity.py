@@ -47,6 +47,12 @@ class OpportunityCreateRequest(BaseModel):
     stage_probability: Optional[Decimal] = Field(None, ge=0, le=1, max_digits=3, decimal_places=2)
     time_frame: Optional[str] = Field(None, max_length=20)
     sales_rep_id: Optional[int] = None
+    # The partner company the opportunity is registered for. A partner user
+    # always registers for their own company and must leave this empty; a
+    # sales rep registers on a partner's behalf and must name one. Which
+    # partner holds the lock is the whole point of the registration, so the
+    # service refuses to guess it.
+    company_id: Optional[int] = None
 
 
 class OpportunityUpdateRequest(BaseModel):
@@ -176,6 +182,27 @@ class OpportunityResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PartnerCompanyOption(BaseModel):
+    """A partner a sales rep can register an opportunity for."""
+    id: int
+    name: str
+    company_type: str
+    country: str
+    tier: Optional[str] = None
+
+
+class KnownCustomerOption(BaseModel):
+    """A customer the portal already knows, offered to whoever is registering
+    so the same customer is not typed six different ways. Free text is still
+    accepted — this is a suggestion, not a constraint."""
+    customer_name: str
+    country: str
+    city: Optional[str] = None
+    region: Optional[str] = None
+    # Who last registered them, when the suggestion comes from the pipeline.
+    company_name: Optional[str] = None
 
 
 class OpportunityListResponse(BaseModel):

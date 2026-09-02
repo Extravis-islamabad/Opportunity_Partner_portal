@@ -13,19 +13,22 @@ import {
   Space,
   Spin,
   Select,
+  AutoComplete,
 } from 'antd';
 import {
   WarningOutlined,
   StopOutlined,
   CheckCircleOutlined,
   RobotOutlined,
+  BankOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { opportunitiesApi, duplicatesApi, currenciesApi } from '@/api/endpoints';
 import type { DuplicateCheckResponse } from '@/api/endpoints';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
-import type { OpportunityCreateRequest } from '@/types';
+import type { OpportunityCreateRequest, KnownCustomerOption } from '@/types';
 import { AxiosError } from 'axios';
 import type { ErrorResponse } from '@/types';
 import dayjs from 'dayjs';
@@ -163,9 +166,15 @@ function useDebounced<T>(value: T, delay = 600): T {
 // ---------------------------------------------------------------------------
 const OpportunityCreatePage: React.FC = () => {
   const [form] = Form.useForm();
+  const { user } = useAuth();
+  // A sales rep registers on a partner's behalf, so the form asks them which
+  // partner holds the lock and offers the customers the portal already
+  // knows. A partner registers for their own company and sees neither.
+  const isSalesRep = user?.role === 'sales_rep';
   // The currency the form currently has, so the product lines can label their
   // values in it rather than always in dollars.
   const selectedCurrency = (Form.useWatch('currency', form) as string) || 'USD';
+  const selectedCompanyId = Form.useWatch('company_id', form) as number | undefined;
 
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
@@ -179,7 +188,25 @@ const OpportunityCreatePage: React.FC = () => {
   const debouncedCustomer = useDebounced(customerName, 600);
   const debouncedCountry = useDebounced(country, 600);
 
-  // Fire the check whenever the debounced inputs are populated enough
+  // The pickers, fetched only for a rep — the endpoints are theirs and an
+  // admin's, and a partner would just get a 403 for nothing.
+  const { data: partnerCompanies, isLoading: partnersLoading } = useQuery({
+    queryKey: ['partner-companies'],
+    queryFn: async () => (await opportunitiesApi.partnerCompanies()).data,
+    enabled: isSalesRep,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: knownCustomers } = useQuery({
+    queryKey: ['known-customers', debouncedCustomer],
+    queryFn: async () => (await opportunitiesApi.knownCustomers(debouncedCustomer || undefined)).data,
+    enabled: isSalesRep,
+    staleTime: 60 * 1000,
+  });
+
+  // Fire the check whenever the debounced inputs are populated enough. For a
+  // rep the check is run as the chosen partner — the exclusivity block
+  // depends on whose registration it would be, and a partner's own lock
+  // never blocks them — so it re-runs when the partner changes.
   useEffect(() => {
     if (debouncedCustomer.trim().length < 2 || debouncedCountry.trim().length < 1) {
       setDupResult(null);
@@ -191,6 +218,7 @@ const OpportunityCreatePage: React.FC = () => {
       .checkDuplicate({
         customer_name: debouncedCustomer.trim(),
         country: debouncedCountry.trim(),
+        company_id: isSalesRep ? selectedCompanyId : undefined,
       })
       .then((res) => {
         if (!cancelled) setDupResult(res.data);
@@ -204,7 +232,20 @@ const OpportunityCreatePage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedCustomer, debouncedCountry]);
+  }, [debouncedCustomer, debouncedCountry, isSalesRep, selectedCompanyId]);
+
+  // Picking a known customer fills in where they are as well as who they are,
+  // so the duplicate check and the record both get the same spelling.
+  const applyKnownCustomer = (picked: KnownCustomerOption) => {
+    form.setFieldsValue({
+      customer_name: picked.customer_name,
+      country: picked.country,
+      ...(picked.city ? { city: picked.city } : {}),
+      ...(picked.region ? { region: picked.region } : {}),
+    });
+    setCustomerName(picked.customer_name);
+    setCountry(picked.country);
+  };
 
   const { data: currencies } = useQuery({
     queryKey: ['currencies'],
@@ -220,8 +261,11 @@ const OpportunityCreatePage: React.FC = () => {
     },
     onError: (err: AxiosError<ErrorResponse>) => {
       const detail = err.response?.data;
-      if (detail && typeof detail === 'object' && 'code' in detail && (detail as { code: string }).code === 'DUPLICATE_BLOCKED') {
+      const code = detail && typeof detail === 'object' && 'code' in detail ? (detail as { code: string }).code : undefined;
+      if (code === 'DUPLICATE_BLOCKED') {
         setError('Registration blocked: another company has exclusivity on this customer. See the warning panel above.');
+      } else if (code === 'PARTNER_REQUIRED') {
+        setError('Choose the partner this opportunity is registered for.');
       } else {
         setError((detail as { message?: string })?.message || 'Failed to create opportunity');
       }
@@ -251,16 +295,33 @@ const OpportunityCreatePage: React.FC = () => {
         ? (values['stage_probability'] as number)
         : undefined,
       time_frame: (values['time_frame'] as string) || undefined,
+      // Only a rep names the partner; a partner's own company is implied
+      // and the server refuses any other.
+      company_id: isSalesRep ? (values['company_id'] as number) : undefined,
     };
     mutation.mutate(data);
   };
 
   const submitDisabled = dupResult?.severity === 'block';
+  const chosenPartner = partnerCompanies?.find((c) => c.id === selectedCompanyId);
+
+  // AutoComplete keys its options by value, and the value has to be the
+  // customer name because that is what lands in the field — so one name gets
+  // one option even when the portal knows it in two countries. The first
+  // (most recently seen) wins; the country still comes along on selection.
+  const customerOptions = (knownCustomers ?? []).filter(
+    (c, i, all) => all.findIndex((o) => o.customer_name === c.customer_name) === i,
+  );
 
   return (
     <>
       <PageHeader
-        title="New Opportunity"
+        title={isSalesRep ? 'Lock an Opportunity for a Partner' : 'New Opportunity'}
+        subtitle={
+          isSalesRep
+            ? 'Register the opportunity in the partner\'s name. Once approved, the customer is locked to that partner and the opportunity stays assigned to you.'
+            : undefined
+        }
         breadcrumbs={[{ label: 'Opportunities', path: '/opportunities' }, { label: 'Create' }]}
       />
       {error && (
@@ -281,6 +342,31 @@ const OpportunityCreatePage: React.FC = () => {
 
       <Card style={{ maxWidth: 700 }}>
         <Form form={form} layout="vertical" onFinish={onFinish}>
+          {isSalesRep && (
+            <Form.Item
+              name="company_id"
+              label="Partner"
+              tooltip="The partner company this opportunity is registered for. On approval the customer is locked to them, and the deal counts towards their tier and commission."
+              extra={
+                chosenPartner
+                  ? `${chosenPartner.company_type === 'distributor' ? 'Distributor' : 'Partner'} · ${chosenPartner.country}${chosenPartner.tier ? ` · ${chosenPartner.tier} tier` : ''}`
+                  : 'Only active partner and distributor companies can hold a registration.'
+              }
+              rules={[{ required: true, message: 'Choose the partner this opportunity is registered for' }]}
+            >
+              <Select
+                showSearch
+                loading={partnersLoading}
+                placeholder="Select the partner"
+                optionFilterProp="label"
+                suffixIcon={<BankOutlined />}
+                options={(partnerCompanies ?? []).map((c) => ({
+                  value: c.id,
+                  label: c.name,
+                }))}
+              />
+            </Form.Item>
+          )}
           <Form.Item
             name="name"
             label="Opportunity Name"
@@ -291,10 +377,37 @@ const OpportunityCreatePage: React.FC = () => {
           <Form.Item
             name="customer_name"
             label="Customer Name"
-            extra="We'll check for duplicates as you type — the panel above updates within ~1 second."
+            extra={
+              isSalesRep
+                ? "Pick a customer the portal already knows, or type a new one. We'll check for duplicates and exclusivity as you type."
+                : "We'll check for duplicates as you type — the panel above updates within ~1 second."
+            }
             rules={[{ required: true, max: 200, message: 'Required' }]}
           >
-            <Input placeholder="End customer name" onChange={(e) => setCustomerName(e.target.value)} />
+            {isSalesRep ? (
+              <AutoComplete
+                placeholder="End customer name"
+                onChange={(v) => setCustomerName(typeof v === 'string' ? v : '')}
+                onSelect={(_v, option) => {
+                  const picked = (option as { customer?: KnownCustomerOption }).customer;
+                  if (picked) applyKnownCustomer(picked);
+                }}
+                options={customerOptions.map((c) => ({
+                  value: c.customer_name,
+                  customer: c,
+                  label: (
+                    <Space size={8}>
+                      <span>{c.customer_name}</span>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        {c.country}{c.city ? ` · ${c.city}` : ''}{c.company_name ? ` · via ${c.company_name}` : ''}
+                      </Typography.Text>
+                    </Space>
+                  ),
+                }))}
+              />
+            ) : (
+              <Input placeholder="End customer name" onChange={(e) => setCustomerName(e.target.value)} />
+            )}
           </Form.Item>
           <Form.Item name="region" label="Region" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Geographic region" />

@@ -447,6 +447,34 @@ export interface OpportunityCreateRequest {
   stage_probability?: number;
   time_frame?: string;
   sales_rep_id?: number;
+  /**
+   * The partner company the opportunity is registered (locked) for. A partner
+   * user leaves this out — they register for their own company. A sales rep
+   * registering on a partner's behalf must name one.
+   */
+  company_id?: number;
+}
+
+/** A partner a sales rep can register an opportunity for. */
+export interface PartnerCompanyOption {
+  id: number;
+  name: string;
+  company_type: CompanyType;
+  country: string;
+  tier: string | null;
+}
+
+/**
+ * A customer the portal already knows, offered on the registration form so
+ * the same customer is not typed six different ways. Free text still works.
+ */
+export interface KnownCustomerOption {
+  customer_name: string;
+  country: string;
+  city: string | null;
+  region: string | null;
+  /** Who last registered them, when the suggestion comes from the pipeline. */
+  company_name: string | null;
 }
 
 // 2027 Target Plan analytics (admin dashboard)

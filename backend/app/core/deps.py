@@ -67,6 +67,26 @@ async def get_current_partner(
     return current_user
 
 
+async def get_opportunity_registrant(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Who may register (lock) an opportunity: a partner user, or an Extravis
+    sales rep.
+
+    A partner registers for their own company. A sales rep registers on a
+    partner's behalf and names the company in the request — the service
+    (opportunity_service.create_opportunity) resolves and checks it, and
+    assigns the opportunity to the rep so it lands in their own scoped list.
+
+    Admins are deliberately not here: approving a registration and raising one
+    are different jobs, and the same account doing both would review its own
+    submission.
+    """
+    if current_user.role not in (UserRole.PARTNER, UserRole.SALES_REP):
+        raise ForbiddenException(message="Partner or sales rep access required")
+    return current_user
+
+
 async def get_current_superadmin(
     current_user: User = Depends(get_current_admin),
 ) -> User:

@@ -21,6 +21,8 @@ import type {
   OpportunityCreateRequest,
   LossReasonOption,
   ProductOption,
+  PartnerCompanyOption,
+  KnownCustomerOption,
   StaleReview,
   EmailLogResponse,
   UpcomingRenewal,
@@ -195,6 +197,12 @@ export const opportunitiesApi = {
     apiClient.post<OpportunityResponse>(`/opportunities/${id}/close`, data),
   products: () =>
     apiClient.get<ProductOption[]>('/opportunities/products'),
+  // The pickers on the registration form, for sales reps (and admins). A
+  // partner registers for their own company and gets neither list.
+  partnerCompanies: () =>
+    apiClient.get<PartnerCompanyOption[]>('/opportunities/partner-companies'),
+  knownCustomers: (q?: string) =>
+    apiClient.get<KnownCustomerOption[]>('/opportunities/known-customers', { params: { q } }),
   lossReasons: () =>
     apiClient.get<LossReasonOption[]>('/opportunities/loss-reasons'),
   // Review ageing: the queue of claims that stopped moving, and handing one back.
@@ -440,6 +448,11 @@ export interface DuplicateCheckRequest {
   city?: string;
   customer_domain?: string;
   exclude_opportunity_id?: number;
+  /**
+   * The partner the registration would be for. Honoured for sales reps and
+   * admins; a partner is always checked as their own company.
+   */
+  company_id?: number;
 }
 
 export interface DuplicateOppSummary {

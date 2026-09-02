@@ -24,7 +24,7 @@ from app.models.opportunity_product import (
 from app.services import currency_service, legal_service
 from app.models.opp_document import OppDocument
 from app.models.user import User, UserRole
-from app.models.company import Company
+from app.models.company import Company, CompanyStatus
 from app.schemas.opportunity import (
     OpportunityCreateRequest,
     OpportunityUpdateRequest,
@@ -237,11 +237,79 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
     )
 
 
+async def resolve_registration_company(
+    db: AsyncSession, actor: User, company_id: Optional[int]
+) -> Company:
+    """The partner company an opportunity is being registered — locked — for.
+
+    A partner user registers for their own company, full stop: naming another
+    one is refused rather than quietly rewritten, so a client that thinks it
+    chose a partner finds out it did not. A sales rep has no company of their
+    own and registers on a partner's behalf, so they must name one, and it
+    must be a live company inside the partner programme — a customer company
+    registers no deals and holds no lock, whoever is typing.
+    """
+    if actor.role == UserRole.PARTNER:
+        if company_id is not None and company_id != actor.company_id:
+            raise ForbiddenException(
+                code="OWN_COMPANY_ONLY",
+                message="Partners register opportunities for their own company",
+            )
+        if actor.company_id is None:
+            raise BadRequestException(
+                code="NO_COMPANY",
+                message="Your account is not linked to a company yet",
+            )
+        company_id = actor.company_id
+    elif actor.role == UserRole.SALES_REP:
+        if company_id is None:
+            raise BadRequestException(
+                code="PARTNER_REQUIRED",
+                message="Choose the partner this opportunity is registered for",
+            )
+    else:
+        raise ForbiddenException(message="Partner or sales rep access required")
+
+    company = (await db.execute(
+        select(Company).where(Company.id == company_id, Company.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if company is None:
+        raise NotFoundException(code="COMPANY_NOT_FOUND", message="Partner company not found")
+
+    # A partner's own company is whatever it is — a customer company's users
+    # track their own pipeline here and that stays as it was. The checks below
+    # are for a rep choosing from the list: the choice must be a partner that
+    # can actually hold the registration.
+    if actor.role == UserRole.SALES_REP:
+        if not company.is_channel_partner:
+            raise BadRequestException(
+                code="NOT_A_CHANNEL_PARTNER",
+                message=f"{company.name} is a customer, not a partner — it cannot hold a registration",
+            )
+        if company.status != CompanyStatus.ACTIVE:
+            raise BadRequestException(
+                code="COMPANY_INACTIVE",
+                message=f"{company.name} is inactive and cannot register new business",
+            )
+    return company
+
+
 async def create_opportunity(
-    db: AsyncSession, data: OpportunityCreateRequest, partner_user: User
+    db: AsyncSession, data: OpportunityCreateRequest, actor: User
 ) -> OpportunityResponse:
+    """Register an opportunity for a partner.
+
+    `actor` is a partner user (registering for their own company) or a sales
+    rep (registering on a named partner's behalf — see
+    resolve_registration_company). A rep's registration is assigned to the
+    rep: their list and every per-record check are scoped by sales_rep_id, so
+    without that they could raise an opportunity and then never open it.
+    """
     from app.utils.customer_normalize import normalize_customer_name, extract_domain
     from app.services import duplicate_service
+
+    company = await resolve_registration_company(db, actor, data.company_id)
+    is_rep = actor.role == UserRole.SALES_REP
 
     normalized = normalize_customer_name(data.customer_name)
     # Try to extract a domain from the customer name itself or the
@@ -250,13 +318,16 @@ async def create_opportunity(
 
     # Run duplicate detection BEFORE inserting. Hard-block if a different
     # company has an active exclusivity / ownership lock; soft-warn if
-    # similar opportunities exist (we still create, just with a flag).
+    # similar opportunities exist (we still create, just with a flag). The
+    # lock is judged against the partner the registration is *for*, not the
+    # person typing it — a rep registering for partner A is blocked by B's
+    # exclusivity exactly as A themselves would be.
     dup_report = await duplicate_service.find_duplicates(
         db,
         customer_name=data.customer_name,
         country=data.country,
         city=data.city,
-        submitting_company_id=partner_user.company_id,
+        submitting_company_id=company.id,
         customer_domain=domain,
     )
     if dup_report["severity"] == "block":
@@ -278,15 +349,16 @@ async def create_opportunity(
         closing_date=data.closing_date,
         requirements=data.requirements,
         status=OpportunityStatus(data.status or "draft"),
-        submitted_by=partner_user.id,
-        company_id=partner_user.company_id,
+        submitted_by=actor.id,
+        company_id=company.id,
         # Soft warning → set the multi_partner_alert flag so the review
         # queue picks it up
         multi_partner_alert=(dup_report["severity"] == "warn"),
         industry=data.industry,
         stage_probability=data.stage_probability,
         time_frame=data.time_frame,
-        sales_rep_id=data.sales_rep_id,
+        # A rep's registration is theirs whatever the payload says.
+        sales_rep_id=actor.id if is_rep else data.sales_rep_id,
     )
 
     if opp.status == OpportunityStatus.PENDING_REVIEW:
@@ -295,8 +367,9 @@ async def create_opportunity(
     # Registering business is the thing the agreement governs, so it is the
     # thing that is gated. Reading a dashboard is not — locking someone out of
     # the portal entirely would leave them unable to reach the documents they
-    # are being asked to accept.
-    await legal_service.assert_accepted(db, partner_user)
+    # are being asked to accept. (Extravis staff have nothing to accept —
+    # legal_service.applies_to — so this is a no-op for a rep.)
+    await legal_service.assert_accepted(db, actor)
 
     # Currency and its rate are stamped together, before the flush, so the
     # generated worth_usd column is right the first time.
@@ -310,19 +383,28 @@ async def create_opportunity(
     if opp.status == OpportunityStatus.PENDING_REVIEW:
         await _check_multi_partner_conflict(db, opp)
 
-        company_result = await db.execute(select(Company).where(Company.id == partner_user.company_id))
-        company = company_result.scalar_one_or_none()
-        company_name = company.name if company else "Unknown"
-
         await notify_all_admins(
             db, "opportunity_submitted",
             "New Opportunity Submitted",
-            f"{company_name} has submitted an opportunity for approval: {opp.name}",
+            (
+                f"{actor.full_name} (sales rep) has submitted an opportunity for "
+                f"approval on behalf of {company.name}: {opp.name}"
+                if is_rep
+                else f"{company.name} has submitted an opportunity for approval: {opp.name}"
+            ),
             "opportunity", opp.id,
         )
 
-    await write_audit_log(db, partner_user.id, "CREATE", "opportunity", opp.id, {
+    if is_rep:
+        # The lock is being taken in the partner's name, so the partner hears
+        # about it — otherwise the first they know is an approval for a deal
+        # they never raised.
+        await _notify_partner_of_rep_registration(db, opp, company, actor)
+
+    await write_audit_log(db, actor.id, "CREATE", "opportunity", opp.id, {
         "name": opp.name, "status": opp.status.value,
+        "company_id": company.id,
+        "registered_by_role": actor.role.value,
     })
 
     await db.refresh(opp, ["submitted_by_user", "company", "documents"])
@@ -332,6 +414,130 @@ async def create_opportunity(
         _spawn_background(_ai_score_opportunity_bg(opp.id))
 
     return _build_opportunity_response(opp)
+
+
+async def _notify_partner_of_rep_registration(
+    db: AsyncSession, opp: Opportunity, company: Company, rep: User
+) -> None:
+    from app.models.user import UserStatus
+
+    partners = (await db.execute(
+        select(User.id).where(
+            User.company_id == company.id,
+            User.role == UserRole.PARTNER,
+            User.status == UserStatus.ACTIVE,
+            User.deleted_at.is_(None),
+        )
+    )).scalars().all()
+    for user_id in partners:
+        await notify_user(
+            db, user_id, "opportunity_registered_for_you",
+            "Opportunity registered for your company",
+            f"{rep.full_name} (Extravis sales rep) has registered an opportunity "
+            f"for {company.name}: {opp.name} — customer {opp.customer_name}",
+            "opportunity", opp.id,
+        )
+
+
+async def list_partner_companies(db: AsyncSession) -> list[dict]:
+    """The partners a sales rep may register an opportunity for: every live
+    company in the partner programme, by name.
+
+    Unscoped on purpose. A rep is Extravis staff working any partner's deal;
+    channel-manager books are an admin concept. Customer companies are left
+    out because they cannot hold a registration (resolve_registration_company
+    refuses them), so offering them would be offering a choice that fails.
+    """
+    from app.models.company import CHANNEL_COMPANY_TYPES
+
+    rows = (await db.execute(
+        select(Company).where(
+            Company.deleted_at.is_(None),
+            Company.status == CompanyStatus.ACTIVE,
+            Company.company_type.in_(list(CHANNEL_COMPANY_TYPES)),
+        ).order_by(Company.name)
+    )).scalars().all()
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "company_type": c.company_type.value,
+            "country": c.country,
+            "tier": c.tier.value if c.tier else None,
+        }
+        for c in rows
+    ]
+
+
+async def known_customers(
+    db: AsyncSession, q: Optional[str] = None, limit: int = 20
+) -> list[dict]:
+    """Customers the portal already knows, for the customer picker.
+
+    Two sources: every customer named on a live registration, and every
+    customer company with a portal login. One row per (name, country), most
+    recently seen first, so a rep picks "Atlas Manufacturing" once rather than
+    typing a seventh spelling of it that the fuzzy matcher then has to catch.
+    """
+    from app.models.company import CompanyType
+
+    pattern = f"%{q.strip()}%" if q and q.strip() else None
+
+    opp_query = (
+        select(Opportunity)
+        .options(joinedload(Opportunity.company))
+        .where(
+            Opportunity.deleted_at.is_(None),
+            Opportunity.status != OpportunityStatus.REMOVED,
+        )
+        .order_by(Opportunity.created_at.desc())
+    )
+    if pattern:
+        opp_query = opp_query.where(Opportunity.customer_name.ilike(pattern))
+    # Over-fetch: several registrations can name the same customer and the
+    # de-duplication below collapses them.
+    opp_query = opp_query.limit(limit * 5)
+    opps = (await db.execute(opp_query)).unique().scalars().all()
+
+    co_query = select(Company).where(
+        Company.deleted_at.is_(None),
+        Company.company_type == CompanyType.CUSTOMER,
+    ).order_by(Company.name)
+    if pattern:
+        co_query = co_query.where(Company.name.ilike(pattern))
+    customer_companies = (await db.execute(co_query.limit(limit))).scalars().all()
+
+    seen: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    for o in opps:
+        key = (o.customer_name.strip().lower(), o.country.strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "customer_name": o.customer_name,
+            "country": o.country,
+            "city": o.city,
+            "region": o.region,
+            "company_name": o.company.name if o.company else None,
+        })
+        if len(out) >= limit:
+            return out
+    for c in customer_companies:
+        key = (c.name.strip().lower(), c.country.strip().lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "customer_name": c.name,
+            "country": c.country,
+            "city": c.city,
+            "region": c.region,
+            "company_name": None,
+        })
+        if len(out) >= limit:
+            break
+    return out
 
 
 async def _check_multi_partner_conflict(db: AsyncSession, opp: Opportunity) -> None:
@@ -511,8 +717,10 @@ async def get_opportunity_detail(db: AsyncSession, opp_id: int) -> OpportunityRe
 
 
 async def update_opportunity(
-    db: AsyncSession, opp_id: int, data: OpportunityUpdateRequest, partner_user: User
+    db: AsyncSession, opp_id: int, data: OpportunityUpdateRequest, actor: User
 ) -> OpportunityResponse:
+    """Edit a registration. `actor` is whoever raised it — a partner user or a
+    sales rep; the ownership check below is the same for both."""
     result = await db.execute(
         select(Opportunity)
         .options(
@@ -526,7 +734,7 @@ async def update_opportunity(
     if not opp:
         raise NotFoundException(code="OPPORTUNITY_NOT_FOUND", message="Opportunity not found")
 
-    if opp.submitted_by != partner_user.id:
+    if opp.submitted_by != actor.id:
         raise ForbiddenException(message="You can only edit your own opportunities")
 
     if opp.status in (OpportunityStatus.UNDER_REVIEW, *ACCEPTED_STATUSES, OpportunityStatus.LOST):
@@ -549,6 +757,12 @@ async def update_opportunity(
     # set_product_lines reads as "leave them alone"; an empty list clears them.
     product_lines = data.products
     update_data.pop("products", None)
+
+    # A rep's registration stays assigned to the rep: their access to it is
+    # through that assignment, so letting the edit move it would let them lock
+    # themselves out of their own opportunity with one field.
+    if actor.role == UserRole.SALES_REP:
+        update_data.pop("sales_rep_id", None)
 
     before_state = {key: getattr(opp, key) for key in update_data}
     # Convert any non-serializable values in before_state
@@ -599,7 +813,7 @@ async def update_opportunity(
         opp.multi_partner_alert = (dup_report["severity"] == "warn")
 
     await db.flush()
-    await write_audit_log(db, partner_user.id, "UPDATE", "opportunity", opp.id, {
+    await write_audit_log(db, actor.id, "UPDATE", "opportunity", opp.id, {
         "before": before_state,
         "after": update_data,
     })
@@ -607,7 +821,7 @@ async def update_opportunity(
     return _build_opportunity_response(opp)
 
 
-async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) -> OpportunityResponse:
+async def submit_opportunity(db: AsyncSession, opp_id: int, actor: User) -> OpportunityResponse:
     result = await db.execute(
         select(Opportunity)
         .options(
@@ -621,7 +835,7 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
     if not opp:
         raise NotFoundException(code="OPPORTUNITY_NOT_FOUND", message="Opportunity not found")
 
-    if opp.submitted_by != partner_user.id:
+    if opp.submitted_by != actor.id:
         raise ForbiddenException(message="You can only submit your own opportunities")
 
     if opp.status not in (OpportunityStatus.DRAFT, OpportunityStatus.REJECTED):
@@ -665,12 +879,17 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
     await notify_all_admins(
         db, "opportunity_submitted",
         "New Opportunity Submitted",
-        f"{company_name} has submitted an opportunity for approval: {opp.name}",
+        (
+            f"{actor.full_name} (sales rep) has submitted an opportunity for "
+            f"approval on behalf of {company_name}: {opp.name}"
+            if actor.role == UserRole.SALES_REP
+            else f"{company_name} has submitted an opportunity for approval: {opp.name}"
+        ),
         "opportunity", opp.id,
     )
 
     await db.flush()
-    await write_audit_log(db, partner_user.id, "UPDATE", "opportunity", opp.id, {
+    await write_audit_log(db, actor.id, "UPDATE", "opportunity", opp.id, {
         "before": before_state,
         "after": {"status": "pending_review"},
     })

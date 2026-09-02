@@ -95,12 +95,15 @@ const App: React.FC = () => {
                     scoped by the backend (partners own, sales reps assigned,
                     channel managers their companies). */}
                 <Route path="/opportunities" element={<OpportunityListPage />} />
-                <Route path="/opportunities/create" element={<ProtectedRoute requiredRole="partner"><OpportunityCreatePage /></ProtectedRoute>} />
+                {/* Registering (locking) an opportunity: a partner for their own
+                    company, or a sales rep on a partner's behalf. Admins review
+                    registrations rather than raise them. */}
+                <Route path="/opportunities/create" element={<ProtectedRoute allow={['partner', 'sales_rep']}><OpportunityCreatePage /></ProtectedRoute>} />
                 {/* Static paths declared BEFORE :id so they don't get caught by the param route */}
                 <Route path="/opportunities/duplicates" element={<ProtectedRoute requiredRole="admin"><DuplicateReviewPage /></ProtectedRoute>} />
                 {/* Declared above /opportunities/:id so the static path wins. */}
                 <Route path="/opportunities/stale-reviews" element={<ProtectedRoute requiredRole="admin"><StaleReviewsPage /></ProtectedRoute>} />
-                <Route path="/opportunities/:id/edit" element={<ProtectedRoute requiredRole="partner"><OpportunityEditPage /></ProtectedRoute>} />
+                <Route path="/opportunities/:id/edit" element={<ProtectedRoute allow={['partner', 'sales_rep']}><OpportunityEditPage /></ProtectedRoute>} />
                 <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
                 {/* POC visible to all (partners read-only); Deployment is
                     internal — admins and sales reps only. */}

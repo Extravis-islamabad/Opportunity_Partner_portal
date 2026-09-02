@@ -129,7 +129,9 @@ export const ROUTES: RouteDescriptor[] = [
     path: '/opportunities/create',
     label: 'New Opportunity',
     section: 'Pipeline',
-    roles: ['partner'],
+    // A partner registers for their own company; a sales rep on a partner's
+    // behalf. Mirrors the route gate in App.tsx.
+    roles: ['partner', 'sales_rep'],
     keywords: ['create', 'add', 'new'],
   },
   {

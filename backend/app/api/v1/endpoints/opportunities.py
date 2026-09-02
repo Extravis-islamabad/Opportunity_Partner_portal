@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.core.deps import (
     get_current_user,
     get_current_admin,
-    get_current_partner,
+    get_opportunity_registrant,
     get_admin_scope,
     get_partner_pipeline_scope,
     assert_can_manage_opp_documents,
@@ -27,6 +27,8 @@ from app.schemas.opportunity import (
     OpportunityInternalNoteRequest,
     OpportunityCloseRequest,
     OppDocumentResponse,
+    PartnerCompanyOption,
+    KnownCustomerOption,
 )
 from app.schemas.common import MessageResponse
 from app.services import opportunity_service, duplicate_service, review_sla_service
@@ -66,6 +68,9 @@ class DuplicateCheckRequest(BaseModel):
     city: Optional[str] = None
     customer_domain: Optional[str] = None
     exclude_opportunity_id: Optional[int] = None
+    # The partner the registration would be for. Only honoured for a sales
+    # rep (or an admin); a partner is always checked as their own company.
+    company_id: Optional[int] = None
 
 
 @router.post("/check-duplicate", status_code=200)
@@ -76,10 +81,17 @@ async def check_duplicate(
 ):
     """Real-time duplicate check used by the create-opportunity form.
     Does NOT mutate state — purely a lookup. Returns the same shape as
-    `find_duplicates` so the frontend can render the warning panel."""
+    `find_duplicates` so the frontend can render the warning panel.
+
+    The exclusivity block depends on *whose* registration it would be: a
+    partner's own registration never blocks them, so the check is run as the
+    company that would hold the lock — the caller's own for a partner, the
+    chosen one for a sales rep."""
     submitting_company_id = None
     if current_user.role == UserRole.PARTNER:
         submitting_company_id = current_user.company_id
+    else:
+        submitting_company_id = data.company_id
     return await duplicate_service.find_duplicates(
         db,
         customer_name=data.customer_name,
@@ -127,6 +139,41 @@ async def list_stale_reviews(
     return await review_sla_service.list_stale_reviews(db, scope)
 
 
+@router.get("/partner-companies", response_model=List[PartnerCompanyOption], status_code=200)
+async def list_partner_companies(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The partners a sales rep can register an opportunity for.
+
+    Reps and admins only. A partner has no choice to make — they register for
+    their own company — and the full partner roster is not theirs to browse.
+    Declared above /{opp_id} for the same reason as products.
+    """
+    if current_user.role not in (UserRole.SALES_REP, UserRole.ADMIN):
+        raise ForbiddenException(message="Only sales reps and admins can list partners")
+    return await opportunity_service.list_partner_companies(db)
+
+
+@router.get("/known-customers", response_model=List[KnownCustomerOption], status_code=200)
+async def list_known_customers(
+    q: Optional[str] = Query(None, max_length=200),
+    limit: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Customers the portal already knows, for the customer picker on the
+    registration form.
+
+    Reps and admins only: the list spans every partner's pipeline, which is
+    exactly what one partner must not learn about another. A partner types
+    the customer and the duplicate check tells them what they need to know.
+    """
+    if current_user.role not in (UserRole.SALES_REP, UserRole.ADMIN):
+        raise ForbiddenException(message="Only sales reps and admins can browse customers")
+    return await opportunity_service.known_customers(db, q=q, limit=limit)
+
+
 @router.get("/products", status_code=200)
 async def list_products(_user: User = Depends(get_current_user)):
     """The product catalogue, so the form does not hardcode it.
@@ -153,10 +200,13 @@ async def list_loss_reasons(_user: User = Depends(get_current_user)):
 @router.post("", response_model=OpportunityResponse, status_code=201)
 async def create_opportunity(
     data: OpportunityCreateRequest,
-    partner: User = Depends(get_current_partner),
+    # A partner user, or a sales rep registering on a partner's behalf. The
+    # service decides which company holds the lock (see
+    # opportunity_service.resolve_registration_company).
+    registrant: User = Depends(get_opportunity_registrant),
     db: AsyncSession = Depends(get_db),
 ):
-    return await opportunity_service.create_opportunity(db, data, partner)
+    return await opportunity_service.create_opportunity(db, data, registrant)
 
 
 @router.get("", status_code=200)
@@ -259,19 +309,21 @@ async def get_opportunity(
 async def update_opportunity(
     opp_id: int,
     data: OpportunityUpdateRequest,
-    partner: User = Depends(get_current_partner),
+    # Whoever raised it — partner or sales rep. The service holds the
+    # ownership check (submitted_by), so a rep can edit only their own.
+    registrant: User = Depends(get_opportunity_registrant),
     db: AsyncSession = Depends(get_db),
 ):
-    return await opportunity_service.update_opportunity(db, opp_id, data, partner)
+    return await opportunity_service.update_opportunity(db, opp_id, data, registrant)
 
 
 @router.post("/{opp_id}/submit", response_model=OpportunityResponse, status_code=200)
 async def submit_opportunity(
     opp_id: int,
-    partner: User = Depends(get_current_partner),
+    registrant: User = Depends(get_opportunity_registrant),
     db: AsyncSession = Depends(get_db),
 ):
-    return await opportunity_service.submit_opportunity(db, opp_id, partner)
+    return await opportunity_service.submit_opportunity(db, opp_id, registrant)
 
 
 @router.post("/{opp_id}/approve", response_model=OpportunityResponse, status_code=200)

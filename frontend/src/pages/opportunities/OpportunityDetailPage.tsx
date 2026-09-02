@@ -125,8 +125,13 @@ const OpportunityDetailPage: React.FC = () => {
   if (isLoading) return <Skeleton active paragraph={{ rows: 10 }} />;
   if (!opp) return <Empty description="Opportunity not found" />;
 
-  const canEdit = !isAdmin && (opp.status === 'draft' || opp.status === 'rejected');
-  const canSubmit = !isAdmin && (opp.status === 'draft' || opp.status === 'rejected');
+  // Editing and submitting belong to whoever raised the registration — a
+  // partner user or a sales rep — which is what the backend enforces
+  // (opportunity_service.update_opportunity). A colleague reading it, or the
+  // partner reading one a rep raised for them, gets the page without the pen.
+  const isRegistrant = !isAdmin && opp.submitted_by === user?.id;
+  const canEdit = isRegistrant && (opp.status === 'draft' || opp.status === 'rejected');
+  const canSubmit = isRegistrant && (opp.status === 'draft' || opp.status === 'rejected');
   const canReview = isAdmin && opp.status === 'pending_review';
   const canApproveReject = isAdmin && (opp.status === 'pending_review' || opp.status === 'under_review');
   // Only an approved deal has an outcome to record; won and lost are terminal.

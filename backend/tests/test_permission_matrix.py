@@ -580,7 +580,12 @@ class TestSalesRepDenials:
         )
         assert r.status_code in DENIED
 
-    async def test_cannot_create_an_opportunity(self, client, w, hdr):
+    async def test_cannot_create_an_opportunity_without_naming_a_partner(
+        self, client, w, hdr
+    ):
+        # A rep may register on a partner's behalf (tests/test_sales_rep_
+        # registration.py) — but the lock has to belong to somebody, and the
+        # service refuses to guess who. No company means no registration.
         r = await client.post(
             "/api/v1/opportunities",
             headers=hdr["rep_a"],
@@ -590,7 +595,22 @@ class TestSalesRepDenials:
                 "requirements": "r",
             },
         )
-        assert r.status_code in DENIED
+        assert r.status_code == 400
+        assert r.json()["code"] == "PARTNER_REQUIRED"
+
+    async def test_cannot_register_for_a_customer_company(self, client, w, hdr):
+        # A customer company holds no lock, whoever is typing.
+        r = await client.post(
+            "/api/v1/opportunities",
+            headers=hdr["rep_a"],
+            json={
+                "name": "x", "customer_name": "y", "region": "NA", "country": "US",
+                "city": "Austin", "worth": 1000, "closing_date": "2027-01-01",
+                "requirements": "r", "company_id": w.customer_co,
+            },
+        )
+        assert r.status_code == 400
+        assert r.json()["code"] == "NOT_A_CHANNEL_PARTNER"
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +667,44 @@ class TestRoleConfusion:
             json={"name": "admin edit"},
         )
         assert r.status_code in DENIED
+
+    async def test_admin_cannot_register_an_opportunity(self, client, w, hdr):
+        # Raising a registration and approving it are different jobs. The
+        # route opened up to sales reps; it must not have opened to the
+        # people who review what comes through it.
+        r = await client.post(
+            "/api/v1/opportunities",
+            headers=hdr["superadmin"],
+            json={
+                "name": "x", "customer_name": "y", "region": "NA", "country": "US",
+                "city": "Austin", "worth": 1000, "closing_date": "2027-01-01",
+                "requirements": "r", "company_id": w.company_a,
+            },
+        )
+        assert r.status_code in DENIED
+
+    async def test_partner_cannot_register_for_another_company(self, client, w, hdr):
+        # The company field exists for reps. A partner naming somebody else's
+        # company is refused, not quietly corrected to their own.
+        r = await client.post(
+            "/api/v1/opportunities",
+            headers=hdr["partner_a"],
+            json={
+                "name": "x", "customer_name": "y", "region": "NA", "country": "US",
+                "city": "Austin", "worth": 1000, "closing_date": "2027-01-01",
+                "requirements": "r", "company_id": w.company_b,
+            },
+        )
+        assert r.status_code in DENIED
+
+    async def test_partner_cannot_browse_the_partner_or_customer_lists(
+        self, client, hdr
+    ):
+        # Both pickers span every partner's book; they are for Extravis staff.
+        for path in ("/api/v1/opportunities/partner-companies",
+                     "/api/v1/opportunities/known-customers"):
+            r = await client.get(path, headers=hdr["partner_a"])
+            assert r.status_code in DENIED, f"{path} returned {r.status_code}"
 
     async def test_admin_cannot_register_a_deal(self, client, hdr):
         r = await client.post(
