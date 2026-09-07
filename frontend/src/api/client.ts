@@ -25,12 +25,37 @@ apiClient.interceptors.request.use(
   }
 );
 
+// Endpoints where a 401 is the real answer, not an expired access token.
+// Logging in with a wrong password, replaying a stale MFA challenge, or
+// calling /auth/refresh without a valid cookie all legitimately return 401.
+// Running those through the refresh-and-retry path below would swallow the
+// server's actual message and hard-redirect to /login, so the user sees a
+// page reload instead of "Invalid email or password".
+const NO_REFRESH_PATHS = [
+  '/auth/login',
+  '/auth/login/mfa',
+  '/auth/refresh',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/activate',
+];
+
+const skipsRefresh = (url?: string): boolean => {
+  if (!url) return false;
+  const path = url.replace(API_BASE_URL, '');
+  return NO_REFRESH_PATHS.some((p) => path.startsWith(p));
+};
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ErrorResponse>) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !skipsRefresh(originalRequest?.url)
+    ) {
       originalRequest._retry = true;
 
       try {
