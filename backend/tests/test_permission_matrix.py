@@ -580,7 +580,10 @@ class TestSalesRepDenials:
         )
         assert r.status_code in DENIED
 
-    async def test_cannot_create_an_opportunity(self, client, w, hdr):
+    async def test_create_without_a_company_is_refused(self, client, w, hdr):
+        # A rep registers on behalf of a partner company and has none of their
+        # own, so a create that names no company must be refused rather than
+        # inserting an orphan row.
         r = await client.post(
             "/api/v1/opportunities",
             headers=hdr["rep_a"],
@@ -590,7 +593,26 @@ class TestSalesRepDenials:
                 "requirements": "r",
             },
         )
-        assert r.status_code in DENIED
+        assert r.status_code == 400
+
+    async def test_can_create_on_behalf_of_a_partner_company(self, client, w, hdr):
+        r = await client.post(
+            "/api/v1/opportunities",
+            headers=hdr["rep_a"],
+            json={
+                "name": "rep registered", "customer_name": "On Behalf Client",
+                "region": "NA", "country": "US", "city": "Austin", "worth": 1000,
+                "closing_date": "2027-01-01", "requirements": "r",
+                "company_id": w.company_a,
+            },
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        # Lands in the partner company's pipeline, assigned to the rep — so it
+        # is visible to both and edit rights stay with the rep who wrote it.
+        assert body["company_id"] == w.company_a
+        assert body["sales_rep_id"] == w.rep_a
+        assert body["submitted_by"] == w.rep_a
 
 
 # ---------------------------------------------------------------------------

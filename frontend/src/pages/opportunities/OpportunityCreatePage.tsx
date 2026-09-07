@@ -22,7 +22,8 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { opportunitiesApi, duplicatesApi, currenciesApi } from '@/api/endpoints';
+import { useAuth } from '@/contexts/AuthContext';
+import { opportunitiesApi, duplicatesApi, currenciesApi, companiesApi } from '@/api/endpoints';
 import type { DuplicateCheckResponse } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
 import type { OpportunityCreateRequest } from '@/types';
@@ -170,6 +171,17 @@ const OpportunityCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
+  // A sales rep has no company of their own — they register on behalf of a
+  // partner company, chosen from the picker below.
+  const { user } = useAuth();
+  const isSalesRep = user?.role === 'sales_rep';
+  const { data: companyOptions } = useQuery({
+    queryKey: ['company-options'],
+    queryFn: async () => (await companiesApi.options()).data,
+    enabled: isSalesRep,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Live duplicate check state
   const [customerName, setCustomerName] = useState('');
   const [country, setCountry] = useState('');
@@ -251,6 +263,7 @@ const OpportunityCreatePage: React.FC = () => {
         ? (values['stage_probability'] as number)
         : undefined,
       time_frame: (values['time_frame'] as string) || undefined,
+      company_id: isSalesRep ? (values['company_id'] as number) : undefined,
     };
     mutation.mutate(data);
   };
@@ -281,6 +294,24 @@ const OpportunityCreatePage: React.FC = () => {
 
       <Card style={{ maxWidth: 700 }}>
         <Form form={form} layout="vertical" onFinish={onFinish}>
+          {isSalesRep && (
+            <Form.Item
+              name="company_id"
+              label="On Behalf of Partner Company"
+              tooltip="The opportunity is registered in this company's pipeline; you stay assigned as its sales rep."
+              rules={[{ required: true, message: 'Select the partner company' }]}
+            >
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Select partner company"
+                options={(companyOptions ?? []).map((c) => ({
+                  value: c.id,
+                  label: `${c.name} (${c.company_type})`,
+                }))}
+              />
+            </Form.Item>
+          )}
           <Form.Item
             name="name"
             label="Opportunity Name"

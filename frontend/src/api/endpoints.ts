@@ -163,6 +163,10 @@ export const companiesApi = {
   // reason a tier moved is the point of keeping the record.
   tierHistory: (id: number) =>
     apiClient.get<TierHistoryEntry[]>(`/companies/${id}/tier-history`),
+  // Active companies as id/name/type, for pickers. Admins and sales reps
+  // only — partners are denied server-side.
+  options: () =>
+    apiClient.get<Array<{ id: number; name: string; company_type: string }>>('/companies/options'),
 };
 
 // ==================== Opportunities ====================

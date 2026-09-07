@@ -67,6 +67,19 @@ async def get_current_partner(
     return current_user
 
 
+async def get_partner_or_sales_rep(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Opportunity registration: a partner registers their own company's
+    pipeline; a sales rep may register (and later edit / submit) on behalf of
+    a partner company, named per-request via company_id. Ownership of the
+    individual opportunity is still checked in the service via submitted_by.
+    """
+    if current_user.role not in (UserRole.PARTNER, UserRole.SALES_REP):
+        raise ForbiddenException(message="Partner or sales rep access required")
+    return current_user
+
+
 async def get_current_superadmin(
     current_user: User = Depends(get_current_admin),
 ) -> User:

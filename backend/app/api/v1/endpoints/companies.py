@@ -68,6 +68,38 @@ async def list_companies(
     }
 
 
+@router.get("/options", status_code=200)
+async def list_company_options(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Just id/name/type of every active company, for pickers.
+
+    Exists for the create-opportunity form's "on behalf of" selector, which a
+    sales rep needs but the full companies list (admin-only, paginated, full
+    detail) would over-serve. Partners are denied: their pipeline is their own
+    company's, and the roster of every other company is not theirs to browse.
+
+    Declared above /{company_id}: FastAPI matches in declaration order and
+    would otherwise try to parse "options" as an int.
+    """
+    from app.models.user import UserRole
+    from app.models.company import Company, CompanyStatus
+
+    if current_user.role == UserRole.PARTNER:
+        raise ForbiddenException(message="Not available to partner accounts")
+
+    result = await db.execute(
+        select(Company.id, Company.name, Company.company_type)
+        .where(Company.status == CompanyStatus.ACTIVE, Company.deleted_at.is_(None))
+        .order_by(Company.name)
+    )
+    return [
+        {"id": row.id, "name": row.name, "company_type": row.company_type.value}
+        for row in result.all()
+    ]
+
+
 @router.get("/{company_id}", response_model=CompanyDetailResponse, status_code=200)
 async def get_company(
     company_id: int,

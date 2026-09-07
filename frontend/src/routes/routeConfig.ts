@@ -129,7 +129,8 @@ export const ROUTES: RouteDescriptor[] = [
     path: '/opportunities/create',
     label: 'New Opportunity',
     section: 'Pipeline',
-    roles: ['partner'],
+    // Sales reps create on behalf of a partner company; the form asks which.
+    roles: ['partner', 'sales_rep'],
     keywords: ['create', 'add', 'new'],
   },
   {

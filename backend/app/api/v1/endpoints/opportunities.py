@@ -9,6 +9,7 @@ from app.core.deps import (
     get_current_user,
     get_current_admin,
     get_current_partner,
+    get_partner_or_sales_rep,
     get_admin_scope,
     get_partner_pipeline_scope,
     assert_can_manage_opp_documents,
@@ -153,10 +154,12 @@ async def list_loss_reasons(_user: User = Depends(get_current_user)):
 @router.post("", response_model=OpportunityResponse, status_code=201)
 async def create_opportunity(
     data: OpportunityCreateRequest,
-    partner: User = Depends(get_current_partner),
+    # Partners register their own pipeline; sales reps register on behalf of
+    # a partner company (data.company_id names which one).
+    creator: User = Depends(get_partner_or_sales_rep),
     db: AsyncSession = Depends(get_db),
 ):
-    return await opportunity_service.create_opportunity(db, data, partner)
+    return await opportunity_service.create_opportunity(db, data, creator)
 
 
 @router.get("", status_code=200)
@@ -259,7 +262,9 @@ async def get_opportunity(
 async def update_opportunity(
     opp_id: int,
     data: OpportunityUpdateRequest,
-    partner: User = Depends(get_current_partner),
+    # Sales reps too: the service only lets the original submitter through
+    # (submitted_by check), so a rep can edit exactly what they created.
+    partner: User = Depends(get_partner_or_sales_rep),
     db: AsyncSession = Depends(get_db),
 ):
     return await opportunity_service.update_opportunity(db, opp_id, data, partner)
@@ -268,7 +273,8 @@ async def update_opportunity(
 @router.post("/{opp_id}/submit", response_model=OpportunityResponse, status_code=200)
 async def submit_opportunity(
     opp_id: int,
-    partner: User = Depends(get_current_partner),
+    # Same submitted_by ownership rule as PUT: a rep submits only their own.
+    partner: User = Depends(get_partner_or_sales_rep),
     db: AsyncSession = Depends(get_db),
 ):
     return await opportunity_service.submit_opportunity(db, opp_id, partner)

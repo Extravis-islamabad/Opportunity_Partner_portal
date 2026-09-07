@@ -47,6 +47,10 @@ class OpportunityCreateRequest(BaseModel):
     stage_probability: Optional[Decimal] = Field(None, ge=0, le=1, max_digits=3, decimal_places=2)
     time_frame: Optional[str] = Field(None, max_length=20)
     sales_rep_id: Optional[int] = None
+    # Only read when a sales rep is creating on behalf of a partner company —
+    # the rep has no company of their own, so the form must say whose pipeline
+    # this is. Ignored for partner creators, whose company is their own.
+    company_id: Optional[int] = None
 
 
 class OpportunityUpdateRequest(BaseModel):

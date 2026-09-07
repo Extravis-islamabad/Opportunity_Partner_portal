@@ -238,10 +238,36 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
 
 
 async def create_opportunity(
-    db: AsyncSession, data: OpportunityCreateRequest, partner_user: User
+    db: AsyncSession, data: OpportunityCreateRequest, creator: User
 ) -> OpportunityResponse:
     from app.utils.customer_normalize import normalize_customer_name, extract_domain
     from app.services import duplicate_service
+    from app.models.company import CompanyStatus
+
+    # Whose pipeline is this? A partner's own company; a sales rep names the
+    # partner company they are registering on behalf of. The rep becomes the
+    # assigned sales rep, so the opportunity shows up in their own list and
+    # they keep edit/submit rights via submitted_by.
+    if creator.role == UserRole.SALES_REP:
+        if not data.company_id:
+            raise BadRequestException(
+                code="COMPANY_REQUIRED",
+                message="Select the partner company this opportunity is registered for",
+            )
+        company_result = await db.execute(
+            select(Company).where(Company.id == data.company_id)
+        )
+        target_company = company_result.scalar_one_or_none()
+        if not target_company or target_company.status != CompanyStatus.ACTIVE:
+            raise BadRequestException(
+                code="COMPANY_INVALID",
+                message="Unknown or inactive company",
+            )
+        company_id = target_company.id
+        sales_rep_id = creator.id
+    else:
+        company_id = creator.company_id
+        sales_rep_id = data.sales_rep_id
 
     normalized = normalize_customer_name(data.customer_name)
     # Try to extract a domain from the customer name itself or the
@@ -256,7 +282,7 @@ async def create_opportunity(
         customer_name=data.customer_name,
         country=data.country,
         city=data.city,
-        submitting_company_id=partner_user.company_id,
+        submitting_company_id=company_id,
         customer_domain=domain,
     )
     if dup_report["severity"] == "block":
@@ -278,15 +304,15 @@ async def create_opportunity(
         closing_date=data.closing_date,
         requirements=data.requirements,
         status=OpportunityStatus(data.status or "draft"),
-        submitted_by=partner_user.id,
-        company_id=partner_user.company_id,
+        submitted_by=creator.id,
+        company_id=company_id,
         # Soft warning → set the multi_partner_alert flag so the review
         # queue picks it up
         multi_partner_alert=(dup_report["severity"] == "warn"),
         industry=data.industry,
         stage_probability=data.stage_probability,
         time_frame=data.time_frame,
-        sales_rep_id=data.sales_rep_id,
+        sales_rep_id=sales_rep_id,
     )
 
     if opp.status == OpportunityStatus.PENDING_REVIEW:
@@ -296,7 +322,9 @@ async def create_opportunity(
     # thing that is gated. Reading a dashboard is not — locking someone out of
     # the portal entirely would leave them unable to reach the documents they
     # are being asked to accept.
-    await legal_service.assert_accepted(db, partner_user)
+    # A no-op for sales reps: the agreement is the partner company's to sign,
+    # and Extravis staff are not asked to.
+    await legal_service.assert_accepted(db, creator)
 
     # Currency and its rate are stamped together, before the flush, so the
     # generated worth_usd column is right the first time.
@@ -310,7 +338,7 @@ async def create_opportunity(
     if opp.status == OpportunityStatus.PENDING_REVIEW:
         await _check_multi_partner_conflict(db, opp)
 
-        company_result = await db.execute(select(Company).where(Company.id == partner_user.company_id))
+        company_result = await db.execute(select(Company).where(Company.id == company_id))
         company = company_result.scalar_one_or_none()
         company_name = company.name if company else "Unknown"
 
@@ -321,7 +349,7 @@ async def create_opportunity(
             "opportunity", opp.id,
         )
 
-    await write_audit_log(db, partner_user.id, "CREATE", "opportunity", opp.id, {
+    await write_audit_log(db, creator.id, "CREATE", "opportunity", opp.id, {
         "name": opp.name, "status": opp.status.value,
     })
 

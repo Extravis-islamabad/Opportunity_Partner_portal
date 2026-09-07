@@ -447,6 +447,11 @@ export interface OpportunityCreateRequest {
   stage_probability?: number;
   time_frame?: string;
   sales_rep_id?: number;
+  /**
+   * Only read when a sales rep creates on behalf of a partner company —
+   * the rep has no company of their own. Ignored for partner creators.
+   */
+  company_id?: number;
 }
 
 // 2027 Target Plan analytics (admin dashboard)
