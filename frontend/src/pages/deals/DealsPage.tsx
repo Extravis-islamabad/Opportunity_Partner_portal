@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { Table, Button, Tag, Space, Alert, Modal, Form, Input, InputNumber, DatePicker, message } from 'antd';
+import {
+  Table, Button, Tag, Space, Alert, Modal, Form, Input, InputNumber, DatePicker,
+  message, Radio, Select, Drawer, Descriptions, Divider, Typography,
+} from 'antd';
 import { PlusOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { dashboardApi, exportsApi } from '@/api/endpoints';
+import { dashboardApi, exportsApi, opportunitiesApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
@@ -14,6 +17,26 @@ import dayjs from 'dayjs';
 import { formatMoney, reportingSuffix } from '@/utils/money';
 
 const statusColors: Record<string, string> = { pending: 'orange', approved: 'green', rejected: 'red', expired: 'default' };
+
+const yesNo = (v: boolean | null | undefined) => (v == null ? '—' : v ? 'Yes' : 'No');
+const orDash = (v: string | null | undefined) => v || '—';
+
+// The numbered section header the registration form and detail view share.
+const SectionTitle: React.FC<{ n: number; title: string; subtitle?: string }> = ({ n, title, subtitle }) => (
+  <div style={{ marginBottom: 12 }}>
+    <Space size={8}>
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: 22, height: 22, borderRadius: 6, background: '#eef0ff', color: '#4a54c4',
+        fontWeight: 600, fontSize: 12,
+      }}>{n}</span>
+      <Typography.Text strong style={{ fontSize: 15 }}>{title}</Typography.Text>
+    </Space>
+    {subtitle && (
+      <div style={{ color: '#8c8c8c', fontSize: 13, marginTop: 2 }}>{subtitle}</div>
+    )}
+  </div>
+);
 
 const DealsPage: React.FC = () => {
   const [page, setPage] = useState(1);
@@ -31,6 +54,18 @@ const DealsPage: React.FC = () => {
   const [extendModal, setExtendModal] = useState<DealRegistrationResponse | null>(null);
   const [extendDays, setExtendDays] = useState(30);
   const [extendReason, setExtendReason] = useState('');
+  const [viewDeal, setViewDeal] = useState<DealRegistrationResponse | null>(null);
+
+  // Tender and non-tender ask for different supporting details.
+  const opportunityType = (Form.useWatch('opportunity_type', createForm) as string) || 'non_tender';
+  const isTender = opportunityType === 'tender';
+
+  const { data: productCatalogue } = useQuery({
+    queryKey: ['products'],
+    queryFn: async () => (await opportunitiesApi.products()).data,
+    enabled: isPartner,
+    staleTime: Infinity,
+  });
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['deals', page],
@@ -39,7 +74,17 @@ const DealsPage: React.FC = () => {
 
   const createMut = useMutation({
     mutationFn: (values: Record<string, unknown>) => {
-      const data = { ...values, expected_close_date: (values['expected_close_date'] as dayjs.Dayjs).format('YYYY-MM-DD') };
+      const tender = values['opportunity_type'] === 'tender';
+      const data: Record<string, unknown> = {
+        ...values,
+        expected_close_date: (values['expected_close_date'] as dayjs.Dayjs).format('YYYY-MM-DD'),
+        // Tender-only fields stay out of a non-tender payload entirely.
+        tender_number: tender ? values['tender_number'] : undefined,
+        tender_submission_date: tender && values['tender_submission_date']
+          ? (values['tender_submission_date'] as dayjs.Dayjs).format('YYYY-MM-DD')
+          : undefined,
+        mal_maf_required: tender ? values['mal_maf_required'] : undefined,
+      };
       return dashboardApi.createDeal(data);
     },
     onSuccess: () => { setCreateModal(false); createForm.resetFields(); void queryClient.invalidateQueries({ queryKey: ['deals'] }); void message.success('Deal registered'); },
@@ -68,7 +113,12 @@ const DealsPage: React.FC = () => {
   });
 
   const columns: ColumnsType<DealRegistrationResponse> = [
-    { title: 'Customer', dataIndex: 'customer_name', key: 'customer' },
+    {
+      title: 'Customer', dataIndex: 'customer_name', key: 'customer',
+      render: (name: string, r: DealRegistrationResponse) => (
+        <Button type="link" style={{ padding: 0 }} onClick={() => setViewDeal(r)}>{name}</Button>
+      ),
+    },
     ...(isAdmin ? [{ title: 'Company', dataIndex: 'company_name' as const, key: 'company' }] : []),
     {
       title: 'Value', dataIndex: 'estimated_value', key: 'value',
@@ -170,14 +220,169 @@ const DealsPage: React.FC = () => {
       )}
 
       <Modal title="Register New Deal" open={createModal} onCancel={() => setCreateModal(false)}
-        onOk={() => createForm.submit()} confirmLoading={createMut.isPending}>
-        <Form form={createForm} layout="vertical" onFinish={createMut.mutate}>
-          <Form.Item name="customer_name" label="Customer Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="deal_description" label="Deal Description" rules={[{ required: true }]}><Input.TextArea rows={3} /></Form.Item>
-          <Form.Item name="estimated_value" label="Estimated Value (USD)" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} min={0.01} precision={2} /></Form.Item>
-          <Form.Item name="expected_close_date" label="Expected Close Date" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
+        onOk={() => createForm.submit()} confirmLoading={createMut.isPending} width={760}
+        okText="Register Deal">
+        <Form form={createForm} layout="vertical" onFinish={createMut.mutate}
+          initialValues={{ opportunity_type: 'non_tender' }}>
+
+          <SectionTitle n={1} title="Client Details" subtitle="Information about the end client for this opportunity." />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16 }}>
+            <Form.Item name="customer_name" label="Company Name" rules={[{ required: true, max: 200 }]}>
+              <Input placeholder="End client company" />
+            </Form.Item>
+            <Form.Item name="client_email" label="Email" rules={[{ required: true, type: 'email' }]}>
+              <Input placeholder="contact@client.com" maxLength={255} />
+            </Form.Item>
+            <Form.Item name="client_website" label="Website">
+              <Input placeholder="https://client.com" maxLength={255} />
+            </Form.Item>
+            <Form.Item name="client_contact" label="Contact" rules={[{ required: true }]}>
+              <Input placeholder="Phone number" maxLength={50} />
+            </Form.Item>
+            <Form.Item name="client_fax" label="Fax">
+              <Input placeholder="Fax number" maxLength={50} />
+            </Form.Item>
+            <Form.Item name="client_address" label="Address" rules={[{ required: true }]}>
+              <Input placeholder="Client address" maxLength={500} />
+            </Form.Item>
+            <Form.Item name="individual_name" label="Individual Name" rules={[{ required: true }]}>
+              <Input placeholder="Person you are dealing with" maxLength={255} />
+            </Form.Item>
+            <Form.Item name="individual_department" label="Individual Department">
+              <Input placeholder="e.g. Procurement" maxLength={255} />
+            </Form.Item>
+            <Form.Item name="individual_designation" label="Individual Designation">
+              <Input placeholder="e.g. Procurement Manager" maxLength={255} />
+            </Form.Item>
+          </div>
+
+          <Divider style={{ margin: '4px 0 16px' }} />
+          <SectionTitle n={2} title="Opportunity Type" subtitle="Tender or non-tender opportunity, and the supporting details." />
+          <Form.Item name="opportunity_type" rules={[{ required: true }]}>
+            <Radio.Group optionType="button" buttonStyle="outline"
+              options={[{ value: 'tender', label: 'Tender' }, { value: 'non_tender', label: 'Non-Tender' }]} />
+          </Form.Item>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 16 }}>
+            <Form.Item name="opportunity_name" label="Opportunity Name" rules={[{ required: true, max: 200 }]}>
+              <Input placeholder="Opportunity name" />
+            </Form.Item>
+            {isTender ? (
+              <>
+                <Form.Item name="tender_number" label="Tender Number" rules={[{ required: true, max: 100 }]}>
+                  <Input placeholder="e.g. TND-2026-0472" />
+                </Form.Item>
+                <Form.Item name="tender_submission_date" label="Tender Submission Date" rules={[{ required: true }]}>
+                  <DatePicker style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="estimated_value" label="Client Budget (USD)" rules={[{ required: true }]}>
+                  <InputNumber style={{ width: '100%' }} min={0.01} precision={2} placeholder="0.00" />
+                </Form.Item>
+                <Form.Item name="mal_maf_required" label="MAL / MAF Required" rules={[{ required: true }]}>
+                  <Select options={[{ value: true, label: 'Yes' }, { value: false, label: 'No' }]} placeholder="Select" />
+                </Form.Item>
+                <Form.Item name="poc_required" label="POC Required During Evaluation" rules={[{ required: true }]}>
+                  <Select options={[{ value: true, label: 'Yes' }, { value: false, label: 'No' }]} placeholder="Select" />
+                </Form.Item>
+              </>
+            ) : (
+              <>
+                <Form.Item name="estimated_value" label="Estimated Budget (USD)" rules={[{ required: true }]}>
+                  <InputNumber style={{ width: '100%' }} min={0.01} precision={2} placeholder="0.00" />
+                </Form.Item>
+                <Form.Item name="poc_required" label="POC Required" rules={[{ required: true }]}>
+                  <Select options={[{ value: true, label: 'Yes' }, { value: false, label: 'No' }]} placeholder="Select" />
+                </Form.Item>
+              </>
+            )}
+            <Form.Item name="expected_close_date"
+              label={isTender ? 'Expected Close Date' : 'Expected Closure Date'}
+              rules={[{ required: true }]}>
+              <DatePicker style={{ width: '100%' }} />
+            </Form.Item>
+          </div>
+
+          <Form.Item name="products" label="Products">
+            <Select mode="multiple" allowClear placeholder="Select products"
+              options={(productCatalogue ?? []).map((o) => ({ value: o.value, label: o.label }))} />
+          </Form.Item>
+          <Form.Item name="deal_description" label="Note" rules={[{ required: true }]}>
+            <Input.TextArea rows={3} placeholder="Describe the deal — relationship, timeline, anything the reviewer should know." />
+          </Form.Item>
         </Form>
       </Modal>
+
+      <Drawer
+        title="Deal Registration Details"
+        width={640}
+        open={viewDeal !== null}
+        onClose={() => setViewDeal(null)}
+      >
+        {viewDeal && (
+          <>
+            <div style={{ color: '#8c8c8c', marginBottom: 16 }}>
+              {viewDeal.customer_name}
+              {viewDeal.registered_by_name ? ` · submitted by ${viewDeal.registered_by_name}` : ''}
+              {viewDeal.company_name ? ` (${viewDeal.company_name})` : ''}
+            </div>
+            <Space style={{ marginBottom: 16 }}>
+              <Tag color={statusColors[viewDeal.status] ?? 'default'}>{viewDeal.status.toUpperCase()}</Tag>
+              {viewDeal.opportunity_type && (
+                <Tag color="blue">{viewDeal.opportunity_type === 'tender' ? 'Tender' : 'Non-Tender'}</Tag>
+              )}
+            </Space>
+
+            <SectionTitle n={1} title="Client Details" subtitle="Information about the end client for this opportunity." />
+            <Descriptions column={2} size="small" bordered style={{ marginBottom: 20 }}>
+              <Descriptions.Item label="Company Name">{viewDeal.customer_name}</Descriptions.Item>
+              <Descriptions.Item label="Email">{orDash(viewDeal.client_email)}</Descriptions.Item>
+              <Descriptions.Item label="Website">{orDash(viewDeal.client_website)}</Descriptions.Item>
+              <Descriptions.Item label="Contact">{orDash(viewDeal.client_contact)}</Descriptions.Item>
+              <Descriptions.Item label="Fax">{orDash(viewDeal.client_fax)}</Descriptions.Item>
+              <Descriptions.Item label="Address">{orDash(viewDeal.client_address)}</Descriptions.Item>
+              <Descriptions.Item label="Individual Name">{orDash(viewDeal.individual_name)}</Descriptions.Item>
+              <Descriptions.Item label="Individual Department">{orDash(viewDeal.individual_department)}</Descriptions.Item>
+              <Descriptions.Item label="Individual Designation">{orDash(viewDeal.individual_designation)}</Descriptions.Item>
+            </Descriptions>
+
+            <SectionTitle n={2} title="Opportunity Type" subtitle="Tender or non-tender opportunity, and the supporting details." />
+            <Descriptions column={2} size="small" bordered style={{ marginBottom: 20 }}>
+              <Descriptions.Item label="Opportunity Name">{orDash(viewDeal.opportunity_name)}</Descriptions.Item>
+              {viewDeal.opportunity_type === 'tender' ? (
+                <>
+                  <Descriptions.Item label="Tender Number">{orDash(viewDeal.tender_number)}</Descriptions.Item>
+                  <Descriptions.Item label="Tender Submission Date">{orDash(viewDeal.tender_submission_date)}</Descriptions.Item>
+                  <Descriptions.Item label="Client Budget">{formatMoney(viewDeal.estimated_value, viewDeal.currency)}</Descriptions.Item>
+                  <Descriptions.Item label="MAL / MAF Required">{yesNo(viewDeal.mal_maf_required)}</Descriptions.Item>
+                  <Descriptions.Item label="POC Required During Evaluation">{yesNo(viewDeal.poc_required)}</Descriptions.Item>
+                </>
+              ) : (
+                <>
+                  <Descriptions.Item label="Estimated Budget">{formatMoney(viewDeal.estimated_value, viewDeal.currency)}</Descriptions.Item>
+                  <Descriptions.Item label="POC Required">{yesNo(viewDeal.poc_required)}</Descriptions.Item>
+                </>
+              )}
+              <Descriptions.Item label="Expected Closure Date">{viewDeal.expected_close_date}</Descriptions.Item>
+              <Descriptions.Item label="Products" span={2}>
+                {viewDeal.products && viewDeal.products.length > 0
+                  ? viewDeal.products.map((p) => <Tag key={p} color="geekblue">{p}</Tag>)
+                  : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Note" span={2}>{viewDeal.deal_description}</Descriptions.Item>
+            </Descriptions>
+
+            {viewDeal.exclusivity_end && (
+              <Alert type="info" showIcon style={{ marginBottom: 8 }}
+                message={viewDeal.days_left !== null
+                  ? `Exclusivity until ${viewDeal.exclusivity_end} — ${viewDeal.days_left} day${viewDeal.days_left === 1 ? '' : 's'} left`
+                  : `Exclusivity ended ${viewDeal.exclusivity_end}`} />
+            )}
+            {viewDeal.rejection_reason && (
+              <Alert type="error" showIcon message="Rejected" description={viewDeal.rejection_reason} />
+            )}
+          </>
+        )}
+      </Drawer>
 
       <Modal
         title="Request Exclusivity Extension"

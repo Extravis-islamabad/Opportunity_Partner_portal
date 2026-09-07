@@ -2,7 +2,7 @@ import enum
 from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Computed, Integer, String, DateTime, Enum, ForeignKey, Text, Date,
-    Numeric,
+    Numeric, Boolean, JSON,
 )
 from sqlalchemy.orm import relationship
 from app.models.currency import Currency
@@ -46,6 +46,32 @@ class DealRegistration(Base):
         Computed("estimated_value * exchange_rate_to_usd", persisted=True),
     )
     expected_close_date = Column(Date, nullable=False)
+
+    # --- Client details: who the end client is beyond the name. All nullable
+    # so registrations predating these fields stay valid; the form decides
+    # what is required.
+    client_email = Column(String(255), nullable=True)
+    client_website = Column(String(255), nullable=True)
+    client_contact = Column(String(50), nullable=True)
+    client_fax = Column(String(50), nullable=True)
+    client_address = Column(String(500), nullable=True)
+    individual_name = Column(String(255), nullable=True)
+    individual_department = Column(String(255), nullable=True)
+    individual_designation = Column(String(255), nullable=True)
+
+    # --- Opportunity type: tender or non_tender, with the supporting detail.
+    # A plain string, not a Postgres enum: two values do not earn a type that
+    # every future value would need a migration to extend.
+    opportunity_type = Column(String(20), nullable=True)
+    opportunity_name = Column(String(200), nullable=True)
+    tender_number = Column(String(100), nullable=True)
+    tender_submission_date = Column(Date, nullable=True)
+    mal_maf_required = Column(Boolean, nullable=True)
+    poc_required = Column(Boolean, nullable=True)
+    # Product names off the shared catalogue (PRODUCTS). A JSON list rather
+    # than a line table: deals carry no per-product sizing the way
+    # opportunities do, only which products the deal is about.
+    products = Column(JSON, nullable=True)
     status = Column(Enum(DealStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=DealStatus.PENDING)
     exclusivity_start = Column(Date, nullable=True)
     exclusivity_end = Column(Date, nullable=True)

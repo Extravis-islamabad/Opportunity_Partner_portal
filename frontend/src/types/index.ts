@@ -734,6 +734,23 @@ export interface DealRegistrationResponse {
   expired_at: string | null;
   extension_pending: boolean;
   rejection_reason: string | null;
+  // Client details and tender / non-tender structure. Null on registrations
+  // made before these fields existed.
+  client_email: string | null;
+  client_website: string | null;
+  client_contact: string | null;
+  client_fax: string | null;
+  client_address: string | null;
+  individual_name: string | null;
+  individual_department: string | null;
+  individual_designation: string | null;
+  opportunity_type: 'tender' | 'non_tender' | null;
+  opportunity_name: string | null;
+  tender_number: string | null;
+  tender_submission_date: string | null;
+  mal_maf_required: boolean | null;
+  poc_required: boolean | null;
+  products: string[] | null;
 }
 
 export interface ExpiringExclusivity {

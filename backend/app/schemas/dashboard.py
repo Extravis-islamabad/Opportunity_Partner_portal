@@ -192,6 +192,28 @@ class DealRegistrationCreateRequest(BaseModel):
     currency: Optional[str] = Field(None, pattern="^(USD|SAR|AED|PKR)$")
     expected_close_date: str
     opportunity_id: Optional[int] = None
+    # Client details — who the end client is beyond the name. Optional at the
+    # API so registrations made through older clients stay accepted; the form
+    # decides what it requires.
+    client_email: Optional[str] = Field(None, max_length=255)
+    client_website: Optional[str] = Field(None, max_length=255)
+    client_contact: Optional[str] = Field(None, max_length=50)
+    client_fax: Optional[str] = Field(None, max_length=50)
+    client_address: Optional[str] = Field(None, max_length=500)
+    individual_name: Optional[str] = Field(None, max_length=255)
+    individual_department: Optional[str] = Field(None, max_length=255)
+    individual_designation: Optional[str] = Field(None, max_length=255)
+    # Tender or non-tender, with the supporting detail. The tender-only
+    # fields are simply ignored by the UI for a non-tender deal.
+    opportunity_type: Optional[str] = Field(None, pattern="^(tender|non_tender)$")
+    opportunity_name: Optional[str] = Field(None, max_length=200)
+    tender_number: Optional[str] = Field(None, max_length=100)
+    tender_submission_date: Optional[str] = None
+    mal_maf_required: Optional[bool] = None
+    poc_required: Optional[bool] = None
+    # Product names off the shared catalogue; unknown names are dropped
+    # server-side rather than rejected.
+    products: Optional[List[str]] = None
 
 
 class DealRegistrationResponse(BaseModel):
@@ -221,6 +243,23 @@ class DealRegistrationResponse(BaseModel):
     # UI offers the action only where it would be accepted.
     extension_pending: bool = False
     rejection_reason: Optional[str] = None
+    # Client details and tender / non-tender structure — see the create
+    # request; null on registrations that predate the fields.
+    client_email: Optional[str] = None
+    client_website: Optional[str] = None
+    client_contact: Optional[str] = None
+    client_fax: Optional[str] = None
+    client_address: Optional[str] = None
+    individual_name: Optional[str] = None
+    individual_department: Optional[str] = None
+    individual_designation: Optional[str] = None
+    opportunity_type: Optional[str] = None
+    opportunity_name: Optional[str] = None
+    tender_number: Optional[str] = None
+    tender_submission_date: Optional[str] = None
+    mal_maf_required: Optional[bool] = None
+    poc_required: Optional[bool] = None
+    products: Optional[List[str]] = None
 
     model_config = {"from_attributes": True}
 

@@ -67,6 +67,23 @@ def to_deal_response(
         expired_at=deal.expired_at,
         extension_pending=extension_pending,
         rejection_reason=deal.rejection_reason,
+        client_email=deal.client_email,
+        client_website=deal.client_website,
+        client_contact=deal.client_contact,
+        client_fax=deal.client_fax,
+        client_address=deal.client_address,
+        individual_name=deal.individual_name,
+        individual_department=deal.individual_department,
+        individual_designation=deal.individual_designation,
+        opportunity_type=deal.opportunity_type,
+        opportunity_name=deal.opportunity_name,
+        tender_number=deal.tender_number,
+        tender_submission_date=(
+            str(deal.tender_submission_date) if deal.tender_submission_date else None
+        ),
+        mal_maf_required=deal.mal_maf_required,
+        poc_required=deal.poc_required,
+        products=deal.products,
     )
 
 
@@ -94,6 +111,12 @@ async def create_deal_registration(
             message="This customer is currently under an active exclusivity agreement with another partner",
         )
 
+    # Product names are validated against the shared catalogue: an unknown
+    # name is dropped rather than rejected, so a stale client cannot fail a
+    # whole registration over a renamed product.
+    from app.models.opportunity_product import PRODUCTS
+    products = [p for p in (data.products or []) if p in PRODUCTS] or None
+
     deal = DealRegistration(
         company_id=partner_user.company_id,
         registered_by=partner_user.id,
@@ -102,6 +125,25 @@ async def create_deal_registration(
         deal_description=data.deal_description,
         estimated_value=data.estimated_value,
         expected_close_date=date.fromisoformat(data.expected_close_date),
+        client_email=data.client_email,
+        client_website=data.client_website,
+        client_contact=data.client_contact,
+        client_fax=data.client_fax,
+        client_address=data.client_address,
+        individual_name=data.individual_name,
+        individual_department=data.individual_department,
+        individual_designation=data.individual_designation,
+        opportunity_type=data.opportunity_type,
+        opportunity_name=data.opportunity_name,
+        tender_number=data.tender_number,
+        tender_submission_date=(
+            date.fromisoformat(data.tender_submission_date)
+            if data.tender_submission_date
+            else None
+        ),
+        mal_maf_required=data.mal_maf_required,
+        poc_required=data.poc_required,
+        products=products,
     )
     await legal_service.assert_accepted(db, partner_user)
     await currency_service.stamp(db, deal, getattr(data, "currency", None))
