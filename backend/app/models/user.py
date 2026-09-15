@@ -36,6 +36,11 @@ class User(Base):
     status = Column(Enum(UserStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=UserStatus.PENDING_ACTIVATION)
     job_title = Column(String(255), nullable=True)
     phone = Column(String(50), nullable=True)
+    # A partner company's own org chart, e.g. "Sales" or "Support" — set on
+    # individuals a partner adds to their team (see partner_service.
+    # create_team_member). Optional everywhere else, including admins and
+    # sales reps, who have no department.
+    department = Column(String(255), nullable=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=True, index=True)
     is_superadmin = Column(Boolean, default=False, nullable=False)
     has_completed_onboarding = Column(Boolean, default=False, nullable=False)

@@ -233,6 +233,15 @@ export const ROUTES: RouteDescriptor[] = [
     keywords: ['team', 'accounts'],
   },
   {
+    path: '/team',
+    label: 'My Team',
+    section: 'Account',
+    // A customer company's users get this too — it's their own employee
+    // roster, not a channel-programme capability.
+    roles: ['partner'],
+    keywords: ['team', 'employees', 'individuals', 'staff', 'add member'],
+  },
+  {
     path: '/notifications',
     label: 'Notifications',
     section: 'Account',

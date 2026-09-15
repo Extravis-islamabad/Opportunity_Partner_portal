@@ -6,8 +6,13 @@ from typing import Optional
 
 from app.models.user import User, UserRole, UserStatus
 from app.models.company import Company
-from app.schemas.user import UserCreateRequest, AdminUserUpdateRequest, UserResponse
-from app.core.security import hash_password, generate_token
+from app.schemas.user import (
+    UserCreateRequest,
+    AdminUserUpdateRequest,
+    UserResponse,
+    TeamMemberCreateRequest,
+)
+from app.core.security import hash_password, generate_token, generate_temp_password
 from app.core.config import settings
 from app.core.exceptions import NotFoundException, ConflictException, BadRequestException
 from app.utils.audit import write_audit_log
@@ -137,6 +142,7 @@ async def create_partner_account(
         job_title=data.job_title,
         phone=data.phone,
     )
+    user.department = data.department
 
     await write_audit_log(db, admin_user.id, "CREATE", "user", user.id, {
         "email": data.email, "role": data.role, "company_id": data.company_id,
@@ -150,6 +156,91 @@ async def create_partner_account(
         status=user.status.value,
         job_title=user.job_title,
         phone=user.phone,
+        department=user.department,
+        company_id=user.company_id,
+        company_name=company_name,
+        is_superadmin=user.is_superadmin,
+        last_login_at=user.last_login_at,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
+
+
+async def create_team_member(
+    db: AsyncSession, data: TeamMemberCreateRequest, partner_user: User
+) -> UserResponse:
+    """A partner adding one of their own company's employees.
+
+    Unlike create_partner_account (an admin inviting someone, who then sets
+    their own password via the activation link), this account is usable
+    immediately: a real, randomly generated password is set up front and
+    mailed to the new employee, because the partner adding them already
+    knows who they are — there is nothing to "activate".
+
+    Scoped entirely to the caller's own company; there is no company_id on
+    the request. An admin still sees every account this creates — it lands
+    in the same users table, visible on the company's detail page and via
+    GET /users — so the programme retains oversight without being in the
+    loop for every hire.
+    """
+    if not partner_user.company_id:
+        raise BadRequestException(
+            code="NO_COMPANY", message="Your account is not associated with a company"
+        )
+
+    existing = await db.execute(
+        select(User).where(User.email == data.email, User.deleted_at.is_(None))
+    )
+    if existing.scalar_one_or_none():
+        raise ConflictException(code="EMAIL_EXISTS", message="A user with this email already exists")
+
+    company = partner_user.company
+    company_name = company.name if company else "Extravis"
+
+    temp_password = generate_temp_password()
+    user = User(
+        full_name=data.full_name,
+        email=data.email,
+        password_hash=hash_password(temp_password),
+        role=UserRole.PARTNER,
+        status=UserStatus.ACTIVE,
+        job_title=data.designation,
+        phone=data.contact,
+        department=data.department,
+        company_id=partner_user.company_id,
+    )
+    db.add(user)
+    await db.flush()
+
+    await send_template_email(
+        to_emails=[user.email],
+        subject=f"Your {settings.APP_NAME} account is ready",
+        template_name="team_member_credentials",
+        context={
+            "name": user.full_name,
+            "email": user.email,
+            "temp_password": temp_password,
+            "company_name": company_name,
+            "added_by_name": partner_user.full_name,
+        },
+    )
+
+    await write_audit_log(db, partner_user.id, "CREATE", "user", user.id, {
+        "email": data.email,
+        "role": "partner",
+        "company_id": partner_user.company_id,
+        "added_by_partner": True,
+    })
+
+    return UserResponse(
+        id=user.id,
+        full_name=user.full_name,
+        email=user.email,
+        role=user.role.value,
+        status=user.status.value,
+        job_title=user.job_title,
+        phone=user.phone,
+        department=user.department,
         company_id=user.company_id,
         company_name=company_name,
         is_superadmin=user.is_superadmin,
@@ -223,6 +314,7 @@ async def get_partners(
             "status": u.status.value,
             "job_title": u.job_title,
             "phone": u.phone,
+            "department": u.department,
             "company_id": u.company_id,
             "company_name": u.company.name if u.company else None,
             "is_superadmin": u.is_superadmin,
@@ -257,6 +349,7 @@ def serialize_user(user: User) -> UserResponse:
         status=user.status.value,
         job_title=user.job_title,
         phone=user.phone,
+        department=user.department,
         company_id=user.company_id,
         company_name=user.company.name if user.company else None,
         is_superadmin=user.is_superadmin,
@@ -298,6 +391,7 @@ async def update_partner(
         status=user.status.value,
         job_title=user.job_title,
         phone=user.phone,
+        department=user.department,
         company_id=user.company_id,
         company_name=user.company.name if user.company else None,
         is_superadmin=user.is_superadmin,

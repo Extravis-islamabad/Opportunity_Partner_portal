@@ -16,6 +16,7 @@ import CompanyCreatePage from '@/pages/companies/CompanyCreatePage';
 import CompanyDetailPage from '@/pages/companies/CompanyDetailPage';
 import CompanyEditPage from '@/pages/companies/CompanyEditPage';
 import UserListPage from '@/pages/users/UserListPage';
+import TeamPage from '@/pages/team/TeamPage';
 import OpportunityListPage from '@/pages/opportunities/OpportunityListPage';
 import OpportunityCreatePage from '@/pages/opportunities/OpportunityCreatePage';
 import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage';
@@ -124,6 +125,10 @@ const App: React.FC = () => {
                 <Route path="/commissions" element={<ProtectedRoute requiredRole="channel_member"><CommissionsListPage /></ProtectedRoute>} />
                 <Route path="/scorecard" element={<ProtectedRoute requiredRole="own_scorecard"><ScorecardPage /></ProtectedRoute>} />
                 <Route path="/leaderboard" element={<ProtectedRoute requiredRole="channel_member"><LeaderboardPage /></ProtectedRoute>} />
+                {/* A partner's own company roster — adding and viewing their
+                    own employees. Scoped server-side to the caller's
+                    company. */}
+                <Route path="/team" element={<ProtectedRoute requiredRole="partner"><TeamPage /></ProtectedRoute>} />
                 {/* Personal — every authenticated user. */}
                 <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/profile" element={<ProfilePage />} />

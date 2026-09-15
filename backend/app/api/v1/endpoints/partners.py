@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.deps import (
     get_current_admin,
     get_current_user,
+    get_current_partner,
     get_admin_scope,
     assert_can_view_user,
     assert_can_manage_user,
@@ -18,6 +19,7 @@ from app.schemas.user import (
     UserUpdateRequest,
     AdminUserUpdateRequest,
     UserResponse,
+    TeamMemberCreateRequest,
 )
 from app.schemas.common import MessageResponse
 from app.services import handover_service, partner_service
@@ -85,6 +87,51 @@ async def list_admins(
     return await partner_service.get_admins_list(db)
 
 
+@router.post("/team", response_model=UserResponse, status_code=201)
+async def create_team_member(
+    data: TeamMemberCreateRequest,
+    partner: User = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """A partner adding one of their own company's employees.
+
+    Scoped to the caller's own company — there is no company_id to pass or
+    tamper with. The account is created active with a generated password
+    mailed to the new employee, not an activation link: the partner adding
+    them already knows who they are.
+    """
+    return await partner_service.create_team_member(db, data, partner)
+
+
+@router.get("/team", status_code=200)
+async def list_team(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: Optional[str] = None,
+    partner: User = Depends(get_current_partner),
+    db: AsyncSession = Depends(get_db),
+):
+    """The partner's own company roster — every account under company_id,
+    including ones an admin created. This is how the partner sees their own
+    team; admin oversight of the same accounts is the existing company
+    detail page and the superadmin Users list."""
+    if not partner.company_id:
+        # No company means nothing to scope the list to — never fall through
+        # to get_partners with company_id=None, which would list everyone.
+        return {"items": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 0}
+
+    items, total = await partner_service.get_partners(
+        db, page, page_size, company_id=partner.company_id, search=search,
+    )
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": math.ceil(total / page_size) if total > 0 else 0,
+    }
+
+
 @router.get("/{user_id}", response_model=UserResponse, status_code=200)
 async def get_user(
     user_id: int,
@@ -127,6 +174,7 @@ async def update_my_profile(
         full_name=data.full_name,
         job_title=data.job_title,
         phone=data.phone,
+        department=data.department,
     )
     return await partner_service.update_partner(db, current_user.id, admin_data, current_user)
 

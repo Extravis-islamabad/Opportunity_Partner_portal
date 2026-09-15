@@ -90,8 +90,10 @@ const CompanyDetailPage: React.FC = () => {
   const partnerColumns: ColumnsType<PartnerAccountBrief> = [
     { title: 'Name', dataIndex: 'full_name', key: 'name' },
     { title: 'Email', dataIndex: 'email', key: 'email' },
+    { title: 'Contact', dataIndex: 'phone', key: 'phone', render: (v: string | null) => v ?? '—' },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === 'active' ? 'green' : s === 'pending_activation' ? 'orange' : 'red'}>{s.toUpperCase()}</Tag> },
-    { title: 'Job Title', dataIndex: 'job_title', key: 'job' },
+    { title: 'Designation', dataIndex: 'job_title', key: 'job', render: (v: string | null) => v ?? '—' },
+    { title: 'Department', dataIndex: 'department', key: 'department', render: (v: string | null) => v ?? '—' },
   ];
 
   return (

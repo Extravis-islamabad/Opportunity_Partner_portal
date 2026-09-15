@@ -9,6 +9,7 @@ class UserCreateRequest(BaseModel):
     role: str = Field(..., pattern="^(admin|partner|sales_rep)$")
     job_title: Optional[str] = Field(None, max_length=255)
     phone: Optional[str] = Field(None, max_length=50)
+    department: Optional[str] = Field(None, max_length=255)
     company_id: Optional[int] = None
 
 
@@ -16,13 +17,33 @@ class UserUpdateRequest(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=255)
     job_title: Optional[str] = Field(None, max_length=255)
     phone: Optional[str] = Field(None, max_length=50)
+    department: Optional[str] = Field(None, max_length=255)
 
 
 class AdminUserUpdateRequest(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=255)
     job_title: Optional[str] = Field(None, max_length=255)
     phone: Optional[str] = Field(None, max_length=50)
+    department: Optional[str] = Field(None, max_length=255)
     status: Optional[str] = Field(None, pattern="^(active|inactive)$")
+
+
+class TeamMemberCreateRequest(BaseModel):
+    """A partner adding one of their own company's employees.
+
+    Unlike UserCreateRequest (an admin provisioning an account, who may not
+    know an employee's designation or department yet), this is the partner
+    filling in their own org chart, so contact, designation and department
+    are all required. Role and company are implicit — always PARTNER, always
+    the caller's own company — and the password is generated server-side
+    rather than asked for.
+    """
+
+    full_name: str = Field(..., min_length=1, max_length=255)
+    email: EmailStr
+    contact: str = Field(..., min_length=1, max_length=50)
+    designation: str = Field(..., min_length=1, max_length=255)
+    department: str = Field(..., min_length=1, max_length=255)
 
 
 class UserResponse(BaseModel):
@@ -33,6 +54,7 @@ class UserResponse(BaseModel):
     status: str
     job_title: Optional[str] = None
     phone: Optional[str] = None
+    department: Optional[str] = None
     company_id: Optional[int] = None
     company_name: Optional[str] = None
     is_superadmin: bool = False

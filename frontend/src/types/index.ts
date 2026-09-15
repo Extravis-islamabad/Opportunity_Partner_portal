@@ -100,6 +100,7 @@ export interface UserResponse {
   status: string;
   job_title: string | null;
   phone: string | null;
+  department: string | null;
   company_id: number | null;
   company_name: string | null;
   is_superadmin: boolean;
@@ -116,6 +117,7 @@ export interface UserCreateRequest {
   role: string;
   job_title?: string;
   phone?: string;
+  department?: string;
   company_id?: number;
 }
 
@@ -123,7 +125,24 @@ export interface UserUpdateRequest {
   full_name?: string;
   job_title?: string;
   phone?: string;
+  department?: string;
   status?: string;
+}
+
+/**
+ * A partner adding one of their own company's employees. Contact,
+ * designation and department are required here (unlike UserCreateRequest) —
+ * this is the partner filling in their own org chart, not an admin inviting
+ * someone whose details might not be known yet. Role and company are
+ * implicit: always partner, always the caller's own company. The password
+ * is generated server-side and emailed — there is no field for it here.
+ */
+export interface TeamMemberCreateRequest {
+  full_name: string;
+  email: string;
+  contact: string;
+  designation: string;
+  department: string;
 }
 
 // ==================== Company ====================
@@ -179,6 +198,8 @@ export interface PartnerAccountBrief {
   email: string;
   status: string;
   job_title: string | null;
+  phone: string | null;
+  department: string | null;
   created_at: string;
 }
 

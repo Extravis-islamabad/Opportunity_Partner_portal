@@ -10,6 +10,7 @@ import type {
   UserResponse,
   UserCreateRequest,
   UserUpdateRequest,
+  TeamMemberCreateRequest,
   WorkloadResponse,
   CompanyResponse,
   CompanyDetailResponse,
@@ -145,6 +146,16 @@ export const usersApi = {
     apiClient.post<MessageResponse>(`/users/${id}/deactivate`),
   reactivate: (id: number) =>
     apiClient.post<MessageResponse>(`/users/${id}/reactivate`),
+};
+
+// ==================== Team (partner's own company) ====================
+// A partner adding and viewing their own company's employees. Scoped
+// server-side to the caller's company — there is no company_id to pass.
+export const teamApi = {
+  create: (data: TeamMemberCreateRequest) =>
+    apiClient.post<UserResponse>('/users/team', data),
+  list: (params: Record<string, string | number | undefined>) =>
+    apiClient.get<PaginatedResponse<UserResponse>>('/users/team', { params }),
 };
 
 // ==================== Companies ====================

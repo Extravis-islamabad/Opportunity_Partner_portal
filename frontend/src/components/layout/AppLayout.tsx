@@ -151,6 +151,7 @@ const AppLayout: React.FC = () => {
     { key: '/knowledge-base', icon: <BookOutlined />, label: 'Knowledge Base' },
     { key: '/lms', icon: <ReadOutlined />, label: 'Training Courses' },
     { key: '/doc-requests', icon: <FileTextOutlined />, label: 'Document Requests' },
+    { key: '/team', icon: <TeamOutlined />, label: 'My Team' },
   ];
 
   // Sales reps drive POC/deployment for the opportunities assigned to them.

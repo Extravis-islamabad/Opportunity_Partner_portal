@@ -58,7 +58,7 @@ const UserListPage: React.FC = () => {
   });
 
   const createMut = useMutation({
-    mutationFn: (values: { full_name: string; email: string; role: string; job_title?: string; company_id?: number }) => usersApi.create(values),
+    mutationFn: (values: { full_name: string; email: string; role: string; job_title?: string; department?: string; company_id?: number }) => usersApi.create(values),
     onSuccess: (res) => {
       setCreateModal(false); createForm.resetFields();
       void queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -70,7 +70,7 @@ const UserListPage: React.FC = () => {
   });
 
   const editMut = useMutation({
-    mutationFn: (values: { full_name?: string; job_title?: string; phone?: string; status?: string }) =>
+    mutationFn: (values: { full_name?: string; job_title?: string; phone?: string; department?: string; status?: string }) =>
       usersApi.adminUpdate(editUser!.id, values),
     onSuccess: () => {
       setEditUser(null); editForm.resetFields();
@@ -86,6 +86,7 @@ const UserListPage: React.FC = () => {
       full_name: u.full_name,
       job_title: u.job_title ?? undefined,
       phone: (u as unknown as { phone?: string }).phone ?? undefined,
+      department: u.department ?? undefined,
       // Only active/inactive are settable (backend AdminUserUpdateRequest);
       // pending_activation isn't a manual choice.
       status: u.status === 'active' || u.status === 'inactive' ? u.status : undefined,
@@ -140,6 +141,7 @@ const UserListPage: React.FC = () => {
     },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === 'active' ? 'green' : s === 'pending_activation' ? 'orange' : 'red'}>{s.replace(/_/g, ' ').toUpperCase()}</Tag> },
     { title: 'Company', dataIndex: 'company_name', key: 'company' },
+    { title: 'Department', dataIndex: 'department', key: 'department', render: (v: string | null) => v ?? '—' },
     {
       title: 'Actions', key: 'actions', render: (_, record) => (
         <Space>
@@ -209,6 +211,7 @@ const UserListPage: React.FC = () => {
             ]} />
           </Form.Item>
           <Form.Item name="job_title" label="Job Title"><Input /></Form.Item>
+          <Form.Item name="department" label="Department"><Input /></Form.Item>
           <Form.Item noStyle shouldUpdate={(prev, curr) => prev.role !== curr.role}>
             {({ getFieldValue }) => getFieldValue('role') === 'partner' ? (
               <Form.Item name="company_id" label="Company" rules={[{ required: true }]}>
@@ -232,6 +235,7 @@ const UserListPage: React.FC = () => {
           <Form.Item name="full_name" label="Full Name" rules={[{ required: true, max: 255 }]}><Input /></Form.Item>
           <Form.Item name="job_title" label="Job Title"><Input maxLength={255} /></Form.Item>
           <Form.Item name="phone" label="Phone"><Input maxLength={50} /></Form.Item>
+          <Form.Item name="department" label="Department"><Input maxLength={255} /></Form.Item>
           <Form.Item name="status" label="Status" extra="Email and role are fixed after creation.">
             <Select
               allowClear

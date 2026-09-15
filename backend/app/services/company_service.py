@@ -367,6 +367,8 @@ async def get_company_detail(db: AsyncSession, company_id: int) -> CompanyDetail
                 email=p.email,
                 status=p.status.value,
                 job_title=p.job_title,
+                phone=p.phone,
+                department=p.department,
                 created_at=p.created_at,
             )
             for p in partners

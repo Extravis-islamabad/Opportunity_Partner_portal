@@ -57,3 +57,28 @@ def decode_token(token: str) -> Dict[str, Any]:
 
 def generate_token() -> str:
     return secrets.token_urlsafe(64)
+
+
+def generate_temp_password(length: int = 12) -> str:
+    """A random real password for an account provisioned with credentials up
+    front (a partner adding a team member), as opposed to the activation-link
+    flow where the person sets their own.
+
+    Guarantees at least one lowercase, one uppercase, one digit and one
+    symbol so it clears typical password policies, rather than leaving that
+    to chance.
+    """
+    import string
+
+    alphabet = string.ascii_letters + string.digits
+    symbols = "!@#$%^&*"
+    required = [
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.digits),
+        secrets.choice(symbols),
+    ]
+    rest = [secrets.choice(alphabet + symbols) for _ in range(max(length - len(required), 0))]
+    chars = required + rest
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
