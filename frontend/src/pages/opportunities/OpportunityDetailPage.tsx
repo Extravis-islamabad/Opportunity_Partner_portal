@@ -10,6 +10,8 @@ import OpportunityPocPanel from '@/components/poc/OpportunityPocPanel';
 import { StarFilled, WarningOutlined, UploadOutlined, FileOutlined, ThunderboltOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { formatMoney, reportingSuffix } from '@/utils/money';
+import { lineSize } from '@/utils/sizing';
+import type { ProductLine } from '@/types';
 
 const statusColors: Record<string, string> = {
   draft: 'default', pending_review: 'orange', under_review: 'processing',
@@ -24,6 +26,12 @@ const OpportunityDetailPage: React.FC = () => {
   const queryClient = useQueryClient();
   const oppId = Number(id);
   const isAdmin = user?.role === 'admin';
+  const { data: aiConfig } = useQuery({
+    queryKey: ['ai-config'],
+    queryFn: async () => (await aiApi.config()).data,
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -127,11 +135,14 @@ const OpportunityDetailPage: React.FC = () => {
 
   const canEdit = !isAdmin && (opp.status === 'draft' || opp.status === 'rejected');
   const canSubmit = !isAdmin && (opp.status === 'draft' || opp.status === 'rejected');
-  const canReview = isAdmin && opp.status === 'pending_review';
-  const canApproveReject = isAdmin && (opp.status === 'pending_review' || opp.status === 'under_review');
+  // Every admin can read every opportunity; acting on one is for its channel
+  // managers and superadmins, which the API reports per record.
+  const isReviewer = isAdmin && !!opp.viewer_can_review;
+  const canReview = isReviewer && opp.status === 'pending_review';
+  const canApproveReject = isReviewer && (opp.status === 'pending_review' || opp.status === 'under_review');
   // Only an approved deal has an outcome to record; won and lost are terminal.
-  const canClose = isAdmin && opp.status === 'approved';
-  const canRelease = isAdmin && opp.status === 'under_review';
+  const canClose = isReviewer && opp.status === 'approved';
+  const canRelease = isReviewer && opp.status === 'under_review';
   const isClosed = opp.status === 'won' || opp.status === 'lost';
 
   return (
@@ -149,11 +160,21 @@ const OpportunityDetailPage: React.FC = () => {
             {canRelease && <Button onClick={() => setReleaseModal(true)}>Release Review</Button>}
             {canClose && <Button type="primary" onClick={() => setCloseModal('won')}>Mark Won</Button>}
             {canClose && <Button onClick={() => setCloseModal('lost')}>Mark Lost</Button>}
-            {isAdmin && !isClosed && <Button danger onClick={() => { Modal.confirm({ title: 'Remove this opportunity?', onOk: () => removeMut.mutate() }); }}>Remove</Button>}
-            {isAdmin && <Button onClick={() => setNoteModal(true)}>Add Note</Button>}
+            {isReviewer && !isClosed && <Button danger onClick={() => { Modal.confirm({ title: 'Remove this opportunity?', onOk: () => removeMut.mutate() }); }}>Remove</Button>}
+            {isReviewer && <Button onClick={() => setNoteModal(true)}>Add Note</Button>}
           </Space>
         }
       />
+
+      {isAdmin && !isReviewer && (
+        <Alert
+          type="info"
+          showIcon
+          message="View only"
+          description="This opportunity belongs to a company you don't channel-manage. Its channel managers review and act on it."
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       {opp.multi_partner_alert && (
         <Alert type="warning" icon={<WarningOutlined />} message="Multi-Partner Alert"
@@ -189,7 +210,18 @@ const OpportunityDetailPage: React.FC = () => {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
           <Card>
-            <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
+            {/* Labels stay on one line and values wrap at word boundaries —
+                the default let the table squeeze a value until it broke
+                mid-word ("Ahme / d Khan"). */}
+            <Descriptions
+              bordered
+              column={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 3 }}
+              size="small"
+              styles={{
+                label: { whiteSpace: 'nowrap', width: 1 },
+                content: { wordBreak: 'normal', overflowWrap: 'break-word', minWidth: 120 },
+              }}
+            >
               <Descriptions.Item label="Status">
                 <Space><Tag color={statusColors[opp.status] ?? 'default'}>{opp.status.replace(/_/g, ' ').toUpperCase()}</Tag>
                   {opp.preferred_partner && <Tag color="gold" icon={<StarFilled />}>Preferred Partner</Tag>}
@@ -206,7 +238,7 @@ const OpportunityDetailPage: React.FC = () => {
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label="Customer">{opp.customer_name}</Descriptions.Item>
-              <Descriptions.Item label="Company">{opp.company_name}</Descriptions.Item>
+              <Descriptions.Item label="Partner Company">{opp.company_name ?? <Tag>Direct — no partner</Tag>}</Descriptions.Item>
               <Descriptions.Item label="Region">{opp.region}</Descriptions.Item>
               <Descriptions.Item label="Country">{opp.country}</Descriptions.Item>
               <Descriptions.Item label="City">{opp.city}</Descriptions.Item>
@@ -274,18 +306,12 @@ const OpportunityDetailPage: React.FC = () => {
                 columns={[
                   { title: 'Product', dataIndex: 'product' },
                   {
-                    title: 'Devices',
-                    dataIndex: 'device_count',
+                    title: 'Nodes / Devices',
+                    key: 'size',
                     align: 'right' as const,
                     // Blank rather than 0: the count has not been asked yet,
                     // which is not the same as none being needed.
-                    render: (v: number | null) => (v ?? '—'),
-                  },
-                  {
-                    title: 'Nodes',
-                    dataIndex: 'node_count',
-                    align: 'right' as const,
-                    render: (v: number | null) => (v ?? '—'),
+                    render: (_: unknown, line: ProductLine) => lineSize(line) ?? '—',
                   },
                   {
                     title: 'Value',
@@ -305,7 +331,7 @@ const OpportunityDetailPage: React.FC = () => {
             <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{opp.requirements}</Typography.Paragraph>
           </Card>
 
-          <OpportunityPocPanel opportunityId={opp.id} />
+          <OpportunityPocPanel opportunityId={opp.id} canManage={!isAdmin || isReviewer} />
 
           {opp.rejection_reason && (
             <Card title="Rejection Reason" style={{ marginTop: 16 }}>
@@ -328,7 +354,8 @@ const OpportunityDetailPage: React.FC = () => {
             }
             style={{ marginTop: 16 }}
             extra={
-              isAdmin && (
+              // Hidden when AI is switched off: the buttons could only fail.
+              isReviewer && aiConfig?.enabled && (
                 <Space>
                   <Button
                     size="small"
@@ -449,15 +476,20 @@ const OpportunityDetailPage: React.FC = () => {
 
       <Modal title="Approve Opportunity" open={approveModal} onCancel={() => setApproveModal(false)}
         onOk={() => approveMut.mutate()} confirmLoading={approveMut.isPending}>
+        {/* A direct deal has no partner to prefer. */}
+        {opp.company_id ? (
         <Checkbox checked={preferredPartner} onChange={(e) => setPreferredPartner(e.target.checked)}>
           Tag as Preferred Partner
         </Checkbox>
+        ) : (
+          <Typography.Text type="secondary">Approve this direct deal? It has no partner company.</Typography.Text>
+        )}
       </Modal>
 
       <Modal title="Reject Opportunity" open={rejectModal} onCancel={() => setRejectModal(false)}
         onOk={() => rejectMut.mutate()} confirmLoading={rejectMut.isPending}
         okButtonProps={{ disabled: !rejectReason.trim() }}>
-        <Input.TextArea rows={4} placeholder="Rejection reason (required)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} maxLength={1000} showCount />
+        <Input.TextArea autoFocus rows={4} placeholder="Rejection reason (required)" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} maxLength={1000} showCount />
       </Modal>
 
       <Modal
@@ -471,8 +503,8 @@ const OpportunityDetailPage: React.FC = () => {
       >
         {closeModal === 'won' ? (
           <Typography.Paragraph>
-            This is final: a closed deal cannot be reopened or closed again. It stays
-            in the partner&apos;s approved total and counts towards their tier.
+            This is final: a closed deal cannot be reopened or closed again.
+            {opp.company_id ? ' It stays in the partner\u2019s approved total and counts towards their tier.' : ''}
           </Typography.Paragraph>
         ) : (
           <Space direction="vertical" style={{ width: '100%' }}>
@@ -514,7 +546,7 @@ const OpportunityDetailPage: React.FC = () => {
       <Modal title="Add Internal Note" open={noteModal} onCancel={() => setNoteModal(false)}
         onOk={() => noteMut.mutate()} confirmLoading={noteMut.isPending}
         okButtonProps={{ disabled: !noteText.trim() }}>
-        <Input.TextArea rows={4} placeholder="Internal note..." value={noteText} onChange={(e) => setNoteText(e.target.value)} />
+        <Input.TextArea autoFocus rows={4} placeholder="Internal note..." value={noteText} onChange={(e) => setNoteText(e.target.value)} />
       </Modal>
     </>
   );

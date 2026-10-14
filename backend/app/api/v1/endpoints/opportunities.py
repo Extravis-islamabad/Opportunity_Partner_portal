@@ -14,9 +14,14 @@ from app.core.deps import (
     get_partner_pipeline_scope,
     assert_can_manage_opp_documents,
     assert_can_access_opportunity,
+    can_review_opportunity,
     is_poc_team_member,
 )
-from app.models.opportunity import LOSS_REASON_LABELS
+from app.models.opportunity import LOSS_REASON_LABELS, OpportunityStatus
+
+# Filters are checked against the enum up front so a typo is a 422, not a
+# database error.
+OPPORTUNITY_STATUS_PATTERN = "^(" + "|".join(s.value for s in OpportunityStatus) + ")$"
 from app.models.opportunity_product import PRODUCTS
 from app.models.user import User, UserRole
 from app.schemas.opportunity import (
@@ -81,7 +86,7 @@ async def check_duplicate(
     submitting_company_id = None
     if current_user.role == UserRole.PARTNER:
         submitting_company_id = current_user.company_id
-    return await duplicate_service.find_duplicates(
+    report = await duplicate_service.find_duplicates(
         db,
         customer_name=data.customer_name,
         country=data.country,
@@ -90,6 +95,8 @@ async def check_duplicate(
         customer_domain=data.customer_domain,
         exclude_opportunity_id=data.exclude_opportunity_id,
     )
+    # Other partners' deals are not the caller's to browse.
+    return duplicate_service.redact_report_for(report, current_user)
 
 
 @router.get("/duplicates", status_code=200)
@@ -166,7 +173,7 @@ async def create_opportunity(
 async def list_opportunities(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
+    status: Optional[str] = Query(None, pattern=OPPORTUNITY_STATUS_PATTERN),
     company_id: Optional[int] = None,
     country: Optional[str] = None,
     region: Optional[str] = None,
@@ -192,11 +199,11 @@ async def list_opportunities(
         # nobody can use it to reach outside their scope.
         company_ids = await get_partner_pipeline_scope(db, current_user)
 
-    # Channel-manager scoping: a non-superadmin admin only sees opportunities
-    # for the companies they channel-manage. Force the filter regardless of
-    # what the client requested.
-    if current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
-        channel_manager_id = current_user.id
+    # Every admin sees every opportunity, whichever partner or channel manager
+    # it belongs to — they are all notified of each one, so they must be able
+    # to open it. `channel_manager_id` stays an optional filter ("just mine").
+    # Acting on one is still limited to its channel managers
+    # (deps.can_review_opportunity).
 
     # Sales reps only ever see the opportunities assigned to them.
     if current_user.role == UserRole.SALES_REP:
@@ -251,7 +258,12 @@ async def get_opportunity(
             )
 
     if current_user.role == UserRole.ADMIN:
-        opp = await opportunity_service.auto_mark_under_review(db, opp_id, current_user)
+        # Opening a pending opportunity claims it for review — but only for
+        # someone who could then review it. Any admin may read it; one outside
+        # its channel would otherwise lock it under a claim they can't act on.
+        if await can_review_opportunity(db, current_user, opp):
+            opp = await opportunity_service.auto_mark_under_review(db, opp_id, current_user)
+            opp.viewer_can_review = True
     elif current_user.role == UserRole.PARTNER:
         opp.internal_notes = None
 
@@ -291,7 +303,11 @@ async def approve_opportunity(
     # opportunity for any company in the system, which also promotes that
     # company's tier and starts its commission clock.
     await _assert_admin_manages(db, admin, opp_id)
-    return await opportunity_service.approve_opportunity(db, opp_id, data, admin)
+    resp = await opportunity_service.approve_opportunity(db, opp_id, data, admin)
+    # Only a reviewer reaches here (checked above), and the page re-renders
+    # from this response — so it must not come back saying "view only".
+    resp.viewer_can_review = True
+    return resp
 
 
 @router.post("/{opp_id}/reject", response_model=OpportunityResponse, status_code=200)
@@ -302,7 +318,11 @@ async def reject_opportunity(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_admin_manages(db, admin, opp_id)
-    return await opportunity_service.reject_opportunity(db, opp_id, data, admin)
+    resp = await opportunity_service.reject_opportunity(db, opp_id, data, admin)
+    # Only a reviewer reaches here (checked above), and the page re-renders
+    # from this response — so it must not come back saying "view only".
+    resp.viewer_can_review = True
+    return resp
 
 
 @router.post("/{opp_id}/review", response_model=OpportunityResponse, status_code=200)
@@ -312,7 +332,11 @@ async def mark_under_review(
     db: AsyncSession = Depends(get_db),
 ):
     await _assert_admin_manages(db, admin, opp_id)
-    return await opportunity_service.mark_under_review(db, opp_id, admin)
+    resp = await opportunity_service.mark_under_review(db, opp_id, admin)
+    # Only a reviewer reaches here (checked above), and the page re-renders
+    # from this response — so it must not come back saying "view only".
+    resp.viewer_can_review = True
+    return resp
 
 
 @router.post("/{opp_id}/close", response_model=OpportunityResponse, status_code=200)
@@ -329,7 +353,11 @@ async def close_opportunity(
     self-reporting one.
     """
     await _assert_admin_manages(db, admin, opp_id)
-    return await opportunity_service.close_opportunity(db, opp_id, data, admin)
+    resp = await opportunity_service.close_opportunity(db, opp_id, data, admin)
+    # Only a reviewer reaches here (checked above), and the page re-renders
+    # from this response — so it must not come back saying "view only".
+    resp.viewer_can_review = True
+    return resp
 
 
 

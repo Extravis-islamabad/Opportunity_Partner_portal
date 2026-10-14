@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Form, Input, Select, Button, Card, Alert, message, Skeleton } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { companiesApi, usersApi } from '@/api/endpoints';
+import { companiesApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import ParentDistributorSelect from '@/components/companies/ParentDistributorSelect';
+import ChannelManagersSelect from '@/components/companies/ChannelManagersSelect';
 import type { CompanyUpdateRequest } from '@/types';
 import { COMPANY_TYPE_OPTIONS } from '@/utils/companyType';
 import { AxiosError } from 'axios';
@@ -24,17 +25,15 @@ const CompanyEditPage: React.FC = () => {
   // Same reasoning for the parent distributor: it decides who reads this
   // company's pipeline, so re-parenting is a superadmin action too.
   const canEditParent = !!user?.is_superadmin;
+  // And for who manages it — the API refuses a manager change from anyone
+  // else, so a channel manager saving an unrelated edit must not send it.
+  const canEditManagers = !!user?.is_superadmin;
   const [error, setError] = useState<string | null>(null);
 
   const { data: company, isLoading } = useQuery({
     queryKey: ['company', companyId],
     queryFn: async () => (await companiesApi.get(companyId)).data,
     enabled: !!companyId,
-  });
-
-  const { data: admins } = useQuery({
-    queryKey: ['admins-list'],
-    queryFn: async () => (await usersApi.getAdmins()).data,
   });
 
   // Hydrate the form once the company loads
@@ -47,7 +46,9 @@ const CompanyEditPage: React.FC = () => {
         city: company.city,
         industry: company.industry,
         contact_email: company.contact_email,
-        channel_manager_id: company.channel_manager_id,
+        channel_manager_ids: company.channel_managers.length
+          ? company.channel_managers.map((m) => m.id)
+          : [company.channel_manager_id],
         company_type: company.company_type,
         parent_distributor_id: company.parent_distributor_id,
       });
@@ -103,6 +104,7 @@ const CompanyEditPage: React.FC = () => {
             // null — is refused for anyone but a superadmin, because clearing
             // a link is as much a scope change as setting one.
             if (!canEditParent) delete payload.parent_distributor_id;
+            if (!canEditManagers) delete payload.channel_manager_ids;
             // A company that is no longer a partner cannot keep a parent. The
             // field is hidden in that case, but the form still holds the old
             // value, and sending it would fail validation server-side.
@@ -156,11 +158,11 @@ const CompanyEditPage: React.FC = () => {
           <Form.Item name="country" label="Country" rules={[{ required: true }]}>
             <Input placeholder="Country" maxLength={100} />
           </Form.Item>
-          <Form.Item name="region" label="Region" rules={[{ required: true }]}>
-            <Input placeholder="Region" maxLength={100} />
+          <Form.Item name="region" label="Region">
+            <Input placeholder="Region (optional)" maxLength={100} />
           </Form.Item>
-          <Form.Item name="city" label="City" rules={[{ required: true }]}>
-            <Input placeholder="City" maxLength={100} />
+          <Form.Item name="city" label="City">
+            <Input placeholder="City (optional)" maxLength={100} />
           </Form.Item>
           <Form.Item name="industry" label="Industry" rules={[{ required: true }]}>
             <Input placeholder="Industry" maxLength={255} />
@@ -173,20 +175,16 @@ const CompanyEditPage: React.FC = () => {
             <Input placeholder="contact@company.com" />
           </Form.Item>
           <Form.Item
-            name="channel_manager_id"
-            label="Channel Manager"
-            rules={[{ required: true, message: 'Required' }]}
-            extra="Channel Managers are admin users. Create new admins from the Users page."
+            name="channel_manager_ids"
+            label="Channel Managers"
+            rules={[{ required: true, type: 'array', min: 1, message: 'Choose at least one channel manager' }]}
+            extra={
+              canEditManagers
+                ? 'Everyone chosen sees this company and its notifications. The first is the primary manager.'
+                : 'Only a superadmin can change who manages a company.'
+            }
           >
-            <Select
-              placeholder="Select channel manager"
-              showSearch
-              optionFilterProp="label"
-              options={admins?.map((a) => ({
-                value: a.id,
-                label: `${a.full_name} (${a.email})`,
-              })) ?? []}
-            />
+            <ChannelManagersSelect disabled={!canEditManagers} />
           </Form.Item>
           <Form.Item>
             <Button

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Table, Button, Input, Tag, Space, Select, Skeleton, Alert, Empty, Upload, Modal, Form, message, Popconfirm } from 'antd';
 import { UploadOutlined, SearchOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, PlusOutlined, FileOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -8,6 +8,7 @@ import PageHeader from '@/components/common/PageHeader';
 import type { KBDocumentResponse } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { KB_CATEGORIES } from '@/utils/kbCategories';
 
 const KnowledgeBasePage: React.FC = () => {
   const [page, setPage] = useState(1);
@@ -38,6 +39,14 @@ const KnowledgeBasePage: React.FC = () => {
     queryFn: async () => { const res = await knowledgeBaseApi.getCategories(); return res.data; },
   });
 
+  // What the server accepts: the canonical list plus every category already
+  // in use (legacy ones stay selectable so those documents remain editable).
+  const categoryOptions = useMemo(() => {
+    const names = new Set<string>(KB_CATEGORIES);
+    categories?.forEach((c) => names.add(c.name));
+    return [...names].map((value) => ({ value, label: value }));
+  }, [categories]);
+
   const uploadMut = useMutation({
     mutationFn: async (values: { title: string; category: string; description: string }) => {
       const formData = new FormData();
@@ -52,7 +61,11 @@ const KnowledgeBasePage: React.FC = () => {
       uploadForm.resetFields();
       setUploadFile(null);
       void queryClient.invalidateQueries({ queryKey: ['kb-documents'] });
+      void queryClient.invalidateQueries({ queryKey: ['kb-categories'] });
       void message.success('Document uploaded');
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) => {
+      void message.error(err.response?.data?.message ?? 'Failed to upload');
     },
   });
 
@@ -73,6 +86,7 @@ const KnowledgeBasePage: React.FC = () => {
       setEditingDoc(null);
       editForm.resetFields();
       void queryClient.invalidateQueries({ queryKey: ['kb-documents'] });
+      void queryClient.invalidateQueries({ queryKey: ['kb-categories'] });
       void message.success('Document updated');
     },
     onError: (err: { response?: { data?: { message?: string } } }) => {
@@ -89,9 +103,15 @@ const KnowledgeBasePage: React.FC = () => {
     });
   };
 
+  // The list carries no file URL; the download endpoint mints one and logs
+  // the download in the same call.
   const handleDownload = async (id: number) => {
-    const res = await knowledgeBaseApi.download(id);
-    window.open(res.data.file_url, '_blank');
+    try {
+      const res = await knowledgeBaseApi.download(id);
+      window.open(res.data.file_url, '_blank');
+    } catch {
+      void message.error('Could not download the document');
+    }
   };
 
   const columns: ColumnsType<KBDocumentResponse> = [
@@ -101,7 +121,7 @@ const KnowledgeBasePage: React.FC = () => {
     { title: 'Downloads', dataIndex: 'download_count', key: 'downloads' },
     { title: 'Published', dataIndex: 'published_at', key: 'published', render: (d: string) => dayjs(d).format('MMM D, YYYY') },
     {
-      title: 'Actions', key: 'actions', render: (_, record) => (
+      title: 'Actions', fixed: 'right' as const, key: 'actions', render: (_, record) => (
         <Space>
           <Button type="link" icon={<DownloadOutlined />} onClick={() => void handleDownload(record.id)}>Download</Button>
           {isAdmin && (
@@ -133,7 +153,7 @@ const KnowledgeBasePage: React.FC = () => {
       </Space>
       {isLoading ? <Skeleton active /> : (
         data && data.items.length > 0 ? (
-          <Table columns={columns} dataSource={data.items} rowKey="id"
+          <Table scroll={{ x: 'max-content' }} columns={columns} dataSource={data.items} rowKey="id"
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage }} />
         ) : <Empty description="No documents found" />
       )}
@@ -144,7 +164,7 @@ const KnowledgeBasePage: React.FC = () => {
         <Form form={uploadForm} layout="vertical" onFinish={(v) => uploadMut.mutate(v)}>
           <Form.Item name="title" label="Title" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="category" label="Category" rules={[{ required: true }]}>
-            <Select options={[{ value: 'MonetX' }, { value: 'SupportX' }, { value: 'GreenX' }, { value: 'Product Sheets' }, { value: 'Case Studies' }, { value: 'Technical Guides' }]} />
+            <Select options={categoryOptions} />
           </Form.Item>
           <Form.Item name="description" label="Description"><Input.TextArea rows={3} /></Form.Item>
           <Upload beforeUpload={(file) => { setUploadFile(file); return false; }} maxCount={1}>
@@ -158,7 +178,7 @@ const KnowledgeBasePage: React.FC = () => {
         <Form form={editForm} layout="vertical" onFinish={(v) => editMut.mutate(v)}>
           <Form.Item name="title" label="Title" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="category" label="Category" rules={[{ required: true }]}>
-            <Select options={[{ value: 'MonetX' }, { value: 'SupportX' }, { value: 'GreenX' }, { value: 'Product Sheets' }, { value: 'Case Studies' }, { value: 'Technical Guides' }]} />
+            <Select options={categoryOptions} />
           </Form.Item>
           <Form.Item name="description" label="Description"><Input.TextArea rows={3} /></Form.Item>
         </Form>

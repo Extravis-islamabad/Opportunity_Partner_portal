@@ -7,7 +7,7 @@ from typing import Optional
 import structlog
 
 from app.models.deal_registration import DealRegistration, DealStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.company import Company
 from app.schemas.dashboard import (
     DealRegistrationCreateRequest,
@@ -18,6 +18,7 @@ from app.schemas.dashboard import (
 from app.core.exceptions import NotFoundException, BadRequestException, ConflictException
 from app.utils.audit import write_audit_log
 from app.services import currency_service, legal_service
+from app.core.deps import assert_manages_company, get_channel_manager_ids
 from app.services.notification_service import notify_all_admins, notify_user
 
 logger = structlog.get_logger()
@@ -87,17 +88,56 @@ def to_deal_response(
     )
 
 
+def normalise_customer_name(name: str) -> str:
+    """Python half of the exclusivity comparison: trimmed, internal runs of
+    whitespace collapsed to one space, lower-cased. lower() rather than
+    casefold() so it agrees with Postgres' lower() in _normalised_customer."""
+    return " ".join(name.split()).lower()
+
+
+def _normalised_customer(column):
+    """SQL half of normalise_customer_name; the two must stay in step."""
+    return func.lower(func.btrim(func.regexp_replace(column, r"\s+", " ", "g")))
+
+
 async def create_deal_registration(
     db: AsyncSession, data: DealRegistrationCreateRequest, partner_user: User
 ) -> DealRegistrationResponse:
     if not partner_user.company_id:
         raise BadRequestException(code="NO_COMPANY", message="Partner must belong to a company")
 
-    # Check for active exclusivity conflicts
+    # A linked opportunity must exist and be the partner's own company's.
+    # Unchecked, a missing id failed on the foreign key (a 500) and another
+    # company's id was accepted — tying this registration, and the commission
+    # that follows its approval, to a deal the partner has no claim on. Own
+    # company only, not down the reseller tree: deal registration is
+    # deliberately company-wide (see get_deal_registrations' callers). One
+    # message for both cases so the error does not confirm another tenant's
+    # opportunity ids.
+    if data.opportunity_id is not None:
+        from app.models.opportunity import Opportunity
+
+        linked = (await db.execute(
+            select(Opportunity.id).where(
+                Opportunity.id == data.opportunity_id,
+                Opportunity.company_id == partner_user.company_id,
+                Opportunity.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if linked is None:
+            raise BadRequestException(
+                code="INVALID_OPPORTUNITY",
+                message="The linked opportunity was not found in your company",
+            )
+
+    # Check for active exclusivity conflicts. Compared whitespace-collapsed
+    # and case-insensitive on both sides: a plain lower() let "Acme  Corp"
+    # (two spaces) through while "Acme Corp" held exclusivity.
     today = date.today()
     conflict_result = await db.execute(
         select(DealRegistration.id).where(
-            func.lower(DealRegistration.customer_name) == data.customer_name.strip().lower(),
+            _normalised_customer(DealRegistration.customer_name)
+            == normalise_customer_name(data.customer_name),
             DealRegistration.status == DealStatus.APPROVED,
             DealRegistration.exclusivity_start <= today,
             DealRegistration.exclusivity_end >= today,
@@ -159,15 +199,75 @@ async def create_deal_registration(
     company = company_result.scalar_one_or_none()
     company_name = company.name if company else "Unknown"
 
-    await notify_all_admins(
-        db, "deal_registered",
-        "New Deal Registration",
+    await _notify_deal_reviewers(
+        db, partner_user.company_id, deal.id,
         f"{company_name} has registered a new deal for customer: {data.customer_name}",
-        "deal_registration", deal.id,
     )
 
     return to_deal_response(
         deal, company_name=company_name, registered_by_name=partner_user.full_name
+    )
+
+
+async def _notify_deal_reviewers(
+    db: AsyncSession, company_id: int, deal_id: int, message: str
+) -> None:
+    """Tell the people who can actually decide a new registration.
+
+    That is every channel manager of the company (primary and additional)
+    plus the superadmins — not every admin. Broadcasting to all admins mailed
+    channel managers about other managers' partners, deals they cannot
+    approve and should not be reading about in their inbox. A set, so someone
+    who is both a superadmin and a manager of the company hears once.
+    """
+    candidates: set[int] = await get_channel_manager_ids(db, company_id)
+    candidates.update((await db.execute(
+        select(User.id).where(User.is_superadmin.is_(True))
+    )).scalars().all())
+
+    # Inactive or deleted accounts are filtered here rather than per source:
+    # get_channel_manager_ids reads assignments, which outlive the account.
+    recipients: list[int] = []
+    if candidates:
+        recipients = sorted((await db.execute(
+            select(User.id).where(
+                User.id.in_(candidates),
+                User.role == UserRole.ADMIN,
+                User.status == "active",
+                User.deleted_at.is_(None),
+            )
+        )).scalars().all())
+
+    if not recipients:
+        # Nobody assigned and no active superadmin: fall back to the old
+        # broadcast so a registration can never sit unseen.
+        await notify_all_admins(
+            db, "deal_registered", "New Deal Registration", message,
+            "deal_registration", deal_id,
+        )
+        return
+
+    for user_id in recipients:
+        await notify_user(
+            db, user_id, "deal_registered", "New Deal Registration", message,
+            "deal_registration", deal_id,
+        )
+
+
+async def _assert_can_decide_deal(
+    db: AsyncSession, admin_user: User, deal: DealRegistration, action: str
+) -> None:
+    """Approving or rejecting is an act on the company's book, not a read.
+
+    Every admin passes get_current_admin, so without this any channel manager
+    could approve another manager's partner's registration — and approval is
+    what writes customer ownership and calculates commission. Same rule as
+    exclusivity_service.decide_extension: superadmin, or a channel manager of
+    the deal's company.
+    """
+    await assert_manages_company(
+        db, admin_user, deal.company_id,
+        action=f"{action} deal registrations for",
     )
 
 
@@ -247,8 +347,21 @@ async def approve_deal(
     if not deal:
         raise NotFoundException(code="DEAL_NOT_FOUND", message="Deal registration not found")
 
+    # Scope before state, so an out-of-scope manager learns nothing about
+    # where the deal is in its lifecycle.
+    await _assert_can_decide_deal(db, admin_user, deal, "approve")
+
     if deal.status != DealStatus.PENDING:
         raise BadRequestException(code="DEAL_NOT_PENDING", message="Only pending deals can be approved")
+
+    # DealApproveRequest already bounds this; checked again because the
+    # service is also called directly, and a non-positive window would write
+    # an end date before its start.
+    if not 1 <= data.exclusivity_days <= 3650:
+        raise BadRequestException(
+            code="INVALID_EXCLUSIVITY_DAYS",
+            message="Exclusivity must be between 1 and 3650 days",
+        )
 
     deal.status = DealStatus.APPROVED
     deal.approved_by = admin_user.id
@@ -303,6 +416,8 @@ async def reject_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise NotFoundException(code="DEAL_NOT_FOUND", message="Deal registration not found")
+
+    await _assert_can_decide_deal(db, admin_user, deal, "reject")
 
     if deal.status != DealStatus.PENDING:
         raise BadRequestException(code="DEAL_NOT_PENDING", message="Only pending deals can be rejected")

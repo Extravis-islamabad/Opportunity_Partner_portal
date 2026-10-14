@@ -122,9 +122,11 @@ class PocResponse(BaseModel):
 class LicenseUpsertRequest(BaseModel):
     po_number: Optional[str] = Field(None, max_length=100)
     po_received_date: Optional[date] = None
-    po_value: Optional[Decimal] = Field(None, ge=0)
-    device_count: Optional[int] = Field(None, ge=0)
-    node_count: Optional[int] = Field(None, ge=0)
+    # Bounded to what the columns hold; past this is a typo, and used to
+    # reach the database as a 500.
+    po_value: Optional[Decimal] = Field(None, ge=0, max_digits=15, decimal_places=2)
+    device_count: Optional[int] = Field(None, ge=0, le=10_000_000)
+    node_count: Optional[int] = Field(None, ge=0, le=10_000_000)
     license_activated_at: Optional[date] = None
     license_expires_at: Optional[date] = None
     license_key: Optional[str] = Field(None, max_length=255)

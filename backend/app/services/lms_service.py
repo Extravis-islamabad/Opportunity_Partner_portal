@@ -22,11 +22,62 @@ from app.utils.email import send_template_email
 from app.models.company import Company
 
 
+def _public_assessment(assessment) -> list:
+    """The quiz as a non-admin may see it: everything but the answer key.
+
+    submit_assessment scores against `correct_answer` (and the frontend once
+    read a legacy `correct` alias), so either one reaching a partner's browser
+    lets them pass without knowing anything."""
+    if not isinstance(assessment, list):
+        return []
+    return [
+        {k: v for k, v in q.items() if k not in ("correct_answer", "correct")}
+        for q in assessment
+        if isinstance(q, dict)
+    ]
+
+
+def _course_response(
+    course: Course, enroll_count: int, complete_count: int, include_answer_key: bool
+) -> CourseResponse:
+    assessment = course.assessment_json or []
+    return CourseResponse(
+        id=course.id,
+        title=course.title,
+        description=course.description,
+        status=course.status.value,
+        modules_json=course.modules_json or [],
+        assessment_json=assessment if include_answer_key else _public_assessment(assessment),
+        passing_score=course.passing_score if course.passing_score is not None else 70,
+        duration_hours=course.duration_hours,
+        thumbnail_url=course.thumbnail_url,
+        enrollment_count=enroll_count,
+        completion_count=complete_count,
+        created_at=course.created_at,
+        updated_at=course.updated_at,
+    )
+
+
+async def _enrollment_counts(db: AsyncSession, course_id: int) -> tuple[int, int]:
+    enroll_count = (await db.execute(
+        select(func.count(Enrollment.id)).where(Enrollment.course_id == course_id)
+    )).scalar() or 0
+    complete_count = (await db.execute(
+        select(func.count(Enrollment.id)).where(
+            Enrollment.course_id == course_id,
+            Enrollment.status == EnrollmentStatus.COMPLETED,
+        )
+    )).scalar() or 0
+    return enroll_count, complete_count
+
+
 async def create_course(db: AsyncSession, data: CourseCreateRequest, admin_user: User) -> CourseResponse:
     course = Course(
         title=data.title,
         description=data.description,
         modules_json=[m.model_dump() for m in data.modules_json],
+        assessment_json=[q.model_dump() for q in data.assessment_json],
+        passing_score=data.passing_score,
         duration_hours=data.duration_hours,
         status=CourseStatus(data.status),
         created_by=admin_user.id,
@@ -36,19 +87,7 @@ async def create_course(db: AsyncSession, data: CourseCreateRequest, admin_user:
 
     await write_audit_log(db, admin_user.id, "CREATE", "course", course.id, {"title": data.title})
 
-    return CourseResponse(
-        id=course.id,
-        title=course.title,
-        description=course.description,
-        status=course.status.value,
-        modules_json=course.modules_json or [],
-        duration_hours=course.duration_hours,
-        thumbnail_url=course.thumbnail_url,
-        enrollment_count=0,
-        completion_count=0,
-        created_at=course.created_at,
-        updated_at=course.updated_at,
-    )
+    return _course_response(course, 0, 0, include_answer_key=True)
 
 
 async def get_courses(
@@ -58,6 +97,7 @@ async def get_courses(
     status: Optional[str] = None,
     search: Optional[str] = None,
     include_unpublished: bool = False,
+    include_answer_key: bool = False,
 ) -> tuple[list, int]:
     query = select(Course).where(Course.deleted_at.is_(None))
     count_query = select(func.count(Course.id)).where(Course.deleted_at.is_(None))
@@ -66,8 +106,12 @@ async def get_courses(
         query = query.where(Course.status == CourseStatus.PUBLISHED)
         count_query = count_query.where(Course.status == CourseStatus.PUBLISHED)
     elif status:
-        query = query.where(Course.status == status)
-        count_query = count_query.where(Course.status == status)
+        # The route already pattern-checks this; converting here as well means
+        # a direct caller with a bad value gets a ValueError (400), not a
+        # database enum error.
+        course_status = CourseStatus(status)
+        query = query.where(Course.status == course_status)
+        count_query = count_query.where(Course.status == course_status)
 
     if search:
         sf = Course.title.ilike(f"%{search}%")
@@ -85,38 +129,17 @@ async def get_courses(
 
     items = []
     for c in courses:
-        enroll_count_result = await db.execute(
-            select(func.count(Enrollment.id)).where(Enrollment.course_id == c.id)
-        )
-        enroll_count = enroll_count_result.scalar() or 0
-
-        complete_count_result = await db.execute(
-            select(func.count(Enrollment.id)).where(
-                Enrollment.course_id == c.id,
-                Enrollment.status == EnrollmentStatus.COMPLETED,
-            )
-        )
-        complete_count = complete_count_result.scalar() or 0
-
-        items.append(CourseResponse(
-            id=c.id,
-            title=c.title,
-            description=c.description,
-            status=c.status.value,
-            modules_json=c.modules_json or [],
-            duration_hours=c.duration_hours,
-            thumbnail_url=c.thumbnail_url,
-            enrollment_count=enroll_count,
-            completion_count=complete_count,
-            created_at=c.created_at,
-            updated_at=c.updated_at,
-        ))
+        enroll_count, complete_count = await _enrollment_counts(db, c.id)
+        items.append(_course_response(c, enroll_count, complete_count, include_answer_key))
 
     return items, total
 
 
 async def get_course_detail(
-    db: AsyncSession, course_id: int, include_unpublished: bool = False
+    db: AsyncSession,
+    course_id: int,
+    include_unpublished: bool = False,
+    include_answer_key: bool = False,
 ) -> CourseResponse:
     result = await db.execute(
         select(Course).where(Course.id == course_id, Course.deleted_at.is_(None))
@@ -131,32 +154,8 @@ async def get_course_detail(
     if not include_unpublished and course.status != CourseStatus.PUBLISHED:
         raise NotFoundException(code="COURSE_NOT_FOUND", message="Course not found")
 
-    enroll_count_result = await db.execute(
-        select(func.count(Enrollment.id)).where(Enrollment.course_id == course.id)
-    )
-    enroll_count = enroll_count_result.scalar() or 0
-
-    complete_count_result = await db.execute(
-        select(func.count(Enrollment.id)).where(
-            Enrollment.course_id == course.id,
-            Enrollment.status == EnrollmentStatus.COMPLETED,
-        )
-    )
-    complete_count = complete_count_result.scalar() or 0
-
-    return CourseResponse(
-        id=course.id,
-        title=course.title,
-        description=course.description,
-        status=course.status.value,
-        modules_json=course.modules_json or [],
-        duration_hours=course.duration_hours,
-        thumbnail_url=course.thumbnail_url,
-        enrollment_count=enroll_count,
-        completion_count=complete_count,
-        created_at=course.created_at,
-        updated_at=course.updated_at,
-    )
+    enroll_count, complete_count = await _enrollment_counts(db, course.id)
+    return _course_response(course, enroll_count, complete_count, include_answer_key)
 
 
 async def update_course(
@@ -169,9 +168,9 @@ async def update_course(
     if not course:
         raise NotFoundException(code="COURSE_NOT_FOUND", message="Course not found")
 
+    # The schema has already refused explicit nulls for the fields that can't
+    # hold one, so everything set here is a real value.
     update_data = data.model_dump(exclude_unset=True)
-    if "modules_json" in update_data and update_data["modules_json"] is not None:
-        update_data["modules_json"] = [m if isinstance(m, dict) else m.model_dump() for m in update_data["modules_json"]]
     if "status" in update_data:
         update_data["status"] = CourseStatus(update_data["status"])
 
@@ -183,7 +182,12 @@ async def update_course(
         k: v.value if hasattr(v, 'value') else v for k, v in update_data.items()
     })
 
-    return await get_course_detail(db, course.id)
+    # Only admins reach this, and the course may be (or have just become) a
+    # draft — reading it back through the partner view 404'd every edit of an
+    # unpublished course, including the unpublish itself.
+    return await get_course_detail(
+        db, course.id, include_unpublished=True, include_answer_key=True
+    )
 
 
 async def delete_course(db: AsyncSession, course_id: int, admin_user: User) -> None:
@@ -243,43 +247,138 @@ async def enroll_in_course(db: AsyncSession, course_id: int, partner_user: User)
     )
 
 
-async def update_enrollment(
-    db: AsyncSession, enrollment_id: int, data: EnrollmentUpdateRequest, partner_user: User
-) -> EnrollmentResponse:
+def _progress_of(enrollment: Enrollment) -> dict:
+    """The enrolment's progress map, or {} if the stored value isn't one.
+
+    PUT /enrollments once stored whatever JSON it was sent, so rows exist with
+    a string or list here; treating those as "nothing done yet" keeps them
+    usable instead of 500ing every later progress update."""
+    progress = enrollment.progress_json
+    return dict(progress) if isinstance(progress, dict) else {}
+
+
+def _module_ids(course: Course, *, quiz: bool) -> set[str]:
+    return {
+        str(m.get("id"))
+        for m in (course.modules_json or [])
+        if isinstance(m, dict) and m.get("id") and (m.get("type") == "quiz") == quiz
+    }
+
+
+def _quiz_passed(course: Course, enrollment: Enrollment) -> bool:
+    passing_score = course.passing_score or 70
+    return enrollment.score is not None and enrollment.score >= passing_score
+
+
+def _completion_requirements_met(course: Course, enrollment: Enrollment) -> bool:
+    """The one definition of "finished this course", shared by every path
+    that can complete an enrolment — completion feeds the company's tier and
+    issues a certificate, so no path may be laxer than the others.
+
+    Every non-quiz lesson must be marked done, and if the course has quiz
+    questions the best score must clear the pass mark. Quiz *modules* are only
+    placeholders for where the quiz sits in the sequence, so they are never a
+    requirement in their own right (and can't be ticked off via /progress)."""
+    done = {k for k, v in _progress_of(enrollment).items() if v}
+    if not _module_ids(course, quiz=False).issubset(done):
+        return False
+    if course.assessment_json and not _quiz_passed(course, enrollment):
+        return False
+    return True
+
+
+def _ensure_course_open(course: Optional[Course]) -> Course:
+    # An enrolment outlives its course being unpublished or deleted, but
+    # progress on it must not keep accruing — finishing a withdrawn course
+    # would still count towards tier and mint a certificate.
+    if not course or course.deleted_at is not None or course.status != CourseStatus.PUBLISHED:
+        raise BadRequestException(
+            code="COURSE_UNAVAILABLE",
+            message="This course is no longer available",
+        )
+    return course
+
+
+async def _own_enrollment(db: AsyncSession, enrollment_id: int, user: User) -> Enrollment:
     result = await db.execute(
         select(Enrollment)
         .options(joinedload(Enrollment.course))
-        .where(Enrollment.id == enrollment_id, Enrollment.user_id == partner_user.id)
+        .where(Enrollment.id == enrollment_id, Enrollment.user_id == user.id)
     )
     enrollment = result.scalar_one_or_none()
     if not enrollment:
         raise NotFoundException(code="ENROLLMENT_NOT_FOUND", message="Enrollment not found")
+    return enrollment
 
-    if data.status:
-        enrollment.status = EnrollmentStatus(data.status)
-        if enrollment.status == EnrollmentStatus.COMPLETED:
-            enrollment.completed_at = datetime.now(timezone.utc)
 
-    if data.progress_json is not None:
-        enrollment.progress_json = data.progress_json
+def _complete(enrollment: Enrollment) -> None:
+    enrollment.status = EnrollmentStatus.COMPLETED
+    enrollment.completed_at = datetime.now(timezone.utc)
 
-    await db.flush()
 
+def _enrollment_response(enrollment: Enrollment, user_name: Optional[str] = None) -> EnrollmentResponse:
     return EnrollmentResponse(
         id=enrollment.id,
         user_id=enrollment.user_id,
-        user_name=partner_user.full_name,
+        user_name=user_name,
         course_id=enrollment.course_id,
         course_title=enrollment.course.title if enrollment.course else None,
         status=enrollment.status.value,
         progress_json=enrollment.progress_json,
         completed_at=enrollment.completed_at,
+        score=enrollment.score,
+        attempt_count=enrollment.attempt_count or 0,
         certificate_url=signed_file_url(enrollment.certificate_url),
         certificate_issued_at=enrollment.certificate_issued_at,
         enrolled_at=enrollment.enrolled_at,
     )
 
 
+async def update_enrollment(
+    db: AsyncSession, enrollment_id: int, data: EnrollmentUpdateRequest, partner_user: User
+) -> EnrollmentResponse:
+    enrollment = await _own_enrollment(db, enrollment_id, partner_user)
+    course = _ensure_course_open(enrollment.course)
+
+    # Writing the progress map wholesale let a partner tick off every lesson
+    # (and the quiz) in one request. Progress goes through /progress instead.
+    if data.progress_json is not None:
+        raise BadRequestException(
+            code="PROGRESS_READ_ONLY",
+            message="Progress is recorded per lesson via /progress, not set directly",
+        )
+
+    just_completed = False
+    if data.status:
+        requested = EnrollmentStatus(data.status)
+        if enrollment.status == EnrollmentStatus.COMPLETED:
+            # Completion is what tier and the certificate rest on; it is not
+            # something to toggle back off. Re-asserting it is a no-op.
+            if requested != EnrollmentStatus.COMPLETED:
+                raise BadRequestException(
+                    code="ENROLLMENT_COMPLETED",
+                    message="A completed enrolment cannot be moved back",
+                )
+        elif requested == EnrollmentStatus.COMPLETED:
+            # Granted only if the work is genuinely done — this is how a
+            # course with nothing to tick off (no lessons, no quiz) gets
+            # finished, and must not be a shortcut past the lessons or quiz.
+            if not _completion_requirements_met(course, enrollment):
+                raise BadRequestException(
+                    code="COMPLETION_REQUIREMENTS_NOT_MET",
+                    message="Finish every lesson and pass the quiz to complete this course",
+                )
+            _complete(enrollment)
+            just_completed = True
+        else:
+            enrollment.status = requested
+
+    await db.flush()
+
+    if just_completed:
+        await _auto_issue_certificate(db, enrollment)
+
+    return _enrollment_response(enrollment, partner_user.full_name)
 
 
 async def _auto_issue_certificate(db: AsyncSession, enrollment: Enrollment) -> None:
@@ -358,69 +457,47 @@ async def _auto_issue_certificate(db: AsyncSession, enrollment: Enrollment) -> N
 async def update_module_progress(
     db: AsyncSession, enrollment_id: int, module_id: str, current_user: User
 ) -> EnrollmentResponse:
-    result = await db.execute(
-        select(Enrollment)
-        .options(joinedload(Enrollment.course))
-        .where(Enrollment.id == enrollment_id, Enrollment.user_id == current_user.id)
-    )
-    enrollment = result.scalar_one_or_none()
-    if not enrollment:
-        raise NotFoundException(code="ENROLLMENT_NOT_FOUND", message="Enrollment not found")
+    enrollment = await _own_enrollment(db, enrollment_id, current_user)
+    course = _ensure_course_open(enrollment.course)
 
-    progress = enrollment.progress_json or {}
+    module_id = str(module_id)
+    if module_id in _module_ids(course, quiz=True):
+        raise BadRequestException(
+            code="QUIZ_MODULE",
+            message="A quiz is completed by passing it, not by marking it done",
+        )
+    if module_id not in _module_ids(course, quiz=False):
+        raise BadRequestException(code="MODULE_NOT_FOUND", message="No such lesson in this course")
+
+    # A fresh dict, not the loaded one mutated in place: the column is plain
+    # JSON (not MutableDict), so SQLAlchemy only notices a change when the
+    # attribute is assigned a *different* object. Mutating and reassigning the
+    # same dict was why only the first module ever persisted.
+    progress = _progress_of(enrollment)
     progress[module_id] = True
     enrollment.progress_json = progress
 
     just_completed = False
-    # If not already completed, check if all modules are done
     if enrollment.status != EnrollmentStatus.COMPLETED:
-        enrollment.status = EnrollmentStatus.IN_PROGRESS
-        course = enrollment.course
-        if course and course.modules_json:
-            module_ids = {str(m.get("id", "")) for m in course.modules_json if m.get("id")}
-            completed_ids = {k for k, v in progress.items() if v}
-            if module_ids and module_ids.issubset(completed_ids):
-                enrollment.status = EnrollmentStatus.COMPLETED
-                enrollment.completed_at = datetime.now(timezone.utc)
-                just_completed = True
+        if _completion_requirements_met(course, enrollment):
+            _complete(enrollment)
+            just_completed = True
+        else:
+            enrollment.status = EnrollmentStatus.IN_PROGRESS
 
     await db.flush()
 
     if just_completed:
         await _auto_issue_certificate(db, enrollment)
 
-    return EnrollmentResponse(
-        id=enrollment.id,
-        user_id=enrollment.user_id,
-        user_name=current_user.full_name,
-        course_id=enrollment.course_id,
-        course_title=enrollment.course.title if enrollment.course else None,
-        status=enrollment.status.value,
-        progress_json=enrollment.progress_json,
-        completed_at=enrollment.completed_at,
-        score=enrollment.score,
-        attempt_count=enrollment.attempt_count,
-        certificate_url=signed_file_url(enrollment.certificate_url),
-        certificate_issued_at=enrollment.certificate_issued_at,
-        enrolled_at=enrollment.enrolled_at,
-    )
+    return _enrollment_response(enrollment, current_user.full_name)
 
 
 async def submit_assessment(
     db: AsyncSession, enrollment_id: int, answers: dict, current_user: User
 ) -> dict:
-    result = await db.execute(
-        select(Enrollment)
-        .options(joinedload(Enrollment.course))
-        .where(Enrollment.id == enrollment_id, Enrollment.user_id == current_user.id)
-    )
-    enrollment = result.scalar_one_or_none()
-    if not enrollment:
-        raise NotFoundException(code="ENROLLMENT_NOT_FOUND", message="Enrollment not found")
-
-    course = enrollment.course
-    if not course:
-        raise NotFoundException(code="COURSE_NOT_FOUND", message="Course not found")
+    enrollment = await _own_enrollment(db, enrollment_id, current_user)
+    course = _ensure_course_open(enrollment.course)
 
     assessment = course.assessment_json if course.assessment_json else []
     if not assessment:
@@ -435,15 +512,31 @@ async def submit_assessment(
             earned_points += question.get("points", 1)
 
     score = int((earned_points / total_points) * 100) if total_points > 0 else 0
-    enrollment.score = score
+    passing_score = course.passing_score or 70
+
+    # Keep the best attempt. A retake — especially after completing — is
+    # practice, and must not drag the recorded score below the pass mark the
+    # completion (and certificate) was granted on.
+    if enrollment.score is None or score > enrollment.score:
+        enrollment.score = score
     enrollment.attempt_count = (enrollment.attempt_count or 0) + 1
 
-    passing_score = course.passing_score or 70
+    if score >= passing_score:
+        # Tick the quiz placeholder(s) off so lesson progress reads as done;
+        # this is the only way a quiz module enters the progress map.
+        quiz_ids = _module_ids(course, quiz=True)
+        if quiz_ids:
+            progress = _progress_of(enrollment)
+            progress.update({qid: True for qid in quiz_ids})
+            enrollment.progress_json = progress
+
     just_completed = False
-    if score >= passing_score and enrollment.status != EnrollmentStatus.COMPLETED:
-        enrollment.status = EnrollmentStatus.COMPLETED
-        enrollment.completed_at = datetime.now(timezone.utc)
-        just_completed = True
+    if enrollment.status != EnrollmentStatus.COMPLETED:
+        if _completion_requirements_met(course, enrollment):
+            _complete(enrollment)
+            just_completed = True
+        else:
+            enrollment.status = EnrollmentStatus.IN_PROGRESS
 
     await db.flush()
 
@@ -455,36 +548,23 @@ async def submit_assessment(
         "passed": score >= passing_score,
         "passing_score": passing_score,
         "attempt_count": enrollment.attempt_count,
+        "course_completed": enrollment.status == EnrollmentStatus.COMPLETED,
+        "best_score": enrollment.score,
     }
 
 
 async def get_my_enrollments(
     db: AsyncSession, user_id: int
 ) -> list[EnrollmentResponse]:
+    # Deleted courses drop out of "my courses" the same way they drop out of
+    # the catalogue; the enrolment rows themselves are kept for history.
     result = await db.execute(
         select(Enrollment)
+        .join(Course, Course.id == Enrollment.course_id)
         .options(joinedload(Enrollment.course))
-        .where(Enrollment.user_id == user_id)
+        .where(Enrollment.user_id == user_id, Course.deleted_at.is_(None))
         .order_by(Enrollment.enrolled_at.desc())
     )
     enrollments = result.unique().scalars().all()
 
-    return [
-        EnrollmentResponse(
-            id=e.id,
-            user_id=e.user_id,
-            course_id=e.course_id,
-            course_title=e.course.title if e.course else None,
-            status=e.status.value,
-            progress_json=e.progress_json,
-            completed_at=e.completed_at,
-            score=e.score,
-            attempt_count=e.attempt_count,
-            certificate_url=signed_file_url(e.certificate_url),
-            certificate_issued_at=e.certificate_issued_at,
-            enrolled_at=e.enrolled_at,
-        )
-        for e in enrollments
-    ]
-
-
+    return [_enrollment_response(e) for e in enrollments]

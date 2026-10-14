@@ -1,9 +1,12 @@
 """Sales rep daily activity log.
 
 Reps create/edit/delete their own entries; admins read any rep's month.
-Everything user-facing is served from get_activity_month — the Mon–Fri grid
+Everything user-facing is served from get_activity_month — the month grid
 the frontend renders is built client-side, this service just returns the
 month's entries grouped by day plus totals.
+
+An entry may carry a follow-up reminder; send_due_reminders is the sweep that
+turns a due reminder into a notification.
 """
 import re
 from calendar import monthrange
@@ -59,8 +62,12 @@ def to_activity_response(a: SalesActivity) -> ActivityResponse:
         opportunity_id=a.opportunity_id,
         opportunity_name=a.opportunity.name if a.opportunity else None,
         poc_id=a.poc_id,
+        partner_name=a.partner_name,
         duration_minutes=a.duration_minutes,
         notes=a.notes,
+        reminder_at=a.reminder_at,
+        reminder_note=a.reminder_note,
+        reminder_sent_at=a.reminder_sent_at,
         created_at=a.created_at,
         updated_at=a.updated_at,
     )
@@ -85,18 +92,28 @@ async def _get_activity_or_404(db: AsyncSession, activity_id: int) -> SalesActiv
     return activity
 
 
-async def _validate_opportunity(db: AsyncSession, opportunity_id: int) -> None:
+async def _validate_opportunity(db: AsyncSession, opportunity_id: int, user: User) -> None:
+    """The opportunity must exist and the logger must be able to see it.
+
+    Existence alone let a rep attach an activity to any opportunity by id —
+    and the response then echoed that opportunity's name back, which is how a
+    rep could read deals they are not assigned to.
+    """
+    from app.core.deps import assert_can_work_on_poc
+
     result = await db.execute(
-        select(Opportunity.id).where(
+        select(Opportunity).where(
             Opportunity.id == opportunity_id,
             Opportunity.deleted_at.is_(None),
         )
     )
-    if result.scalar_one_or_none() is None:
+    opp = result.scalar_one_or_none()
+    if opp is None:
         raise BadRequestException(
             code="INVALID_OPPORTUNITY",
             message="The linked opportunity does not exist",
         )
+    await assert_can_work_on_poc(db, user, opp)
 
 
 async def _validate_poc(db: AsyncSession, poc_id: int, user: User) -> None:
@@ -124,15 +141,17 @@ async def _validate_poc(db: AsyncSession, poc_id: int, user: User) -> None:
 
 
 def _validate_activity_date(d: date) -> None:
-    """The UI only offers past/current weekdays; enforce the same server-side.
+    """The UI only offers past/current days; enforce the same server-side.
 
-    The +1 day of slack tolerates a client whose local calendar is a day
-    ahead of the server's.
+    Weekends are allowed — reps do work them, and refusing the entry only
+    meant the work went unrecorded. The +1 day of slack tolerates a client
+    whose local calendar is a day ahead of the server's.
     """
-    if d.weekday() >= 5:
+    # A floor as well as a ceiling: a year typo ("0026") is not a real entry.
+    if d < date(2000, 1, 1):
         raise BadRequestException(
             code="INVALID_ACTIVITY_DATE",
-            message="Activities can only be logged on weekdays (Monday–Friday)",
+            message="That date is too far in the past",
         )
     if d > date.today() + timedelta(days=1):
         raise BadRequestException(
@@ -141,12 +160,27 @@ def _validate_activity_date(d: date) -> None:
         )
 
 
+def _validate_reminder_at(reminder_at: datetime) -> datetime:
+    """A reminder has to be ahead of us — one in the past would fire on the
+    next sweep and tell the rep about something they just typed. A naive
+    datetime is read as UTC, which is what the client sends."""
+    if reminder_at.tzinfo is None:
+        reminder_at = reminder_at.replace(tzinfo=timezone.utc)
+    if reminder_at <= datetime.now(timezone.utc):
+        raise BadRequestException(
+            code="INVALID_REMINDER",
+            message="The reminder must be set for a future date and time",
+        )
+    return reminder_at
+
+
 async def create_activity(
     db: AsyncSession, data: ActivityCreateRequest, user: User
 ) -> ActivityResponse:
     _validate_activity_date(data.activity_date)
+    reminder_at = _validate_reminder_at(data.reminder_at) if data.reminder_at else None
     if data.opportunity_id is not None:
-        await _validate_opportunity(db, data.opportunity_id)
+        await _validate_opportunity(db, data.opportunity_id, user)
     if data.poc_id is not None:
         await _validate_poc(db, data.poc_id, user)
 
@@ -157,8 +191,11 @@ async def create_activity(
         customer_name=data.customer_name,
         opportunity_id=data.opportunity_id,
         poc_id=data.poc_id,
+        partner_name=data.partner_name,
         duration_minutes=data.duration_minutes,
         notes=data.notes,
+        reminder_at=reminder_at,
+        reminder_note=data.reminder_note if reminder_at else None,
     )
     db.add(activity)
     await db.flush()
@@ -199,7 +236,7 @@ async def update_activity(
     if "activity_date" in update_data and update_data["activity_date"] is not None:
         _validate_activity_date(update_data["activity_date"])
     if "opportunity_id" in update_data and update_data["opportunity_id"] is not None:
-        await _validate_opportunity(db, update_data["opportunity_id"])
+        await _validate_opportunity(db, update_data["opportunity_id"], user)
     if "poc_id" in update_data and update_data["poc_id"] is not None:
         # Re-checked against the *editor*, not the original logger: a
         # superadmin correcting an entry still may not file it under a POC
@@ -207,6 +244,33 @@ async def update_activity(
         await _validate_poc(db, update_data["poc_id"], user)
     if "activity_type" in update_data:
         update_data["activity_type"] = ActivityType(update_data["activity_type"])
+    for key in ("activity_date", "activity_type"):
+        if key in update_data and update_data[key] is None:
+            raise BadRequestException(
+                code="VALIDATION_ERROR",
+                message=f"{key.replace('_', ' ').capitalize()} cannot be empty",
+            )
+    if "reminder_at" in update_data:
+        new_at = update_data["reminder_at"]
+        if new_at is None:
+            update_data["reminder_note"] = None
+            update_data["reminder_sent_at"] = None
+        else:
+            if new_at.tzinfo is None:
+                new_at = new_at.replace(tzinfo=timezone.utc)
+            if activity.reminder_at is not None and new_at == activity.reminder_at:
+                # Unchanged. The edit form always sends the reminder back, so
+                # a reminder that has already fired is in the past — refusing
+                # it made any later edit to the entry (fixing a typo in the
+                # notes) impossible without deleting the reminder.
+                update_data.pop("reminder_at")
+            else:
+                update_data["reminder_at"] = _validate_reminder_at(new_at)
+                # A moved reminder is a new reminder: it should fire again.
+                update_data["reminder_sent_at"] = None
+    elif "reminder_note" in update_data and activity.reminder_at is None:
+        # A note with no reminder to attach to is dropped, as on create.
+        update_data["reminder_note"] = None
 
     for key, value in update_data.items():
         setattr(activity, key, value)
@@ -389,3 +453,61 @@ async def get_poc_activity_feed(db: AsyncSession, poc: Poc) -> PocActivityFeed:
         total_activities=len(items),
         total_duration_minutes=sum(a.duration_minutes or 0 for a in activities),
     )
+
+
+async def list_upcoming_reminders(db: AsyncSession, user: User) -> list[ActivityResponse]:
+    """The caller's own reminders that have not fired yet, soonest first."""
+    result = await db.execute(
+        _activity_query()
+        .where(
+            SalesActivity.user_id == user.id,
+            SalesActivity.reminder_at.is_not(None),
+            SalesActivity.reminder_sent_at.is_(None),
+        )
+        .order_by(SalesActivity.reminder_at.asc())
+        .limit(50)
+    )
+    return [to_activity_response(a) for a in result.unique().scalars().all()]
+
+
+async def send_due_reminders(db: AsyncSession) -> dict:
+    """Notify each rep whose follow-up reminder has come due.
+
+    Run every minute from main.py. Stamps reminder_sent_at in the same
+    transaction as the notification, so a reminder fires exactly once even if
+    two sweeps overlap (FOR UPDATE SKIP LOCKED keeps the second one off rows
+    the first is already handling).
+    """
+    from app.services.notification_service import notify_user
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(SalesActivity)
+        .options(joinedload(SalesActivity.opportunity))
+        .where(
+            SalesActivity.deleted_at.is_(None),
+            SalesActivity.reminder_at.is_not(None),
+            SalesActivity.reminder_at <= now,
+            SalesActivity.reminder_sent_at.is_(None),
+        )
+        .order_by(SalesActivity.reminder_at.asc())
+        .limit(200)
+        .with_for_update(skip_locked=True, of=SalesActivity)
+    )
+    due = result.unique().scalars().all()
+
+    for a in due:
+        about = a.customer_name or a.partner_name or (a.opportunity.name if a.opportunity else None)
+        label = ACTIVITY_TYPE_LABELS[a.activity_type.value]
+        title = f"Reminder: follow up{f' with {about}' if about else ''}"
+        detail = a.reminder_note or f"Follow up on your {label.lower()} of {a.activity_date:%d %b %Y}."
+        await notify_user(
+            db, a.user_id, "activity_reminder", title, detail,
+            # The activity log is the page to land on; the notification page
+            # routes "activity" there.
+            "activity", a.id,
+        )
+        a.reminder_sent_at = now
+
+    await db.flush()
+    return {"sent": len(due)} if due else {}

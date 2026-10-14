@@ -29,7 +29,15 @@ EXPECTED_HEADERS = [
 # mean "not set" — so an existing import file keeps working unchanged.
 OPTIONAL_HEADERS = [
     "Parent Distributor Name",
+    "Region",
 ]
+
+# Column widths in the companies table. Checked per row so an over-long cell
+# fails that row with a message instead of the database failing the file.
+_MAX_LEN = {
+    "Company Name": 255, "Country": 100, "Region": 100, "City": 100,
+    "Industry": 255, "Contact Email": 255,
+}
 
 _VALID_COMPANY_TYPES = ", ".join(t.value for t in CompanyType)
 
@@ -70,10 +78,23 @@ async def bulk_import_companies(
         {name: header.index(name) for name in OPTIONAL_HEADERS if name in header}
     )
 
+    from email_validator import EmailNotValidError, validate_email
+    from sqlalchemy import func
+
+    from app.services import company_service, partner_service
+
     succeeded = 0
     failed = []
+    processed = 0
 
     for row_num, row in enumerate(rows[1:], start=2):
+        # A trailing blank row is formatting, not a failed import.
+        if all(v is None or str(v).strip() == "" for v in row):
+            continue
+        processed += 1
+        # One savepoint per row: a row the database rejects rolls back alone,
+        # rather than poisoning the transaction and losing every good row.
+        savepoint = await db.begin_nested()
         try:
             def cell(name: str) -> str:
                 val = row[col_idx[name]]
@@ -92,15 +113,31 @@ async def bulk_import_companies(
             company_name = cell("Company Name")
             company_type = _parse_company_type(cell("Company Type"))
             country = cell("Country")
-            city = cell("City")
+            # City and region are optional, as on the create form.
+            city = optional_cell("City") or None
+            region = optional_cell("Region") or None
             industry = cell("Industry")
             contact_email = cell("Contact Email")
             cm_email = cell("Channel Manager Email")
 
+            for name, value in (
+                ("Company Name", company_name), ("Country", country), ("Region", region),
+                ("City", city), ("Industry", industry), ("Contact Email", contact_email),
+            ):
+                if value and len(value) > _MAX_LEN[name]:
+                    raise ValueError(f"{name} is longer than {_MAX_LEN[name]} characters")
+            if not company_name:
+                raise ValueError("Company Name is required")
+            try:
+                contact_email = validate_email(contact_email, check_deliverability=False).normalized
+            except EmailNotValidError as exc:
+                raise ValueError(f"Contact Email is not a valid address: {exc}")
+            await company_service.assert_unique_name(db, company_name)
+
             # Look up channel manager
             cm_result = await db.execute(
                 select(User).where(
-                    User.email == cm_email,
+                    func.lower(User.email) == cm_email.lower(),
                     User.role == UserRole.ADMIN,
                     User.deleted_at.is_(None),
                 )
@@ -140,7 +177,7 @@ async def bulk_import_companies(
             company = Company(
                 name=company_name,
                 country=country,
-                region=country,  # default region to country
+                region=region,
                 city=city,
                 industry=industry,
                 contact_email=contact_email,
@@ -150,6 +187,10 @@ async def bulk_import_companies(
             )
             db.add(company)
             await db.flush()
+            # Same follow-through as creating one in the form: the manager is
+            # recorded as such, and the contact gets an account and an invite.
+            await company_service.set_channel_managers(db, company, [channel_manager])
+            await partner_service.invite_company_contact(db, company, None)
 
             await write_audit_log(
                 db, admin.id, "CREATE", "company", company.id,
@@ -161,14 +202,17 @@ async def bulk_import_companies(
                 },
             )
 
+            await savepoint.commit()
             succeeded += 1
         except Exception as e:
-            failed.append({"row": row_num, "error": str(e)})
+            await savepoint.rollback()
+            message = getattr(e, "error_message", None) or str(e)
+            failed.append({"row": row_num, "error": message.splitlines()[0][:300]})
 
     await db.commit()
 
     return {
-        "processed": len(rows) - 1,
+        "processed": processed,
         "succeeded": succeeded,
         "failed": failed,
     }

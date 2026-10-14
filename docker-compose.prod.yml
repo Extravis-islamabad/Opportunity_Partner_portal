@@ -84,6 +84,12 @@ services:
       - GROQ_MODEL_FAST=${GROQ_MODEL_FAST:-llama-3.1-8b-instant}
       - GROQ_TIMEOUT_SECONDS=${GROQ_TIMEOUT_SECONDS:-20}
       - AI_SCORE_CACHE_SECONDS=${AI_SCORE_CACHE_SECONDS:-86400}
+      # Which peers may set the client address via X-Forwarded-For (see
+      # backend/Dockerfile). The default covers the frontend nginx container
+      # and a TLS proxy on the host reaching it through the bridge gateway. A
+      # proxy on another machine must be added here, or every user shares its
+      # rate-limit bucket. Never '*' — that trusts what the client wrote.
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-172.16.0.0/12,192.168.0.0/16,127.0.0.1}
     # !override replaces the dev compose's ports list entirely (otherwise
     # compose MERGES list fields and dev port 8001 stays bound).
     ports: !override
@@ -91,7 +97,7 @@ services:
     command: >
       sh -c "alembic upgrade head &&
              python -m app.core.init_db &&
-             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers"
 
   frontend:
     container_name: epp_frontend

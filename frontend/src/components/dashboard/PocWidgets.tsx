@@ -18,13 +18,16 @@ import type {
 
 const { Text } = Typography;
 
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
   royal400: '#4961f1',
   royal300: '#6b7bfe',
   royal200: '#8c93f1',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   violet500: '#a064f3',
   violet600: '#7a2280',
   green: '#10b981',
@@ -112,7 +115,7 @@ export const PocStageTracker: React.FC<PocStageTrackerProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: s.completed ? color : '#fff',
+                  background: s.completed ? color : 'var(--brand-surface)',
                   border: `3px solid ${s.completed ? color : BRAND.royal50}`,
                   color: '#fff',
                   cursor: clickable ? 'pointer' : 'default',

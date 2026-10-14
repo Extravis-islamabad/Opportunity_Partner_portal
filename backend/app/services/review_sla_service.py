@@ -20,10 +20,11 @@ one once. A nag that arrives every morning is a nag nobody reads.
 """
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.deps import get_channel_manager_ids
 from app.core.config import settings
 from app.core.exceptions import BadRequestException
 from app.models.company import Company
@@ -157,8 +158,7 @@ async def _escalate(db: AsyncSession, opp: Opportunity, age: int, subject: str) 
     """
     recipients: set[int] = set()
 
-    if opp.company and opp.company.channel_manager_id:
-        recipients.add(opp.company.channel_manager_id)
+    recipients.update(await get_channel_manager_ids(db, opp.company_id))
 
     superadmins = (await db.execute(
         select(User.id).where(
@@ -208,7 +208,12 @@ async def list_stale_reviews(
         )
     )
     if scope_company_ids is not None:
-        query = query.where(Opportunity.company_id.in_(scope_company_ids))
+        # A direct deal (no partner company) is any admin's to act on, so it
+        # belongs on every admin's stuck-review list.
+        query = query.where(or_(
+            Opportunity.company_id.in_(scope_company_ids),
+            Opportunity.company_id.is_(None),
+        ))
 
     rows = (await db.execute(
         query.order_by(Opportunity.review_claimed_at.asc())

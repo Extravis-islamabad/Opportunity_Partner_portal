@@ -35,7 +35,9 @@ async def create_course(
 async def list_courses(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
+    # Pattern-checked so an unknown status is a 422 here rather than a
+    # database enum error.
+    status: Optional[str] = Query(None, pattern="^(draft|published)$"),
     search: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -43,7 +45,8 @@ async def list_courses(
     # Only admins see drafts; everyone else sees the published catalogue.
     include_unpublished = current_user.role == UserRole.ADMIN
     items, total = await lms_service.get_courses(
-        db, page, page_size, status, search, include_unpublished
+        db, page, page_size, status, search, include_unpublished,
+        include_answer_key=include_unpublished,
     )
     return {
         "items": [item.model_dump(mode="json") for item in items],
@@ -60,8 +63,12 @@ async def get_course(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    include_unpublished = current_user.role == UserRole.ADMIN
-    return await lms_service.get_course_detail(db, course_id, include_unpublished)
+    # Admins author the quiz, so they get the answer key; everyone else gets
+    # the questions without it.
+    is_admin = current_user.role == UserRole.ADMIN
+    return await lms_service.get_course_detail(
+        db, course_id, include_unpublished=is_admin, include_answer_key=is_admin
+    )
 
 
 @router.put("/courses/{course_id}", response_model=CourseResponse, status_code=200)

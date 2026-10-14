@@ -385,8 +385,12 @@ class TestDisabling:
 
     async def test_you_can_turn_off_your_own(self, client, db):
         w = await build(db)
-        await enrol(client, db, w.admin)
-        r = await client.delete("/api/v1/mfa", headers=auth_header(w.admin))
+        _, codes = await enrol(client, db, w.admin)
+        # Turning 2FA off needs a code: a stolen session alone must not be
+        # able to strip the second factor.
+        r = await client.request(
+            "DELETE", "/api/v1/mfa", headers=auth_header(w.admin), json={"code": codes[0]}
+        )
         assert r.status_code == 200, r.text[:300]
         await db.commit()
 
@@ -420,7 +424,9 @@ class TestDisabling:
         w = await build(db)
         _, codes = await enrol(client, db, w.admin)
         enrollment_id = (await _enrollment(db, w.admin.id)).id
-        await client.delete("/api/v1/mfa", headers=auth_header(w.admin))
+        await client.request(
+            "DELETE", "/api/v1/mfa", headers=auth_header(w.admin), json={"code": codes[0]}
+        )
         await db.commit()
 
         rows = (await db.execute(

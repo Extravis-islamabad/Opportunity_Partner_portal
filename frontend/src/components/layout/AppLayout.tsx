@@ -38,8 +38,10 @@ import { useAppTheme } from '@/contexts/ThemeContext';
 import { useQuery } from '@tanstack/react-query';
 import { notificationsApi } from '@/api/endpoints';
 import KbChatWidget from '@/components/ai/KbChatWidget';
+import IdleTimeout from '@/components/common/IdleTimeout';
 import CommandPalette from '@/components/common/CommandPalette';
 import RouteBreadcrumb from '@/components/common/RouteBreadcrumb';
+import { BreadcrumbProvider } from '@/contexts/BreadcrumbContext';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import type { MenuProps } from 'antd';
 
@@ -101,7 +103,8 @@ const AppLayout: React.FC = () => {
     // Users page is superadmin-only — channel managers manage partners
     // through the company detail page instead.
     ...(isSuperadmin ? [{ key: '/users', icon: <TeamOutlined />, label: 'Users' }] : []),
-    { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: isSuperadmin ? 'Opportunities' : 'Pipeline' },
+    // Every admin sees every opportunity, so this is the full list for all of them.
+    { key: '/opportunities', icon: <FundProjectionScreenOutlined />, label: 'Opportunities' },
     { key: '/opportunities/duplicates', icon: <ExclamationCircleOutlined />, label: 'Duplicate Review' },
     { key: '/opportunities/stale-reviews', icon: <ClockCircleOutlined />, label: 'Stuck Reviews' },
     { key: '/poc', icon: <RocketOutlined />, label: 'POC Tracking' },
@@ -199,9 +202,14 @@ const AppLayout: React.FC = () => {
 
   const isCollapsedDesktop = collapsed && !isMobile;
 
+  // A column: logo, then the menu (which scrolls when it is long), then the
+  // company footer. The footer used to be absolutely positioned at the bottom,
+  // which drew it over the last menu items (a distributor's "My Team") on any
+  // menu taller than the window.
   const sideMenu = (
-    <>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{
+        flexShrink: 0,
         height: 72,
         display: 'flex',
         alignItems: 'center',
@@ -224,13 +232,13 @@ const AppLayout: React.FC = () => {
       <Menu
         theme="dark"
         mode="inline"
-        style={{ background: siderBg }}
+        style={{ background: siderBg, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}
         selectedKeys={[selectedKey]}
         items={menuItems}
         onClick={({ key }) => navigate(key)}
       />
       {!collapsed && user?.company_name && !isMobile && (
-        <div style={{ padding: '16px', borderTop: `1px solid ${siderBorder}`, position: 'absolute', bottom: 48, left: 0, right: 0 }}>
+        <div style={{ flexShrink: 0, padding: '16px', borderTop: `1px solid ${siderBorder}` }}>
           <Space direction="vertical" size={0}>
             <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>Company</Text>
             <Text style={{ color: '#fff', fontSize: 13 }}>{user.company_name}</Text>
@@ -250,7 +258,7 @@ const AppLayout: React.FC = () => {
           </Space>
         </div>
       )}
-    </>
+    </div>
   );
 
   return (
@@ -263,7 +271,7 @@ const AppLayout: React.FC = () => {
           width={220}
           style={{
             background: siderBg,
-            overflow: 'auto',
+            overflow: 'hidden',
             height: '100vh',
             position: 'sticky',
             top: 0,
@@ -357,6 +365,7 @@ const AppLayout: React.FC = () => {
           borderRadius: 8,
           minHeight: 360,
         }}>
+          <BreadcrumbProvider>
           <RouteBreadcrumb />
           {/* Sits over whatever page they are on: a partner who has not
               accepted the current agreement cannot register business, and
@@ -364,10 +373,12 @@ const AppLayout: React.FC = () => {
               learn. Renders nothing when there is nothing to accept. */}
           <LegalAcceptanceGate />
           <Outlet />
+          </BreadcrumbProvider>
         </Content>
       </Layout>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       <KbChatWidget />
+      <IdleTimeout />
     </Layout>
   );
 };

@@ -21,6 +21,8 @@ plus the two boundaries that keep the widening honest: reads went
 company-wide but writes did not, and money data (deals) did not follow the
 tree even though pipeline data did.
 """
+import uuid
+
 import pytest
 
 from app.models.company import CompanyType
@@ -322,7 +324,7 @@ class TestHierarchyManagement:
             "/api/v1/companies",
             headers=headers,
             json={
-                "name": "Freshly Linked Reseller",
+                "name": f"Freshly Linked Reseller {uuid.uuid4().hex[:6]}",
                 "country": "US",
                 "region": "NA",
                 "city": "Austin",
@@ -462,7 +464,7 @@ class TestBulkImportHierarchy:
 
         w = await build_world(db)
         headers = auth_header(w.admin)
-        name = "Imported Reseller"
+        name = f"Imported Reseller {uuid.uuid4().hex[:6]}"
         r = await self._upload(
             client, headers,
             [[name, "partner", "US", "Austin", "Tech",
@@ -485,7 +487,7 @@ class TestBulkImportHierarchy:
         w = await build_world(db)
         r = await self._upload(
             client, auth_header(w.admin),
-            [["Bad Reseller", "partner", "US", "Austin", "Tech",
+            [[f"Bad Reseller {uuid.uuid4().hex[:6]}", "partner", "US", "Austin", "Tech",
               "bad@fixture.example.com", w.admin.email, w.reseller_a.name]],
             EXPECTED_HEADERS + OPTIONAL_HEADERS,
         )
@@ -500,7 +502,7 @@ class TestBulkImportHierarchy:
         w = await build_world(db)
         r = await self._upload(
             client, auth_header(w.admin),
-            [["Legacy Sheet Co", "partner", "US", "Austin", "Tech",
+            [[f"Legacy Sheet Co {uuid.uuid4().hex[:6]}", "partner", "US", "Austin", "Tech",
               "legacy@fixture.example.com", w.admin.email]],
             EXPECTED_HEADERS,
         )

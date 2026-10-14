@@ -32,15 +32,18 @@ import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/common/PageHeader';
 import type { CourseResponse, EnrollmentResponse } from '@/types';
 
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
   royal400: '#4961f1',
-  royal100: '#b4b6f7',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal100: 'var(--brand-royal-100)',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   violet500: '#a064f3',
   violet600: '#7a2280',
-  violet100: '#f0e6ff',
+  violet100: 'var(--brand-violet-100)',
 };
 
 const LmsPage: React.FC = () => {
@@ -262,7 +265,7 @@ const LmsPage: React.FC = () => {
                           href={enrollment.certificate_url}
                           target="_blank"
                           onClick={(e) => e.stopPropagation()}
-                          style={{ background: BRAND.violet100, color: BRAND.violet600, border: 'none', fontWeight: 600 }}
+                          style={{ background: BRAND.violet100, color: 'var(--brand-violet-ink)', border: 'none', fontWeight: 600 }}
                         >
                           Download certificate
                         </Button>

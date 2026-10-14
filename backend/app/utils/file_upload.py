@@ -107,6 +107,59 @@ def _validate_bytes_and_name(content: bytes, filename: str | None, declared_ct: 
     return sorted(sig["extensions"])[0]
 
 
+# The content type we store is derived from the sniffed extension, never the
+# client's header. The header is attacker-controlled free text: a 150-char
+# multipart Content-Type used to overflow the String(100) column and 500 the
+# request, and even a short one could lie about what the bytes are.
+_EXTENSION_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".doc": "application/msword",
+}
+
+# Every file_name column is String(500); keep well inside it so a pathological
+# client filename is shortened rather than failing the INSERT with a 500.
+MAX_DISPLAY_NAME_LENGTH = 255
+
+
+def _display_name(filename: str | None, ext: str) -> str:
+    """The client's filename, for display only (it never touches the path),
+    cut to MAX_DISPLAY_NAME_LENGTH while keeping its extension so the
+    downloaded file still opens with the right application."""
+    name = (filename or "").strip() or f"file{ext}"
+    if len(name) <= MAX_DISPLAY_NAME_LENGTH:
+        return name
+    suffix = Path(name).suffix
+    # A "suffix" that is itself enormous is not a real extension; fall back
+    # to the sniffed one rather than keep 200 chars of junk.
+    if not suffix or len(suffix) > 10:
+        suffix = ext
+    stem = name[: len(name) - len(Path(name).suffix)] if Path(name).suffix else name
+    return stem[: MAX_DISPLAY_NAME_LENGTH - len(suffix)] + suffix
+
+
+def delete_upload(file_url: str | None) -> None:
+    """Best-effort removal of a file save_upload wrote, for callers whose
+    request fails *after* the bytes hit disk — otherwise every rejected
+    upload leaves an orphan nobody references. Confined to UPLOAD_DIR the
+    same way the download route is, so a bad value can't delete elsewhere."""
+    if not file_url or not file_url.startswith("/uploads/"):
+        return
+    root = Path(settings.UPLOAD_DIR).resolve()
+    candidate = (root / file_url[len("/uploads/"):]).resolve()
+    if not candidate.is_relative_to(root):
+        return
+    try:
+        candidate.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("orphan_upload_cleanup_failed", path=str(candidate))
+
+
 
 async def save_upload(
     file: UploadFile,
@@ -145,12 +198,12 @@ async def save_upload(
     logger.info("file_uploaded", path=relative_path, size=len(content), sniffed_ext=ext)
 
     return {
-        "file_name": file.filename or f"file{ext}",
+        "file_name": _display_name(file.filename, ext),
         # Stored as the canonical relative path. Responses convert this to a
         # signed, expiring download URL via utils.file_tokens.signed_file_url.
         "file_url": f"/uploads/{relative_path}",
         "file_size": len(content),
-        "content_type": file.content_type,
+        "content_type": _EXTENSION_CONTENT_TYPES.get(ext, "application/octet-stream"),
     }
 
 

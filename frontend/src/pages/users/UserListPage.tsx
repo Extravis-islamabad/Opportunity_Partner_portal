@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import HandoverModal from '@/components/users/HandoverModal';
 import type { UserResponse } from '@/types';
+import { companyTypeLabel, companyTypeMeta } from '@/utils/companyType';
 import type { ColumnsType } from 'antd/es/table';
 import { AxiosError } from 'axios';
 import type { ErrorResponse } from '@/types';
@@ -77,7 +78,18 @@ const UserListPage: React.FC = () => {
       void queryClient.invalidateQueries({ queryKey: ['users'] });
       void message.success('User updated');
     },
-    onError: (err: AxiosError<ErrorResponse>) => void message.error(err.response?.data?.message || 'Failed to update user'),
+    onError: (err: AxiosError<ErrorResponse>) => {
+      // Setting status to inactive here goes through the same deactivation
+      // rules as the Deactivate button, so it can be refused for the same
+      // reason — and the answer is the same: hand the work over.
+      if (err.response?.data?.code === 'HANDOVER_REQUIRED' && editUser) {
+        setHandingOver(editUser);
+        setEditUser(null);
+        void message.warning(err.response.data.message ?? 'Hand the work over first');
+        return;
+      }
+      void message.error(err.response?.data?.message || 'Failed to update user');
+    },
   });
 
   const openEdit = (u: UserResponse) => {
@@ -132,8 +144,10 @@ const UserListPage: React.FC = () => {
     { title: 'Email', dataIndex: 'email', key: 'email' },
     { title: 'Role', dataIndex: 'role', key: 'role', render: (r: string, record: UserResponse) => (
         <Space size={4}>
-          <Tag color={r === 'admin' ? 'blue' : r === 'sales_rep' ? 'geekblue' : 'green'}>
-            {r.replace(/_/g, ' ').toUpperCase()}
+          {/* A distributor's (or customer's) staff have role "partner" — label
+              them by what their company is, which is what people mean. */}
+          <Tag color={r === 'admin' ? 'blue' : r === 'sales_rep' ? 'geekblue' : companyTypeMeta(record.company_type)?.color ?? 'green'}>
+            {(r === 'partner' && record.company_type ? companyTypeLabel(record.company_type) : r.replace(/_/g, ' ')).toUpperCase()}
           </Tag>
           {r === 'admin' && record.is_superadmin && <Tag color="purple">SUPERADMIN</Tag>}
         </Space>
@@ -143,7 +157,8 @@ const UserListPage: React.FC = () => {
     { title: 'Company', dataIndex: 'company_name', key: 'company' },
     { title: 'Department', dataIndex: 'department', key: 'department', render: (v: string | null) => v ?? '—' },
     {
-      title: 'Actions', key: 'actions', render: (_, record) => (
+      // Pinned so the actions stay on screen while wide rows scroll.
+      title: 'Actions', key: 'actions', fixed: 'right' as const, render: (_, record) => (
         <Space>
           <Button type="link" size="small" onClick={() => openEdit(record)}>Edit</Button>
           {record.status === 'active' && (
@@ -187,12 +202,12 @@ const UserListPage: React.FC = () => {
           options={[
             { value: 'admin', label: 'Admin' },
             { value: 'sales_rep', label: 'Sales Rep' },
-            { value: 'partner', label: 'Partner' },
+            { value: 'partner', label: 'Company users' },
           ]} />
       </Space>
       {isLoading ? <Skeleton active /> : (
         data && data.items.length > 0 ? (
-          <Table columns={columns} dataSource={data.items} rowKey="id"
+          <Table columns={columns} dataSource={data.items} rowKey="id" scroll={{ x: 'max-content' }}
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage }} />
         ) : <Empty description="No users found" />
       )}
@@ -207,7 +222,9 @@ const UserListPage: React.FC = () => {
             <Select options={[
               { value: 'admin', label: 'Admin' },
               { value: 'sales_rep', label: 'Sales Rep' },
-              { value: 'partner', label: 'Partner' },
+              // One role for anyone at a company; what they can reach follows
+              // from the company's type, which the list then shows as their role.
+              { value: 'partner', label: 'Partner / Distributor / Customer user' },
             ]} />
           </Form.Item>
           <Form.Item name="job_title" label="Job Title"><Input /></Form.Item>
@@ -216,7 +233,7 @@ const UserListPage: React.FC = () => {
             {({ getFieldValue }) => getFieldValue('role') === 'partner' ? (
               <Form.Item name="company_id" label="Company" rules={[{ required: true }]}>
                 <Select showSearch optionFilterProp="label"
-                  options={companies?.items.map((c: { id: number; name: string }) => ({ value: c.id, label: c.name })) ?? []} />
+                  options={companies?.items.map((c) => ({ value: c.id, label: `${c.name} (${companyTypeLabel(c.company_type)})` })) ?? []} />
               </Form.Item>
             ) : null}
           </Form.Item>

@@ -23,7 +23,7 @@ from app.schemas.auth import (
 from app.schemas.common import MessageResponse
 from app.services import auth_service
 from app.utils.audit import write_audit_log
-from app.core.rate_limit import limiter
+from app.core.rate_limit import client_ip, limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -45,7 +45,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
 @router.post("/login", response_model=LoginResponse, status_code=200)
 @limiter.limit("10/minute")
 async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    result = await auth_service.login(db, data)
+    result = await auth_service.login(db, data, ip_address=client_ip(request))
 
     # An account with a second factor gets no session here — only a
     # short-lived challenge to come back with a code. 200 rather than an
@@ -65,7 +65,7 @@ async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends
         action="LOGIN",
         entity_type="user",
         entity_id=login_response.user.id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
 
@@ -85,7 +85,7 @@ async def login_mfa(
     way a password is not, and the challenge lives for minutes.
     """
     result = await auth_service.complete_mfa_login(
-        db, data.challenge_token, data.code
+        db, data.challenge_token, data.code, ip_address=client_ip(request)
     )
     login_response = result["login_response"]
 
@@ -95,7 +95,7 @@ async def login_mfa(
         action="LOGIN",
         entity_type="user",
         entity_id=login_response.user.id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=client_ip(request),
         user_agent=request.headers.get("user-agent"),
         metadata={"second_factor": True},
     )
@@ -106,11 +106,11 @@ async def login_mfa(
 
 
 @router.post("/refresh", response_model=RefreshResponse, status_code=200)
-async def refresh_token(request: Request):
+async def refresh_token(request: Request, db: AsyncSession = Depends(get_db)):
     token = request.cookies.get("refresh_token")
     if not token:
         raise UnauthorizedException(code="MISSING_REFRESH_TOKEN", message="Refresh token cookie is missing")
-    return await auth_service.refresh_access_token(token)
+    return await auth_service.refresh_access_token(db, token)
 
 
 @router.post("/logout", response_model=MessageResponse, status_code=200)
@@ -140,7 +140,7 @@ async def logout(
             action="LOGOUT",
             entity_type="user",
             entity_id=user_id,
-            ip_address=request.client.host if request.client else None,
+            ip_address=client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
 
@@ -167,7 +167,9 @@ async def forgot_password(data: ForgotPasswordRequest, request: Request, db: Asy
 @router.post("/reset-password", response_model=MessageResponse, status_code=200)
 @limiter.limit("10/minute")
 async def reset_password(data: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    await auth_service.reset_password(db, data.token, data.new_password)
+    await auth_service.reset_password(
+        db, data.token, data.new_password, ip_address=client_ip(request)
+    )
     return MessageResponse(message="Password reset successfully")
 
 
@@ -178,14 +180,32 @@ async def activate_account(data: ActivateAccountRequest, request: Request, db: A
     return MessageResponse(message="Account activated successfully")
 
 
-@router.post("/change-password", response_model=MessageResponse, status_code=200)
+@router.post("/change-password", status_code=200)
+@limiter.limit("10/minute")
 async def change_password(
     data: ChangePasswordRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await auth_service.change_password(db, current_user, data.current_password, data.new_password)
-    return MessageResponse(message="Password changed successfully")
+    """Change your password. Every other session is signed out.
+
+    The caller's own session is replaced rather than ended: the response
+    carries a new access token and sets a new refresh cookie, so the person
+    who just changed their password is not bounced to the login screen while
+    whoever else had their old one is. Rate limited because it checks the
+    current password — an unattended session is otherwise a password oracle.
+    """
+    result = await auth_service.change_password(
+        db, current_user, data.current_password, data.new_password,
+        ip_address=client_ip(request),
+    )
+    response = JSONResponse(content={
+        "message": "Password changed successfully",
+        "access_token": result["login_response"].access_token,
+    })
+    _set_refresh_cookie(response, result["refresh_token"])
+    return response
 
 
 @router.get("/me", response_model=UserBasicResponse, status_code=200)
@@ -207,7 +227,7 @@ async def get_me(
         from app.models.company import Company
         cnt_res = await db.execute(
             select(func.count(Company.id)).where(
-                Company.channel_manager_id == current_user.id,
+                Company.managed_by(current_user.id),
                 Company.deleted_at.is_(None),
             )
         )

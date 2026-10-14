@@ -19,6 +19,8 @@ Two conventions worth knowing:
     answer "not found" rather than confirm a record exists to someone who may
     not see it (commissions do this). What is never acceptable is 2xx.
 """
+import uuid
+
 import pytest
 
 from app.models.company import CompanyType
@@ -371,17 +373,31 @@ class TestChannelManagerOutsideTheirBook:
         )
         assert r.status_code in DENIED
 
-    async def test_cannot_create_a_company(self, client, w, hdr):
+    async def test_can_create_a_company_and_always_manages_it(self, client, w, hdr):
+        # Any admin may create a company now. Naming only someone else as its
+        # manager must not let them create a company they can then not see:
+        # the creator is always added to its managers.
         r = await client.post(
             "/api/v1/companies",
             headers=hdr["manager_a"],
             json={
-                "name": "Sneaky Co", "country": "US", "region": "NA", "city": "Austin",
-                "industry": "Tech", "contact_email": "s@fixture.example.com",
-                "channel_manager_id": w.manager_a, "company_type": "partner",
+                "name": f"Created By Manager {uuid.uuid4().hex[:6]}", "country": "US",
+                "industry": "Tech", "contact_email": f"cm-{uuid.uuid4().hex[:8]}@fixture.example.com",
+                "channel_manager_ids": [w.manager_b], "company_type": "partner",
             },
         )
-        assert r.status_code in DENIED
+        assert r.status_code == 201, r.text[:300]
+        body = r.json()
+        # Region and city are optional.
+        assert body["region"] is None and body["city"] is None
+        assert {m["id"] for m in body["channel_managers"]} == {w.manager_a, w.manager_b}
+        assert body["channel_manager_id"] == w.manager_b  # first named is primary
+
+        listed = await client.get("/api/v1/companies?page_size=100", headers=hdr["manager_a"])
+        assert body["id"] in {c["id"] for c in listed.json()["items"]}
+        # ...and the co-manager sees it too.
+        listed_b = await client.get("/api/v1/companies?page_size=100", headers=hdr["manager_b"])
+        assert body["id"] in {c["id"] for c in listed_b.json()["items"]}
 
     async def test_cannot_delete_a_company(self, client, w, hdr):
         r = await client.delete(f"/api/v1/companies/{w.company_a}", headers=hdr["manager_a"])
@@ -417,11 +433,28 @@ class TestChannelManagerOutsideTheirBook:
         r = await client.delete(f"/api/v1/opportunities/{victim}", headers=hdr["manager_a"])
         assert r.status_code in DENIED
 
-    async def test_out_of_book_opportunities_absent_from_the_list(self, client, w, hdr):
+    async def test_every_admin_sees_every_opportunity(self, client, w, hdr):
+        # Admins are notified of every opportunity, so they must be able to
+        # list and open every one — acting on it stays with its managers.
         r = await client.get("/api/v1/opportunities?page_size=100", headers=hdr["manager_a"])
         ids = {i["id"] for i in r.json()["items"]}
         assert w.opp_a in ids
-        assert w.opp_b not in ids
+        assert w.opp_b in ids
+
+        mine = await client.get(
+            f"/api/v1/opportunities?page_size=100&channel_manager_id={w.manager_a}",
+            headers=hdr["manager_a"],
+        )
+        mine_ids = {i["id"] for i in mine.json()["items"]}
+        assert w.opp_a in mine_ids and w.opp_b not in mine_ids
+
+    async def test_reading_an_out_of_book_opportunity_does_not_claim_it(self, client, w, hdr, db):
+        victim = await _throwaway_opportunity(db, w)
+        before = await client.get(f"/api/v1/opportunities/{victim}", headers=hdr["partner_b"])
+        r = await client.get(f"/api/v1/opportunities/{victim}", headers=hdr["manager_a"])
+        assert r.status_code == 200
+        assert r.json()["viewer_can_review"] is False
+        assert r.json()["status"] == before.json()["status"]
 
     async def test_cannot_fulfil_an_out_of_book_doc_request(self, client, w, hdr):
         # Found by the upload audit: the GET checked scope, fulfil did not —
@@ -580,20 +613,26 @@ class TestSalesRepDenials:
         )
         assert r.status_code in DENIED
 
-    async def test_create_without_a_company_is_refused(self, client, w, hdr):
-        # A rep registers on behalf of a partner company and has none of their
-        # own, so a create that names no company must be refused rather than
-        # inserting an orphan row.
+    async def test_create_without_a_partner_company_is_a_direct_deal(self, client, w, hdr):
+        # "On behalf of partner" is optional: naming no company registers a
+        # direct deal, still assigned to the rep who created it.
         r = await client.post(
             "/api/v1/opportunities",
             headers=hdr["rep_a"],
             json={
-                "name": "x", "customer_name": "y", "region": "NA", "country": "US",
-                "city": "Austin", "worth": 1000, "closing_date": "2027-01-01",
-                "requirements": "r",
+                "name": "direct", "customer_name": f"Direct Customer {uuid.uuid4().hex[:6]}",
+                "region": "NA", "country": "US", "city": "Austin", "worth": 1000,
+                "closing_date": "2027-01-01", "requirements": "r",
             },
         )
-        assert r.status_code == 400
+        assert r.status_code == 201, r.text[:300]
+        assert r.json()["company_id"] is None
+        assert r.json()["sales_rep_id"] == w.rep_a
+
+        # Partners never see it; every admin does.
+        opp_id = r.json()["id"]
+        assert (await client.get(f"/api/v1/opportunities/{opp_id}", headers=hdr["partner_a"])).status_code in DENIED
+        assert (await client.get(f"/api/v1/opportunities/{opp_id}", headers=hdr["manager_a"])).status_code == 200
 
     async def test_can_create_on_behalf_of_a_partner_company(self, client, w, hdr):
         r = await client.post(

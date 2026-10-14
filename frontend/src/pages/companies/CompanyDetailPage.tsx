@@ -8,8 +8,9 @@ import type { PartnerAccountBrief, ResellerBrief, ScorecardRead } from '@/types'
 import { companyTypeMeta, isChannelCompanyType } from '@/utils/companyType';
 import TierHistoryCard from '@/components/common/TierHistoryCard';
 import AddPartnerModal from '@/components/companies/AddPartnerModal';
+import AddResellerModal from '@/components/companies/AddResellerModal';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, EditOutlined, TrophyOutlined, StarFilled, DollarOutlined, RiseOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, TrophyOutlined, StarFilled, DollarOutlined, RiseOutlined, UserAddOutlined, ApartmentOutlined } from '@ant-design/icons';
 
 const tierColors: Record<string, string> = { silver: 'default', gold: 'gold', platinum: 'blue' };
 
@@ -23,6 +24,7 @@ const CompanyDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const companyId = Number(id);
   const [addPartner, setAddPartner] = useState(false);
+  const [addReseller, setAddReseller] = useState(false);
 
   const { data: company, isLoading, error } = useQuery({
     queryKey: ['company', companyId],
@@ -49,6 +51,11 @@ const CompanyDetailPage: React.FC = () => {
   if (error) return <Alert type="error" message="Failed to load company" showIcon />;
   if (isLoading) return <Skeleton active paragraph={{ rows: 10 }} />;
   if (!company) return <Empty description="Company not found" />;
+
+  const isDistributor = company.company_type === 'distributor';
+  const managerNames = company.channel_managers.length
+    ? company.channel_managers.map((m) => m.full_name).join(', ')
+    : company.channel_manager_name;
 
   const resellerColumns: ColumnsType<ResellerBrief> = [
     {
@@ -91,7 +98,7 @@ const CompanyDetailPage: React.FC = () => {
     { title: 'Name', dataIndex: 'full_name', key: 'name' },
     { title: 'Email', dataIndex: 'email', key: 'email' },
     { title: 'Contact', dataIndex: 'phone', key: 'phone', render: (v: string | null) => v ?? '—' },
-    { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === 'active' ? 'green' : s === 'pending_activation' ? 'orange' : 'red'}>{s.toUpperCase()}</Tag> },
+    { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === 'active' ? 'green' : s === 'pending_activation' ? 'orange' : 'red'}>{s.replace(/_/g, ' ').toUpperCase()}</Tag> },
     { title: 'Designation', dataIndex: 'job_title', key: 'job', render: (v: string | null) => v ?? '—' },
     { title: 'Department', dataIndex: 'department', key: 'department', render: (v: string | null) => v ?? '—' },
   ];
@@ -104,7 +111,14 @@ const CompanyDetailPage: React.FC = () => {
         extra={
           <Space>
             <Button icon={<EditOutlined />} onClick={() => navigate(`/companies/${companyId}/edit`)}>Edit</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddPartner(true)}>Add Partner</Button>
+            {/* "Add Partner" here used to mean a user inside this company, which
+                on a distributor read as adding a reseller and silently didn't. */}
+            <Button icon={<UserAddOutlined />} onClick={() => setAddPartner(true)}>Add User</Button>
+            {isDistributor && (
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddReseller(true)}>
+                Add Partner Company
+              </Button>
+            )}
           </Space>
         }
       />
@@ -112,13 +126,20 @@ const CompanyDetailPage: React.FC = () => {
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
           <Card title="Company Information">
-            <Descriptions column={{ xs: 1, sm: 2 }} bordered size="small">
+            <Descriptions
+              column={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 3 }}
+              styles={{ label: { whiteSpace: 'nowrap', width: 1 }, content: { overflowWrap: 'break-word' } }}
+              bordered
+              size="small"
+            >
               <Descriptions.Item label="Country">{company.country}</Descriptions.Item>
-              <Descriptions.Item label="Region">{company.region}</Descriptions.Item>
-              <Descriptions.Item label="City">{company.city}</Descriptions.Item>
+              <Descriptions.Item label="Region">{company.region ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="City">{company.city ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Industry">{company.industry}</Descriptions.Item>
               <Descriptions.Item label="Contact Email">{company.contact_email}</Descriptions.Item>
-              <Descriptions.Item label="Channel Manager">{company.channel_manager_name}</Descriptions.Item>
+              <Descriptions.Item label={company.channel_managers.length > 1 ? 'Channel Managers' : 'Channel Manager'}>
+                {managerNames ?? '—'}
+              </Descriptions.Item>
               <Descriptions.Item label="Status"><Tag color={company.status === 'active' ? 'green' : 'red'}>{company.status.toUpperCase()}</Tag></Descriptions.Item>
               <Descriptions.Item label="Type">
                 {(() => {
@@ -236,19 +257,29 @@ const CompanyDetailPage: React.FC = () => {
 
       {/* Only a distributor has any, so the whole card stays out of the way
           for every other company rather than showing an empty table. */}
-      {company.resellers.length > 0 && (
-        <Card title={`Resellers (${company.resellers.length})`} style={{ marginTop: 16 }}>
+      {(isDistributor || company.resellers.length > 0) && (
+        <Card
+          title={<span><ApartmentOutlined style={{ marginRight: 8 }} />Partner Companies ({company.resellers.length})</span>}
+          style={{ marginTop: 16 }}
+          extra={isDistributor && (
+            <Button size="small" icon={<PlusOutlined />} onClick={() => setAddReseller(true)}>Add Partner Company</Button>
+          )}
+        >
           <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
             This distributor can see the pipeline — opportunities, POCs and
             licences — of every company listed here. They cannot see each
             other's.
           </Typography.Paragraph>
-          <Table
-            columns={resellerColumns}
-            dataSource={company.resellers}
-            rowKey="id"
-            pagination={false}
-          />
+          {company.resellers.length > 0 ? (
+            <Table
+              columns={resellerColumns}
+              dataSource={company.resellers}
+              rowKey="id"
+              pagination={false}
+            />
+          ) : (
+            <Empty description="No partner companies under this distributor yet" />
+          )}
         </Card>
       )}
 
@@ -256,11 +287,11 @@ const CompanyDetailPage: React.FC = () => {
           no tier, so it has nothing to show. */}
       {isChannel && <TierHistoryCard companyId={companyId} />}
 
-      <Card title={`Partner Accounts (${company.partners.length})`} style={{ marginTop: 16 }}>
+      <Card title={`Users (${company.partners.length})`} style={{ marginTop: 16 }}>
         {company.partners.length > 0 ? (
           <Table columns={partnerColumns} dataSource={company.partners} rowKey="id" pagination={false} />
         ) : (
-          <Empty description="No partner accounts" />
+          <Empty description="No users in this company yet" />
         )}
       </Card>
 
@@ -270,6 +301,13 @@ const CompanyDetailPage: React.FC = () => {
         companyName={company.name}
         onClose={() => setAddPartner(false)}
       />
+      {isDistributor && (
+        <AddResellerModal
+          open={addReseller}
+          distributor={company}
+          onClose={() => setAddReseller(false)}
+        />
+      )}
     </>
   );
 };

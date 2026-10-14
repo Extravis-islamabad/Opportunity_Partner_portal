@@ -50,6 +50,15 @@ async def get_activity_month(
     )
 
 
+@router.get("/reminders", response_model=list[ActivityResponse], status_code=200)
+async def list_my_reminders(
+    rep: User = Depends(get_current_sales_rep),
+    db: AsyncSession = Depends(get_db),
+):
+    """The caller's follow-up reminders that have not fired yet, soonest first."""
+    return await sales_activity_service.list_upcoming_reminders(db, rep)
+
+
 @router.post("", response_model=ActivityResponse, status_code=201)
 async def create_activity(
     data: ActivityCreateRequest,

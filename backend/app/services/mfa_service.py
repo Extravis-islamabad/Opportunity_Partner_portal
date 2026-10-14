@@ -280,6 +280,43 @@ async def disable(db: AsyncSession, user: User, actor: User) -> None:
     )
 
 
+async def disable_own(
+    db: AsyncSession, user: User, code: str, ip_address: str | None = None
+) -> None:
+    """Turn off your own second factor — only with the second factor.
+
+    A bearer token alone proves somebody holds a session, not that they are
+    the account holder, and switching MFA off is the first thing an intruder
+    with a stolen session would do. A current authenticator code or an unused
+    recovery code is required (so a lost phone is still recoverable), and a
+    wrong one counts towards the account lockout exactly as at sign-in —
+    otherwise this endpoint would be an unthrottled code oracle.
+
+    An enrolment that was never confirmed protects nothing, so abandoning a
+    half-finished setup needs no code.
+    """
+    enrollment = await get_enrollment(db, user.id)
+    if enrollment is None:
+        return
+    if enrollment.is_active:
+        try:
+            await verify_second_factor(db, user, code)
+        except UnauthorizedException as exc:
+            if exc.code == "INVALID_MFA_CODE":
+                from app.services import auth_service
+
+                await auth_service.record_failed_attempt(
+                    db, user, reason="mfa_code", ip_address=ip_address
+                )
+            # 400, not 401: the session is fine, the code is not. A 401 here
+            # would send the frontend off to refresh the token and retry.
+            raise BadRequestException(
+                code="INVALID_MFA_CODE",
+                message="That code is not right. Enter a current code from your authenticator, or a recovery code.",
+            )
+    await disable(db, user, user)
+
+
 async def regenerate_recovery_codes(db: AsyncSession, user: User) -> list[str]:
     """Issue a fresh set, invalidating the old ones."""
     enrollment = await get_enrollment(db, user.id)

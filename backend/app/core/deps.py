@@ -4,7 +4,7 @@ from sqlalchemy.orm import joinedload
 from typing import Optional
 
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import access_token_is_current, decode_token
 from app.core.redis import redis_client
 from app.core.exceptions import UnauthorizedException, ForbiddenException
 from app.models.user import User, UserRole
@@ -27,6 +27,13 @@ async def get_current_user(
     payload = decode_token(token)
     if not payload or payload.get("type") != "access":
         raise UnauthorizedException(code="INVALID_TOKEN", message="Invalid or expired access token")
+
+    # A password change bumps the user's session version; tokens minted
+    # before it stop working at once rather than living out their 15 minutes.
+    if not await access_token_is_current(payload):
+        raise UnauthorizedException(
+            code="TOKEN_REVOKED", message="Your password was changed. Please sign in again."
+        )
 
     user_id = payload.get("sub")
     if not user_id:
@@ -206,7 +213,7 @@ async def assert_manages_company(
     result = await db.execute(
         select(Company.id).where(
             Company.id == company_id,
-            Company.channel_manager_id == admin.id,
+            Company.managed_by(admin.id),
             Company.deleted_at.is_(None),
         )
     )
@@ -236,6 +243,10 @@ async def assert_can_view_user(
         return
 
     if viewer.role == UserRole.ADMIN:
+        # Sales reps belong to no company and every admin already lists them
+        # (and reviews their activity logs) — opening one must not then 403.
+        if target.role == UserRole.SALES_REP:
+            return
         scope = await get_admin_scope(db, viewer)
         # scope is None only for superadmins, already handled above.
         if target.company_id is not None and target.company_id in (scope or []):
@@ -347,8 +358,7 @@ async def assert_can_access_opportunity(
         return
 
     if user.role == UserRole.ADMIN:
-        scope = await get_admin_scope(db, user)
-        if scope is not None and opportunity.company_id not in scope:
+        if not await can_review_opportunity(db, user, opportunity):
             raise ForbiddenException(
                 message="You can only access opportunities for companies you manage"
             )
@@ -450,6 +460,23 @@ async def assert_can_work_on_poc(
     await assert_can_access_opportunity(db, user, opportunity)
 
 
+async def assert_can_read_opportunity(
+    db: AsyncSession,
+    user: User,
+    opportunity,
+) -> None:
+    """Read access to an opportunity and the POC / licence data shown on its
+    page.
+
+    Every admin may read every opportunity — they are all notified of each one
+    as it is submitted, and a notification they could not open was the bug.
+    Everyone else gets exactly assert_can_work_on_poc. Writes never use this.
+    """
+    if user.role == UserRole.ADMIN:
+        return
+    await assert_can_work_on_poc(db, user, opportunity)
+
+
 async def get_reseller_company_ids(db: AsyncSession, distributor_id: int) -> list[int]:
     """Company ids of the resellers sitting under this distributor.
 
@@ -516,8 +543,49 @@ async def get_admin_scope(
     from app.models.company import Company
     result = await db.execute(
         select(Company.id).where(
-            Company.channel_manager_id == user.id,
+            Company.managed_by(user.id),
             Company.deleted_at.is_(None),
         )
     )
     return [row[0] for row in result.all()]
+
+
+async def get_channel_manager_ids(db: AsyncSession, company_id: Optional[int]) -> set[int]:
+    """Every channel manager of a company: the primary one plus any others.
+
+    The one place notification code should ask "who looks after this
+    company?" — reading company.channel_manager_id alone would leave the
+    additional managers out of every reminder and escalation.
+    """
+    if company_id is None:
+        return set()
+    from app.models.company import Company, company_channel_managers
+
+    primary = await db.execute(
+        select(Company.channel_manager_id).where(Company.id == company_id)
+    )
+    ids = {row[0] for row in primary.all() if row[0] is not None}
+    extra = await db.execute(
+        select(company_channel_managers.c.user_id).where(
+            company_channel_managers.c.company_id == company_id
+        )
+    )
+    ids.update(row[0] for row in extra.all())
+    return ids
+
+
+async def can_review_opportunity(db: AsyncSession, user: User, opportunity) -> bool:
+    """Whether this admin may act on (approve, reject, claim, annotate) an
+    opportunity, as opposed to merely read it.
+
+    Every admin can *read* every opportunity. Acting on one stays with the
+    superadmin and the company's channel managers. An opportunity with no
+    partner company belongs to no channel manager's book, so any admin may
+    act on it.
+    """
+    if user.role != UserRole.ADMIN:
+        return False
+    if user.is_superadmin or opportunity.company_id is None:
+        return True
+    scope = await get_admin_scope(db, user)
+    return scope is None or opportunity.company_id in scope

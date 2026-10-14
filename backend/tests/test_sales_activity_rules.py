@@ -3,7 +3,7 @@
 These need no DB: date validation and the modify-permission matrix are
 plain functions over simple attributes.
 """
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +13,7 @@ from app.models.user import UserRole
 from app.services.sales_activity_service import (
     _assert_can_modify,
     _validate_activity_date,
+    _validate_reminder_at,
     parse_month,
 )
 
@@ -33,13 +34,13 @@ class TestValidateActivityDate:
     def test_past_weekday_ok(self):
         _validate_activity_date(_last_weekday(date.today() - timedelta(days=7)))
 
-    def test_weekend_rejected(self):
-        d = date.today()
-        while d.weekday() != 5:  # find a Saturday
+    def test_weekend_allowed(self):
+        # Reps work weekends too; Saturday and Sunday used to be refused.
+        d = date.today() - timedelta(days=1)
+        while d.weekday() != 5:  # find a past Saturday
             d -= timedelta(days=1)
-        with pytest.raises(BadRequestException) as exc:
-            _validate_activity_date(d)
-        assert exc.value.code == "INVALID_ACTIVITY_DATE"
+        _validate_activity_date(d)
+        _validate_activity_date(d + timedelta(days=1))  # and the Sunday
 
     def test_far_future_rejected(self):
         d = _next_weekday(date.today() + timedelta(days=30))
@@ -48,9 +49,22 @@ class TestValidateActivityDate:
         assert exc.value.code == "INVALID_ACTIVITY_DATE"
 
     def test_one_day_of_timezone_slack(self):
-        tomorrow = date.today() + timedelta(days=1)
-        if tomorrow.weekday() < 5:
-            _validate_activity_date(tomorrow)  # must not raise
+        _validate_activity_date(date.today() + timedelta(days=1))  # must not raise
+
+
+class TestValidateReminderAt:
+    def test_future_reminder_ok(self):
+        at = datetime.now(timezone.utc) + timedelta(hours=2)
+        assert _validate_reminder_at(at) == at
+
+    def test_past_reminder_rejected(self):
+        with pytest.raises(BadRequestException) as exc:
+            _validate_reminder_at(datetime.now(timezone.utc) - timedelta(minutes=1))
+        assert exc.value.code == "INVALID_REMINDER"
+
+    def test_naive_datetime_read_as_utc(self):
+        at = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(tzinfo=None)
+        assert _validate_reminder_at(at).tzinfo is timezone.utc
 
 
 def _user(id=1, role=UserRole.SALES_REP, superadmin=False):

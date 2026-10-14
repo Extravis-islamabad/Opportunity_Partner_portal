@@ -66,9 +66,20 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         colorLinkHover: '#4961f1',
         colorLinkActive: '#3750ed',
         colorInfo: '#3750ed',
-        // Royal Blue 50 — subtle hover/selected backgrounds
-        controlItemBgHover: '#e7e7f1',
-        controlItemBgActive: '#e7e7f1',
+        // Subtle hover/selected backgrounds for dropdown options, menus and
+        // table rows. Royal Blue 50 in light mode; in dark mode a translucent
+        // royal blue — the light tint left the selected option a pale bar with
+        // pale text on it, unreadable.
+        ...(mode === 'dark'
+          ? {
+              controlItemBgHover: 'rgba(55, 80, 237, 0.20)',
+              controlItemBgActive: 'rgba(55, 80, 237, 0.32)',
+              controlItemBgActiveHover: 'rgba(55, 80, 237, 0.40)',
+            }
+          : {
+              controlItemBgHover: '#e7e7f1',
+              controlItemBgActive: '#e7e7f1',
+            }),
         controlOutline: 'rgba(55, 80, 237, 0.16)',
         borderRadius: 6,
         fontFamily:
@@ -94,10 +105,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           siderBg: '#1c1c3a',
           triggerBg: '#1c1c3a',
         },
-        Tag: {
-          defaultBg: '#f0e6ff',
-          defaultColor: '#5b1965',
-        },
+        Tag:
+          mode === 'dark'
+            ? { defaultBg: 'rgba(160, 100, 243, 0.16)', defaultColor: '#d3b8fb' }
+            : { defaultBg: '#f0e6ff', defaultColor: '#5b1965' },
       },
     }),
     [mode],

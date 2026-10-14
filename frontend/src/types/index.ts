@@ -103,6 +103,8 @@ export interface UserResponse {
   department: string | null;
   company_id: number | null;
   company_name: string | null;
+  /** The user's company type. A distributor's staff have role 'partner'. */
+  company_type?: CompanyType | null;
   is_superadmin: boolean;
   is_channel_manager: boolean;
   managed_company_count: number;
@@ -146,12 +148,17 @@ export interface TeamMemberCreateRequest {
 }
 
 // ==================== Company ====================
+export interface ChannelManagerBrief {
+  id: number;
+  full_name: string;
+}
+
 export interface CompanyResponse {
   id: number;
   name: string;
   country: string;
-  region: string;
-  city: string;
+  region: string | null;
+  city: string | null;
   industry: string;
   contact_email: string;
   status: string;
@@ -160,6 +167,8 @@ export interface CompanyResponse {
   tier: string | null;
   channel_manager_id: number;
   channel_manager_name: string | null;
+  /** Every channel manager, primary first. */
+  channel_managers: ChannelManagerBrief[];
   /**
    * Set only on a partner company that resells through a distributor. Null
    * means the company reports directly to Extravis.
@@ -206,8 +215,8 @@ export interface PartnerAccountBrief {
 export interface CompanyCreateRequest {
   name: string;
   country: string;
-  region: string;
-  city: string;
+  region?: string | null;
+  city?: string | null;
   industry: string;
   contact_email: string;
   /**
@@ -216,7 +225,8 @@ export interface CompanyCreateRequest {
    * name when omitted.
    */
   contact_name?: string;
-  channel_manager_id: number;
+  /** Every channel manager; the first is the primary one. */
+  channel_manager_ids: number[];
   /** Required — classification governs what the company's users can reach. */
   company_type: CompanyType;
   /** Only valid on a partner company, and only pointing at a distributor. */
@@ -226,11 +236,12 @@ export interface CompanyCreateRequest {
 export interface CompanyUpdateRequest {
   name?: string;
   country?: string;
-  region?: string;
-  city?: string;
+  region?: string | null;
+  city?: string | null;
   industry?: string;
   contact_email?: string;
-  channel_manager_id?: number;
+  /** Superadmin-only. Replaces the whole set; the first is primary. */
+  channel_manager_ids?: number[];
   /** Superadmin-only; the API rejects it from anyone else. */
   company_type?: CompanyType;
   /**
@@ -385,7 +396,8 @@ export interface OpportunityResponse {
   internal_notes: string | null;
   submitted_by: number;
   submitted_by_name: string | null;
-  company_id: number;
+  /** Null on a direct deal registered with no partner company. */
+  company_id: number | null;
   company_name: string | null;
   reviewed_by: number | null;
   reviewer_name: string | null;
@@ -405,6 +417,9 @@ export interface OpportunityResponse {
   ai_reasoning: string | null;
   ai_scored_at: string | null;
   ai_duplicate_of_id: number | null;
+  /** Admins only: whether this viewer may approve / reject / annotate it.
+   *  Every admin can read every opportunity; acting is for its channel managers. */
+  viewer_can_review?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -423,7 +438,7 @@ export interface OpportunityListItem {
   multi_partner_alert: boolean;
   submitted_by_name: string | null;
   company_name: string | null;
-  company_id: number;
+  company_id: number | null;
   industry: string | null;
   products: string[];
   product: string | null;
@@ -524,7 +539,8 @@ export interface KBDocumentResponse {
   category: string;
   description: string | null;
   file_name: string;
-  file_url: string;
+  /** Null except on the download response — fetching it is what logs the download. */
+  file_url: string | null;
   file_size: number | null;
   content_type: string | null;
   version: number;
@@ -552,6 +568,10 @@ export interface CourseResponse {
   thumbnail_url: string | null;
   enrollment_count: number;
   completion_count: number;
+  /** Quiz questions (shape owned by pages/lms/CourseDetailPage). Admins get
+   *  the answer key; everyone else does not. */
+  assessment_json?: Array<Record<string, unknown>> | null;
+  passing_score?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -1370,6 +1390,7 @@ export type ActivityType =
   | 'site_visit'
   | 'follow_up'
   | 'training'
+  | 'deployment'
   | 'other';
 
 export interface ActivityCreateRequest {
@@ -1379,8 +1400,12 @@ export interface ActivityCreateRequest {
   opportunity_id?: number | null;
   /** The POC this was work on. Only accepted for a POC the logger can work on. */
   poc_id?: number | null;
+  partner_name?: string | null;
   duration_minutes?: number | null;
   notes?: string | null;
+  /** ISO datetime; must be in the future. */
+  reminder_at?: string | null;
+  reminder_note?: string | null;
 }
 
 export interface ActivityResponse {
@@ -1394,8 +1419,12 @@ export interface ActivityResponse {
   opportunity_id: number | null;
   opportunity_name: string | null;
   poc_id: number | null;
+  partner_name: string | null;
   duration_minutes: number | null;
   notes: string | null;
+  reminder_at: string | null;
+  reminder_note: string | null;
+  reminder_sent_at: string | null;
   created_at: string;
   updated_at: string;
 }

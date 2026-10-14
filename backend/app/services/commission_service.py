@@ -270,8 +270,25 @@ async def list_commissions(
     return items, total
 
 
+def _out_of_scope(
+    c: Commission, current_user: User, scope_company_ids: Optional[list[int]]
+) -> bool:
+    """True when this user may not see this commission.
+
+    Partners see their own company's; a channel manager (non-None scope) sees
+    only their managed companies'; a superadmin (scope None) sees all.
+    """
+    if current_user.role == UserRole.PARTNER:
+        return c.company_id != current_user.company_id
+    return scope_company_ids is not None and c.company_id not in scope_company_ids
+
+
 async def get_commission(
-    db: AsyncSession, *, commission_id: int, current_user: User
+    db: AsyncSession,
+    *,
+    commission_id: int,
+    current_user: User,
+    scope_company_ids: Optional[list[int]] = None,
 ) -> CommissionRead:
     result = await db.execute(
         select(Commission)
@@ -286,7 +303,9 @@ async def get_commission(
     if c is None:
         raise NotFoundException(code="COMMISSION_NOT_FOUND", message="Commission not found")
 
-    if current_user.role == UserRole.PARTNER and c.company_id != current_user.company_id:
+    # 404 rather than 403, for partners and channel managers alike: a commission
+    # outside your scope does not exist as far as you are concerned.
+    if _out_of_scope(c, current_user, scope_company_ids):
         raise NotFoundException(code="COMMISSION_NOT_FOUND", message="Commission not found")
 
     return _build_commission_read(c)
@@ -311,6 +330,7 @@ async def update_commission_status(
     new_status: str,
     notes: Optional[str],
     actor: User,
+    scope_company_ids: Optional[list[int]] = None,
 ) -> CommissionRead:
     try:
         target = CommissionStatus(new_status)
@@ -327,9 +347,18 @@ async def update_commission_status(
             joinedload(Commission.deal),
         )
         .where(Commission.id == commission_id)
+        # Row lock so two concurrent requests cannot both pass the transition
+        # check (e.g. approved -> paid twice, or paid and void at once). `of`
+        # keeps the lock off the outer-joined tables, which Postgres refuses.
+        .with_for_update(of=Commission)
     )
     c = result.unique().scalar_one_or_none()
     if c is None:
+        raise NotFoundException(code="COMMISSION_NOT_FOUND", message="Commission not found")
+
+    # Same 404 as the read route: an out-of-scope channel manager could
+    # previously change any company's commission status.
+    if _out_of_scope(c, actor, scope_company_ids):
         raise NotFoundException(code="COMMISSION_NOT_FOUND", message="Commission not found")
 
     allowed = VALID_TRANSITIONS[c.status]
@@ -463,10 +492,13 @@ async def get_scorecard(
     )
     ytd_commission = Decimal(ytd_result.scalar() or 0)
 
+    # Same statuses as YTD: lifetime is a superset of this year, so counting
+    # pending commissions in one and not the other showed a partner a YTD
+    # figure larger than their lifetime total.
     lifetime_result = await db.execute(
         select(func.coalesce(func.sum(Commission.amount), 0)).where(
             Commission.company_id == company_id,
-            Commission.status.in_([CommissionStatus.APPROVED, CommissionStatus.PAID]),
+            Commission.status.in_([CommissionStatus.APPROVED, CommissionStatus.PAID, CommissionStatus.PENDING]),
         )
     )
     lifetime_commission = Decimal(lifetime_result.scalar() or 0)
@@ -584,7 +616,10 @@ async def build_statement(
         .where(
             Commission.company_id == company_id,
             Commission.calculated_at >= period_start,
-            Commission.calculated_at <= period_end,
+            # Exclusive: period_end is the first instant of the next month, so
+            # `<=` put a commission calculated at exactly midnight on the 1st
+            # into two consecutive statements.
+            Commission.calculated_at < period_end,
             Commission.status.in_([CommissionStatus.APPROVED, CommissionStatus.PAID]),
         )
         .order_by(Commission.calculated_at)
@@ -594,8 +629,23 @@ async def build_statement(
     return rows, _quantize(total)
 
 
+async def get_statement_company_name(db: AsyncSession, company_id: int) -> str:
+    """Name for a statement header; 404 for an unknown or deleted company."""
+    result = await db.execute(
+        select(Company.name).where(Company.id == company_id, Company.deleted_at.is_(None))
+    )
+    name = result.scalar_one_or_none()
+    if name is None:
+        raise NotFoundException(code="COMPANY_NOT_FOUND", message="Company not found")
+    return name
+
+
 async def list_statements(
-    db: AsyncSession, *, company_id: Optional[int], current_user: User
+    db: AsyncSession,
+    *,
+    company_id: Optional[int],
+    current_user: User,
+    scope_company_ids: Optional[list[int]] = None,
 ) -> list[StatementPeriodSummary]:
     """
     Returns monthly summaries rolled up from Commission rows. We don't
@@ -619,8 +669,13 @@ async def list_statements(
         if not current_user.company_id:
             return []
         query = query.where(Commission.company_id == current_user.company_id)
-    elif company_id:
-        query = query.where(Commission.company_id == company_id)
+    else:
+        # Channel manager: managed companies only. A company_id filter outside
+        # the book intersects to nothing, as on the commission list.
+        if scope_company_ids is not None:
+            query = query.where(Commission.company_id.in_(scope_company_ids))
+        if company_id:
+            query = query.where(Commission.company_id == company_id)
 
     result = await db.execute(query)
     rows = result.all()

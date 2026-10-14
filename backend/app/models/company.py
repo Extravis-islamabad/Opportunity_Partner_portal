@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey, Table, Text, func, or_, select
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -45,14 +45,30 @@ CHANNEL_COMPANY_TYPES: frozenset[CompanyType] = frozenset(
 )
 
 
+# Every channel manager of a company. companies.channel_manager_id is still
+# the *primary* one (NOT NULL, and the name shown where only one fits), and is
+# always in this table as well — company_service keeps the two in step. Scope
+# checks go through `Company.managed_by`, which reads both, so a company made
+# by a path that only sets channel_manager_id (bulk import, seeds) is still in
+# its manager's scope.
+company_channel_managers = Table(
+    "company_channel_managers",
+    Base.metadata,
+    Column("company_id", Integer, ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+
 class Company(Base):
     __tablename__ = "companies"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False, index=True)
     country = Column(String(100), nullable=False)
-    region = Column(String(100), nullable=False)
-    city = Column(String(100), nullable=False)
+    # Optional: a single-city country has no meaningful region to ask for.
+    region = Column(String(100), nullable=True)
+    city = Column(String(100), nullable=True)
     industry = Column(String(255), nullable=False)
     contact_email = Column(String(255), nullable=False)
     status = Column(Enum(CompanyStatus, values_callable=lambda x: [e.value for e in x]), nullable=False, default=CompanyStatus.ACTIVE)
@@ -107,7 +123,29 @@ class Company(Base):
         """Only a distributor sits above other companies."""
         return self.company_type == CompanyType.DISTRIBUTOR
 
+    @classmethod
+    def managed_by(cls, user_id: int):
+        """SQL predicate: this company is channel-managed by `user_id`, either
+        as its primary manager or as one of its additional ones."""
+        return or_(
+            cls.channel_manager_id == user_id,
+            cls.id.in_(
+                select(company_channel_managers.c.company_id).where(
+                    company_channel_managers.c.user_id == user_id
+                )
+            ),
+        )
+
     channel_manager = relationship("User", back_populates="managed_companies", foreign_keys=[channel_manager_id])
+    # All managers, primary included. selectin so every read path can list
+    # them without an async lazy load.
+    channel_managers = relationship(
+        "User",
+        secondary=company_channel_managers,
+        lazy="selectin",
+        order_by="User.full_name",
+        viewonly=True,
+    )
     parent_distributor = relationship(
         "Company", remote_side="Company.id", foreign_keys=[parent_distributor_id],
         back_populates="resellers",

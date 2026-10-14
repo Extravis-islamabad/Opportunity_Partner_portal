@@ -1,9 +1,10 @@
 import React from 'react';
-import { Button, Card, Col, Empty, InputNumber, Row, Select, Space, Typography } from 'antd';
+import { Button, Card, Col, Empty, InputNumber, Row, Select, Space, Typography, theme } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { opportunitiesApi } from '@/api/endpoints';
 import type { ProductLine } from '@/types';
+import { lineSize } from '@/utils/sizing';
 
 /**
  * The products on a deal, with the sizing the quote is built from.
@@ -15,6 +16,10 @@ import type { ProductLine } from '@/types';
  * Sizing is captured here — before the PO — because it is what the quote is
  * priced from. It used to appear only on the licence record, which is created
  * after the PO has already landed.
+ *
+ * Nodes and devices are the same thing, so there is one number per line. It
+ * is stored in device_count; an older line that only ever had node_count set
+ * is shown from that, and is moved across the next time it is saved.
  */
 interface Props {
   value?: ProductLine[];
@@ -26,6 +31,7 @@ interface Props {
 
 const ProductLinesField: React.FC<Props> = ({ value, onChange, currency = 'USD' }) => {
   const lines = value ?? [];
+  const { token } = theme.useToken();
 
   const { data: catalogue } = useQuery({
     queryKey: ['product-catalogue'],
@@ -41,7 +47,7 @@ const ProductLinesField: React.FC<Props> = ({ value, onChange, currency = 'USD' 
   const available = (catalogue ?? []).filter((o) => !taken.has(o.value));
 
   return (
-    <Card size="small" variant="borderless" style={{ background: '#fafafa' }}>
+    <Card size="small" variant="borderless" style={{ background: token.colorFillQuaternary }}>
       {lines.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -52,7 +58,7 @@ const ProductLinesField: React.FC<Props> = ({ value, onChange, currency = 'USD' 
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           {lines.map((line, index) => (
             <Row gutter={8} key={`${line.product}-${index}`} align="middle">
-              <Col xs={24} sm={7}>
+              <Col xs={24} sm={8}>
                 <Select
                   style={{ width: '100%' }}
                   value={line.product || undefined}
@@ -67,25 +73,17 @@ const ProductLinesField: React.FC<Props> = ({ value, onChange, currency = 'USD' 
                   }))}
                 />
               </Col>
-              <Col xs={12} sm={4}>
+              <Col xs={24} sm={6}>
                 <InputNumber
                   style={{ width: '100%' }}
                   min={0}
-                  placeholder="Devices"
-                  value={line.device_count ?? null}
-                  onChange={(v) => update(index, { device_count: v ?? null })}
+                  placeholder="Nodes / Devices"
+                  aria-label="Nodes / Devices"
+                  value={lineSize(line)}
+                  onChange={(v) => update(index, { device_count: v ?? null, node_count: null })}
                 />
               </Col>
-              <Col xs={12} sm={4}>
-                <InputNumber
-                  style={{ width: '100%' }}
-                  min={0}
-                  placeholder="Nodes"
-                  value={line.node_count ?? null}
-                  onChange={(v) => update(index, { node_count: v ?? null })}
-                />
-              </Col>
-              <Col xs={20} sm={7}>
+              <Col xs={20} sm={8}>
                 <InputNumber
                   style={{ width: '100%' }}
                   min={0}

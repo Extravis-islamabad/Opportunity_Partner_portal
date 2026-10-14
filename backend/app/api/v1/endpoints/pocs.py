@@ -21,6 +21,7 @@ from app.core.database import get_db
 from app.core.deps import (
     assert_can_access_opportunity,
     assert_can_work_on_poc,
+    assert_can_read_opportunity,
     get_admin_scope,
     get_current_admin,
     get_current_user,
@@ -126,7 +127,7 @@ async def get_poc_for_opportunity(
     a normal state (most opportunities never reach POC), so this returns 200
     with a null body rather than 404."""
     opp = await poc_service.get_opportunity_or_404(db, opp_id)
-    await assert_can_work_on_poc(db, current_user, opp)
+    await assert_can_read_opportunity(db, current_user, opp)
 
     poc = await poc_service.get_poc_by_opportunity(db, opp_id)
     return poc_service.to_poc_response(poc, viewer=current_user) if poc else None
@@ -139,7 +140,7 @@ async def get_poc(
     db: AsyncSession = Depends(get_db),
 ):
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_work_on_poc(db, current_user, poc.opportunity)
+    await assert_can_read_opportunity(db, current_user, poc.opportunity)
     return poc_service.to_poc_response(poc, viewer=current_user)
 
 
@@ -218,7 +219,7 @@ async def get_poc_activities(
 ):
     """Every activity logged against this POC, with a total per person."""
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_work_on_poc(db, user, poc.opportunity)
+    await assert_can_read_opportunity(db, user, poc.opportunity)
     return await sales_activity_service.get_poc_activity_feed(db, poc)
 
 
@@ -285,7 +286,13 @@ async def get_poc_team(
     db: AsyncSession = Depends(get_db),
 ):
     poc = await poc_service.get_poc_or_404(db, poc_id)
-    await assert_can_work_on_poc(db, current_user, poc.opportunity)
+    await assert_can_read_opportunity(db, current_user, poc.opportunity)
+    if current_user.role == UserRole.PARTNER:
+        # The same roster GET /pocs/{id} shows a partner: who is on the team
+        # and what they do, without the staff directory around it — and
+        # without the history of who has left, which is internal too.
+        team = await poc_team_service.get_team(db, poc_id, include_removed=False)
+        return [poc_team_service.redact_for_partner(m) for m in team]
     return await poc_team_service.get_team(
         db, poc_id, include_removed=include_removed
     )
@@ -382,7 +389,7 @@ async def get_license_for_opportunity(
 ):
     """Null when no PO has landed yet — the normal case for pipeline opps."""
     opp = await poc_service.get_opportunity_or_404(db, opp_id)
-    await assert_can_work_on_poc(db, current_user, opp)
+    await assert_can_read_opportunity(db, current_user, opp)
 
     lic = await poc_service.get_license_by_opportunity(db, opp_id)
     return poc_service.to_license_response(lic) if lic else None

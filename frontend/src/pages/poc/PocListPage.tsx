@@ -166,7 +166,7 @@ const PocListPage: React.FC = () => {
     },
     ...(canEdit
       ? [{
-          title: 'Actions',
+          title: 'Actions', fixed: 'right' as const,
           key: 'actions',
           render: (_: unknown, r: PocResponse) =>
             r.status === 'running' ? (

@@ -12,7 +12,8 @@ what the account still holds; `deactivate` refuses while that is non-empty;
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, literal, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
@@ -20,7 +21,7 @@ from app.core.exceptions import (
     ConflictException,
     NotFoundException,
 )
-from app.models.company import Company
+from app.models.company import Company, company_channel_managers
 from app.models.deal_registration import DealRegistration
 from app.models.handover import UserHandover
 from app.models.opportunity import CLOSED_STATUSES, Opportunity, OpportunityStatus
@@ -59,7 +60,7 @@ async def outstanding_work(db: AsyncSession, user: User) -> dict:
 
     companies = (await db.execute(
         select(func.count(Company.id)).where(
-            Company.channel_manager_id == user.id, Company.deleted_at.is_(None)
+            Company.managed_by(user.id), Company.deleted_at.is_(None)
         )
     )).scalar() or 0
 
@@ -194,6 +195,21 @@ async def hand_over(
         update(Company)
         .where(Company.channel_manager_id == leaver.id, Company.deleted_at.is_(None))
         .values(channel_manager_id=successor.id)
+    )
+    # And every company the leaver co-managed. ON CONFLICT: the successor may
+    # already be one of that company's managers.
+    await db.execute(
+        pg_insert(company_channel_managers)
+        .from_select(
+            ["company_id", "user_id"],
+            select(company_channel_managers.c.company_id, literal(successor.id)).where(
+                company_channel_managers.c.user_id == leaver.id
+            ),
+        )
+        .on_conflict_do_nothing()
+    )
+    await db.execute(
+        delete(company_channel_managers).where(company_channel_managers.c.user_id == leaver.id)
     )
     await db.execute(
         update(DealRegistration)

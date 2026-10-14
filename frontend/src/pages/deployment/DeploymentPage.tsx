@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import { dashboardApi, exportsApi } from '@/api/endpoints';
 import ExportMenu from '@/components/common/ExportMenu';
 import { PocStageFunnel } from '@/components/dashboard/PocWidgets';
+import { lineSize } from '@/utils/sizing';
 import type { ExpiringLicenseItem, LicenseStatusCount, DeploymentMonthPoint } from '@/types';
 
 const { Title, Text } = Typography;
@@ -88,9 +89,9 @@ const DeploymentPage: React.FC = () => {
     { title: 'Partner', dataIndex: 'company_name', key: 'company_name', render: (v: string | null) => v ?? '—' },
     { title: 'Country', dataIndex: 'country', key: 'country', render: (v: string | null) => v ?? '—' },
     {
-      title: 'Devices / Nodes',
+      title: 'Nodes / Devices',
       key: 'scale',
-      render: (_: unknown, r: ExpiringLicenseItem) => `${r.device_count ?? 0} / ${r.node_count ?? 0}`,
+      render: (_: unknown, r: ExpiringLicenseItem) => lineSize(r) ?? '—',
     },
     { title: 'Expires', dataIndex: 'license_expires_at', key: 'license_expires_at' },
     {
@@ -145,24 +146,18 @@ const DeploymentPage: React.FC = () => {
       )}
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={12} lg={6}>
+        <Col xs={24} sm={8} lg={8}>
           <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             <Statistic title="Active POCs" value={data?.active_pocs ?? 0} prefix={<RocketOutlined />} valueStyle={{ color: '#3750ed' }} />
           </Card>
         </Col>
-        <Col xs={12} lg={6}>
+        <Col xs={24} sm={8} lg={8}>
           <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
-            <Statistic title="Devices Deployed" value={data?.total_devices ?? 0} prefix={<ClusterOutlined />} valueStyle={{ color: '#a064f3' }} />
+            <Statistic title="Nodes / Devices Deployed" value={data?.total_devices ?? 0} prefix={<ClusterOutlined />} valueStyle={{ color: '#a064f3' }} />
             <Text type="secondary" style={{ fontSize: 10 }}>across live licences</Text>
           </Card>
         </Col>
-        <Col xs={12} lg={6}>
-          <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
-            <Statistic title="Nodes Deployed" value={data?.total_nodes ?? 0} prefix={<ClusterOutlined />} valueStyle={{ color: '#7a2280' }} />
-            <Text type="secondary" style={{ fontSize: 10 }}>across live licences</Text>
-          </Card>
-        </Col>
-        <Col xs={12} lg={6}>
+        <Col xs={24} sm={8} lg={8}>
           <Card variant="borderless" style={{ borderRadius: 12 }} loading={isLoading}>
             <Statistic title="Active Licences" value={data?.active_licenses ?? 0} prefix={<SafetyCertificateOutlined />} valueStyle={{ color: '#10b981' }} />
           </Card>
@@ -203,7 +198,7 @@ const DeploymentPage: React.FC = () => {
                     size="small"
                   />
                   <Text type="secondary" style={{ fontSize: 10 }}>
-                    {s.device_count} devices · {s.node_count} nodes
+                    {s.device_count} nodes / devices
                   </Text>
                 </div>
               ))

@@ -1,11 +1,12 @@
 """Setting up, checking and resetting two-factor authentication."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_superadmin, get_current_user
 from app.models.user import User
-from app.schemas.auth import MfaConfirmRequest
+from app.core.rate_limit import client_ip, limiter
+from app.schemas.auth import MfaConfirmRequest, MfaDisableRequest
 from app.schemas.common import MessageResponse
 from app.services import mfa_service, partner_service
 
@@ -60,12 +61,22 @@ async def regenerate_recovery_codes(
 
 
 @router.delete("", response_model=MessageResponse, status_code=200)
+@limiter.limit("10/minute")
 async def disable_own(
+    data: MfaDisableRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Turn off your own second factor."""
-    await mfa_service.disable(db, current_user, current_user)
+    """Turn off your own second factor.
+
+    Needs a current authenticator code or a recovery code in the body
+    ({"code": "..."}) — a session token alone is not enough to remove the
+    thing that protects the session. Rate limited like the sign-in code step.
+    """
+    await mfa_service.disable_own(
+        db, current_user, data.code, ip_address=client_ip(request)
+    )
     return MessageResponse(message="Two-factor authentication turned off")
 
 

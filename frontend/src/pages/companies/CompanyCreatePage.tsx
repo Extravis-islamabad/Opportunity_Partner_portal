@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Form, Input, Select, Button, Card, Alert, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { companiesApi, usersApi } from '@/api/endpoints';
+import { useMutation } from '@tanstack/react-query';
+import { companiesApi } from '@/api/endpoints';
+import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import ParentDistributorSelect from '@/components/companies/ParentDistributorSelect';
+import ChannelManagersSelect from '@/components/companies/ChannelManagersSelect';
 import type { CompanyCreateRequest } from '@/types';
 import { COMPANY_TYPES } from '@/utils/companyType';
 import { AxiosError } from 'axios';
@@ -14,11 +16,10 @@ const CompanyCreatePage: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
-
-  const { data: admins } = useQuery({
-    queryKey: ['admins-list'],
-    queryFn: async () => { const res = await usersApi.getAdmins(); return res.data; },
-  });
+  const { user } = useAuth();
+  // A channel manager creating a company is always one of its managers (the
+  // API adds them if left off), so start them on the list.
+  const initialManagers = user && !user.is_superadmin ? [user.id] : [];
 
   const mutation = useMutation({
     mutationFn: (data: CompanyCreateRequest) => companiesApi.create(data),
@@ -52,7 +53,12 @@ const CompanyCreatePage: React.FC = () => {
       <PageHeader title="Create Company" breadcrumbs={[{ label: 'Companies', path: '/companies' }, { label: 'Create' }]} />
       {error && <Alert message={error} type="error" showIcon closable onClose={() => setError(null)} style={{ marginBottom: 16 }} />}
       <Card style={{ maxWidth: 600 }}>
-        <Form form={form} layout="vertical" onFinish={(values: CompanyCreateRequest) => mutation.mutate(values)}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ channel_manager_ids: initialManagers }}
+          onFinish={(values: CompanyCreateRequest) => mutation.mutate(values)}
+        >
           <Form.Item name="name" label="Company Name" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Company name" maxLength={255} />
           </Form.Item>
@@ -101,11 +107,11 @@ const CompanyCreatePage: React.FC = () => {
           <Form.Item name="country" label="Country" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Country" maxLength={100} />
           </Form.Item>
-          <Form.Item name="region" label="Region" rules={[{ required: true, message: 'Required' }]}>
-            <Input placeholder="Region" maxLength={100} />
+          <Form.Item name="region" label="Region">
+            <Input placeholder="Region (optional)" maxLength={100} />
           </Form.Item>
-          <Form.Item name="city" label="City" rules={[{ required: true, message: 'Required' }]}>
-            <Input placeholder="City" maxLength={100} />
+          <Form.Item name="city" label="City">
+            <Input placeholder="City (optional)" maxLength={100} />
           </Form.Item>
           <Form.Item name="industry" label="Industry" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="Industry" maxLength={255} />
@@ -124,9 +130,13 @@ const CompanyCreatePage: React.FC = () => {
           >
             <Input placeholder="Primary contact's full name" maxLength={255} />
           </Form.Item>
-          <Form.Item name="channel_manager_id" label="Channel Manager" rules={[{ required: true, message: 'Required' }]}>
-            <Select placeholder="Select channel manager" showSearch optionFilterProp="label"
-              options={admins?.map(a => ({ value: a.id, label: `${a.full_name} (${a.email})` })) ?? []} />
+          <Form.Item
+            name="channel_manager_ids"
+            label="Channel Managers"
+            rules={[{ required: true, type: 'array', min: 1, message: 'Choose at least one channel manager' }]}
+            extra="Everyone chosen sees this company and its notifications. The first is the primary manager."
+          >
+            <ChannelManagersSelect />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={mutation.isPending} style={{ marginRight: 8 }}>Create Company</Button>

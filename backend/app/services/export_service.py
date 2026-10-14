@@ -288,8 +288,9 @@ def _company_row(c: Company) -> list[str]:
         # a lazy load here would fail outside the greenlet context.
         c.parent_distributor.name if c.parent_distributor else "",
         c.country,
-        c.region,
-        c.city,
+        # Optional since migration 033 — blank, not "None", when unrecorded.
+        c.region or "",
+        c.city or "",
         c.industry,
         c.contact_email,
         # Blank rather than "Silver" for a customer — it has no tier.

@@ -10,9 +10,13 @@ class DocRequestCreateRequest(BaseModel):
 
 
 class DocRequestFulfillRequest(BaseModel):
+    # Bounds mirror the kb_documents columns (title String(500), category
+    # String(100)); without them an over-long value reached the INSERT and 500'd.
+    model_config = {"str_strip_whitespace": True}
+
     add_to_kb: bool = False
-    kb_title: Optional[str] = None
-    kb_category: Optional[str] = None
+    kb_title: Optional[str] = Field(None, max_length=500)
+    kb_category: Optional[str] = Field(None, max_length=100)
 
 
 class DocRequestDeclineRequest(BaseModel):

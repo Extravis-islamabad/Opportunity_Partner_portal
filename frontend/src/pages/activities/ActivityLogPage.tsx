@@ -1,19 +1,21 @@
 /**
  * Sales activity log.
  *
- * A Monday–Friday month grid of a rep's daily activities (calls, meetings,
- * demos, …). Sales reps log/edit/delete their own entries by clicking a day;
- * admins pick any rep and review the same grid read-only, with monthly
- * totals by activity type.
+ * A Monday–Sunday month grid of a rep's daily activities (calls, meetings,
+ * demos, …). Sales reps log/edit/delete their own entries by clicking a day,
+ * and can attach a follow-up reminder that arrives as a notification; admins
+ * pick any rep and review the same grid read-only, with monthly totals by
+ * activity type.
  */
 import React, { useMemo, useState } from 'react';
 import {
-  Card, Row, Col, Select, Button, Modal, Form, DatePicker, Input, InputNumber,
+  Card, Row, Col, Select, Button, Modal, Form, DatePicker, Input,
   Tag, Tooltip, Typography, Space, Statistic, Empty, Popconfirm, message, Skeleton,
+  List, theme,
 } from 'antd';
 import {
-  PlusOutlined, LeftOutlined, RightOutlined, PhoneOutlined,
-  TeamOutlined, DeleteOutlined,
+  PlusOutlined, LeftOutlined, RightOutlined, BellOutlined,
+  TeamOutlined, DeleteOutlined, ShopOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import dayjs, { Dayjs } from 'dayjs';
@@ -32,6 +34,7 @@ const TYPE_OPTIONS: Array<{ value: ActivityType; label: string }> = [
   { value: 'site_visit', label: 'Site Visit' },
   { value: 'follow_up', label: 'Follow-up' },
   { value: 'training', label: 'Training' },
+  { value: 'deployment', label: 'Deployment' },
   { value: 'other', label: 'Other' },
 ];
 
@@ -45,6 +48,7 @@ const TYPE_PLURALS: Record<ActivityType, string> = {
   site_visit: 'Site Visits',
   follow_up: 'Follow-ups',
   training: 'Training',
+  deployment: 'Deployments',
   other: 'Other',
 };
 
@@ -56,13 +60,23 @@ const TYPE_COLORS: Record<ActivityType, string> = {
   site_visit: 'orange',
   follow_up: 'gold',
   training: 'green',
+  deployment: 'magenta',
   other: 'default',
 };
 
-const WEEKDAY_HEADERS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+const WEEKDAY_HEADERS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-/** All Mon–Fri dates of the month, grouped into calendar weeks. Cells outside
- * the month are null so week rows stay aligned. */
+// Seven equal columns. Below ~840px the grid scrolls sideways inside its own
+// container rather than squeezing a day to an unreadable sliver.
+const GRID_STYLE: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+  gap: 8,
+  minWidth: 840,
+};
+
+/** Every date of the month, grouped into Monday-first calendar weeks. Cells
+ * outside the month are null so week rows stay aligned. */
 function buildWeeks(month: Dayjs): Array<Array<Dayjs | null>> {
   const first = month.startOf('month');
   const last = month.endOf('month');
@@ -72,7 +86,7 @@ function buildWeeks(month: Dayjs): Array<Array<Dayjs | null>> {
   const weeks: Array<Array<Dayjs | null>> = [];
   while (cursor.isBefore(last) || cursor.isSame(last, 'day')) {
     const week: Array<Dayjs | null> = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 7; i++) {
       const d = cursor.add(i, 'day');
       week.push(d.isSame(month, 'month') ? d : null);
     }
@@ -84,6 +98,7 @@ function buildWeeks(month: Dayjs): Array<Array<Dayjs | null>> {
 
 const ActivityLogPage: React.FC = () => {
   const { user } = useAuth();
+  const { token } = theme.useToken();
   const queryClient = useQueryClient();
   const isRep = user?.role === 'sales_rep';
   const isAdmin = user?.role === 'admin';
@@ -120,6 +135,12 @@ const ActivityLogPage: React.FC = () => {
     queryFn: async () => (await pocsApi.list({ page: 1, page_size: 100 })).data,
   });
 
+  const { data: reminders } = useQuery({
+    queryKey: ['activity-reminders'],
+    queryFn: async () => (await activitiesApi.reminders()).data,
+    enabled: isRep,
+  });
+
   const { data: log, isLoading } = useQuery({
     queryKey: ['activity-month', monthStr, targetUserId],
     queryFn: async () => (await activitiesApi.getMonth(monthStr, targetUserId)).data,
@@ -134,7 +155,10 @@ const ActivityLogPage: React.FC = () => {
 
   const weeks = useMemo(() => buildWeeks(month), [month]);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['activity-month'] });
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ['activity-month'] });
+    void queryClient.invalidateQueries({ queryKey: ['activity-reminders'] });
+  };
   const fail = (e: unknown, fallback: string) => {
     const msg = (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
     message.error(msg ?? fallback);
@@ -163,10 +187,12 @@ const ActivityLogPage: React.FC = () => {
       activity_date: day,
       activity_type: 'call',
       customer_name: undefined,
+      partner_name: undefined,
       opportunity_id: undefined,
       poc_id: undefined,
-      duration_minutes: undefined,
       notes: undefined,
+      reminder_at: undefined,
+      reminder_note: undefined,
     });
     setEditorOpen(true);
   };
@@ -177,10 +203,12 @@ const ActivityLogPage: React.FC = () => {
       activity_date: dayjs(a.activity_date),
       activity_type: a.activity_type,
       customer_name: a.customer_name ?? undefined,
+      partner_name: a.partner_name ?? undefined,
       opportunity_id: a.opportunity_id ?? undefined,
       poc_id: a.poc_id ?? undefined,
-      duration_minutes: a.duration_minutes ?? undefined,
       notes: a.notes ?? undefined,
+      reminder_at: a.reminder_at ? dayjs(a.reminder_at) : undefined,
+      reminder_note: a.reminder_note ?? undefined,
     });
     setEditorOpen(true);
   };
@@ -189,17 +217,21 @@ const ActivityLogPage: React.FC = () => {
 
   const submit = (v: {
     activity_date: Dayjs; activity_type: ActivityType;
-    customer_name?: string; opportunity_id?: number; poc_id?: number;
-    duration_minutes?: number; notes?: string;
+    customer_name?: string; partner_name?: string; opportunity_id?: number; poc_id?: number;
+    notes?: string; reminder_at?: Dayjs | null; reminder_note?: string;
   }) => {
     const payload = {
       activity_date: v.activity_date.format('YYYY-MM-DD'),
       activity_type: v.activity_type,
       customer_name: v.customer_name || null,
+      partner_name: v.partner_name || null,
       opportunity_id: v.opportunity_id ?? null,
       poc_id: v.poc_id ?? null,
-      duration_minutes: v.duration_minutes ?? null,
       notes: v.notes || null,
+      // Sent as an absolute instant, so the server fires it at the moment the
+      // rep picked in their own timezone.
+      reminder_at: v.reminder_at ? v.reminder_at.toISOString() : null,
+      reminder_note: v.reminder_at ? v.reminder_note || null : null,
     };
     if (editing) updateMut.mutate({ id: editing.id, values: payload });
     else createMut.mutate(payload);
@@ -277,93 +309,103 @@ const ActivityLogPage: React.FC = () => {
         <Card variant="borderless" style={{ borderRadius: 12 }}><Skeleton active /></Card>
       ) : (
         <>
-          <Row gutter={[8, 8]}>
-            {WEEKDAY_HEADERS.map((h) => (
-              <Col key={h} flex="20%">
-                <div style={{ textAlign: 'center', fontWeight: 600, padding: '4px 0' }}>
-                  <Text type="secondary">{h}</Text>
+          <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
+            <div style={GRID_STYLE}>
+              {WEEKDAY_HEADERS.map((h, i) => (
+                <div key={h} style={{ textAlign: 'center', fontWeight: 600, padding: '4px 0' }}>
+                  <Text type={i >= 5 ? undefined : 'secondary'} style={i >= 5 ? { color: token.colorTextTertiary } : undefined}>
+                    {h}
+                  </Text>
                 </div>
-              </Col>
-            ))}
-          </Row>
-          {weeks.map((week, wi) => (
-            <Row gutter={[8, 8]} key={wi} style={{ marginBottom: 8 }}>
-              {week.map((day, di) => {
+              ))}
+              {weeks.flat().map((day, idx) => {
                 if (!day) {
-                  return <Col key={di} flex="20%"><div /></Col>;
+                  return <div key={`blank-${idx}`} />;
                 }
                 const key = day.format('YYYY-MM-DD');
                 const items = byDate[key] ?? [];
                 const isToday = day.isSame(today, 'day');
                 const isFuture = day.isAfter(today, 'day');
+                const isWeekend = day.day() === 0 || day.day() === 6;
                 return (
-                  <Col key={di} flex="20%">
-                    <Card
-                      size="small"
-                      variant="borderless"
-                      style={{
-                        borderRadius: 10,
-                        minHeight: 120,
-                        background: isToday ? 'var(--ant-color-primary-bg, #eef1ff)' : undefined,
-                        opacity: isFuture ? 0.55 : 1,
-                      }}
-                      styles={{ body: { padding: 8 } }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <Text strong={isToday}>{day.date()}</Text>
-                        {isRep && !isFuture && (
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<PlusOutlined />}
-                            onClick={() => openCreate(day)}
-                          />
-                        )}
-                      </div>
-                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                        {items.map((a) => (
-                          <div
-                            key={a.id}
-                            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                  <Card
+                    key={key}
+                    size="small"
+                    variant="borderless"
+                    style={{
+                      borderRadius: 10,
+                      minHeight: 120,
+                      // A border on every day: in dark mode the card and the
+                      // page are the same colour, so without one the grid
+                      // had no visible cells.
+                      border: `1px solid ${isToday ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
+                      background: isToday
+                        ? token.colorPrimaryBg
+                        : isWeekend
+                          ? token.colorFillTertiary
+                          : token.colorBgContainer,
+                      opacity: isFuture ? 0.55 : 1,
+                    }}
+                    styles={{ body: { padding: 8 } }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <Text strong={isToday}>{day.date()}</Text>
+                      {isRep && !isFuture && (
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          aria-label={`Log activity on ${day.format('D MMMM')}`}
+                          onClick={() => openCreate(day)}
+                        />
+                      )}
+                    </div>
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      {items.map((a) => (
+                        <div
+                          key={a.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                        >
+                          <Tooltip
+                            title={[
+                              a.customer_name && `Client / Contact: ${a.customer_name}`,
+                              a.partner_name && `Partner: ${a.partner_name}`,
+                              a.opportunity_name && `Opportunity: ${a.opportunity_name}`,
+                              a.duration_minutes && `Duration: ${a.duration_minutes} min`,
+                              a.reminder_at && `Reminder: ${dayjs(a.reminder_at).format('D MMM YYYY, h:mm A')}${a.reminder_sent_at ? ' (sent)' : ''}`,
+                              a.notes,
+                            ].filter(Boolean).join('\n') || undefined}
+                            styles={{ root: { whiteSpace: 'pre-line' } }}
                           >
-                            <Tooltip
-                              title={[
-                                a.customer_name && `Customer: ${a.customer_name}`,
-                                a.opportunity_name && `Opportunity: ${a.opportunity_name}`,
-                                a.duration_minutes && `Duration: ${a.duration_minutes} min`,
-                                a.notes,
-                              ].filter(Boolean).join('\n') || undefined}
-                              styles={{ root: { whiteSpace: 'pre-line' } }}
+                            <Tag
+                              color={TYPE_COLORS[a.activity_type]}
+                              icon={a.reminder_at && !a.reminder_sent_at ? <BellOutlined /> : undefined}
+                              style={{
+                                flex: 1, minWidth: 0, margin: 0, cursor: isRep ? 'pointer' : 'default',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                              }}
+                              onClick={isRep ? () => openEdit(a) : undefined}
                             >
-                              <Tag
-                                color={TYPE_COLORS[a.activity_type]}
-                                style={{
-                                  flex: 1, margin: 0, cursor: isRep ? 'pointer' : 'default',
-                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }}
-                                onClick={isRep ? () => openEdit(a) : undefined}
-                              >
-                                {a.activity_type_label}
-                                {a.customer_name ? ` · ${a.customer_name}` : a.opportunity_name ? ` · ${a.opportunity_name}` : ''}
-                              </Tag>
-                            </Tooltip>
-                            {isRep && (
-                              <Popconfirm
-                                title="Delete this activity?"
-                                onConfirm={() => deleteMut.mutate(a.id)}
-                              >
-                                <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                              </Popconfirm>
-                            )}
-                          </div>
-                        ))}
-                      </Space>
-                    </Card>
-                  </Col>
+                              {a.activity_type_label}
+                              {a.customer_name ? ` · ${a.customer_name}` : a.partner_name ? ` · ${a.partner_name}` : a.opportunity_name ? ` · ${a.opportunity_name}` : ''}
+                            </Tag>
+                          </Tooltip>
+                          {isRep && (
+                            <Popconfirm
+                              title="Delete this activity?"
+                              onConfirm={() => deleteMut.mutate(a.id)}
+                            >
+                              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="Delete activity" />
+                            </Popconfirm>
+                          )}
+                        </div>
+                      ))}
+                    </Space>
+                  </Card>
                 );
               })}
-            </Row>
-          ))}
+            </div>
+          </div>
           {log && log.total_activities === 0 && (
             <Card variant="borderless" style={{ borderRadius: 12, marginTop: 8 }}>
               <Empty
@@ -372,6 +414,37 @@ const ActivityLogPage: React.FC = () => {
                     ? 'No activities logged this month yet — click + on a day to add one'
                     : `No activities logged by ${log.user_name ?? 'this rep'} in ${month.format('MMMM YYYY')}`
                 }
+              />
+            </Card>
+          )}
+          {isRep && reminders && reminders.length > 0 && (
+            <Card
+              variant="borderless"
+              style={{ borderRadius: 12, marginTop: 16 }}
+              title={<Space><BellOutlined />Upcoming reminders</Space>}
+            >
+              <List
+                size="small"
+                dataSource={reminders}
+                renderItem={(r) => (
+                  <List.Item
+                    actions={[
+                      <Button key="open" type="link" size="small" onClick={() => openEdit(r)}>Edit</Button>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={
+                        <Space wrap size={6}>
+                          <Text strong>{dayjs(r.reminder_at).format('ddd D MMM YYYY, h:mm A')}</Text>
+                          <Tag color={TYPE_COLORS[r.activity_type]}>{r.activity_type_label}</Tag>
+                          {r.customer_name && <Text type="secondary">{r.customer_name}</Text>}
+                          {r.partner_name && <Text type="secondary">· {r.partner_name}</Text>}
+                        </Space>
+                      }
+                      description={r.reminder_note || `Follow up on the ${dayjs(r.activity_date).format('D MMM')} ${r.activity_type_label.toLowerCase()}`}
+                    />
+                  </List.Item>
+                )}
               />
             </Card>
           )}
@@ -392,7 +465,7 @@ const ActivityLogPage: React.FC = () => {
               <Form.Item name="activity_date" label="Date" rules={[{ required: true }]}>
                 <DatePicker
                   style={{ width: '100%' }}
-                  disabledDate={(d) => d.isAfter(dayjs(), 'day') || [0, 6].includes(d.day())}
+                  disabledDate={(d) => d.isAfter(dayjs(), 'day')}
                 />
               </Form.Item>
             </Col>
@@ -403,14 +476,14 @@ const ActivityLogPage: React.FC = () => {
             </Col>
           </Row>
           <Row gutter={12}>
-            <Col span={14}>
-              <Form.Item name="customer_name" label="Customer / Contact">
-                <Input prefix={<TeamOutlined />} placeholder="e.g. HUGO BANK" maxLength={255} />
+            <Col xs={24} sm={12}>
+              <Form.Item name="partner_name" label="Partner Name">
+                <Input prefix={<ShopOutlined />} placeholder="e.g. NetSoft" maxLength={255} />
               </Form.Item>
             </Col>
-            <Col span={10}>
-              <Form.Item name="duration_minutes" label="Duration (min)">
-                <InputNumber min={1} max={1440} style={{ width: '100%' }} prefix={<PhoneOutlined />} />
+            <Col xs={24} sm={12}>
+              <Form.Item name="customer_name" label="Client Name / Contact Name">
+                <Input prefix={<TeamOutlined />} placeholder="e.g. HUGO BANK / Ali Khan" maxLength={255} />
               </Form.Item>
             </Col>
           </Row>
@@ -443,6 +516,36 @@ const ActivityLogPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="notes" label="Notes">
             <Input.TextArea rows={3} placeholder="What was discussed, outcomes, next steps…" />
+          </Form.Item>
+          <Form.Item
+            name="reminder_at"
+            label="Set Reminder (date & time)"
+            extra="Optional. You'll get a notification and an email at this time."
+            rules={[
+              {
+                validator: (_, v?: Dayjs | null) =>
+                  !v || v.isAfter(dayjs())
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('Pick a time in the future')),
+              },
+            ]}
+          >
+            <DatePicker
+              showTime={{ format: 'h:mm A', use12Hours: true, minuteStep: 5 }}
+              format="D MMM YYYY, h:mm A"
+              style={{ width: '100%' }}
+              disabledDate={(d) => d.isBefore(dayjs(), 'day')}
+              placeholder="No reminder"
+            />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.reminder_at !== cur.reminder_at}>
+            {({ getFieldValue }) =>
+              getFieldValue('reminder_at') ? (
+                <Form.Item name="reminder_note" label="Reminder">
+                  <Input.TextArea rows={2} maxLength={2000} placeholder="What to follow up on, e.g. send revised quote" />
+                </Form.Item>
+              ) : null
+            }
           </Form.Item>
         </Form>
       </Modal>

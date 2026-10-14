@@ -34,6 +34,9 @@ const OpportunityListPage: React.FC = () => {
   });
   const [industryFilter, setIndustryFilter] = useState<string | undefined>();
   const [quarterFilter, setQuarterFilter] = useState<string | undefined>();
+  // Every admin sees every opportunity; a channel manager can narrow the list
+  // back to the companies they look after.
+  const [onlyMine, setOnlyMine] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -42,9 +45,10 @@ const OpportunityListPage: React.FC = () => {
   // it needs a column saying which company each row belongs to. Nobody else
   // sees more than one company, so nobody else gets the column.
   const isDistributor = user?.company_type === 'distributor';
+  const isChannelManager = isAdmin && !user?.is_superadmin;
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['opportunities', page, search, statusFilter, productFilter, industryFilter, quarterFilter],
+    queryKey: ['opportunities', page, search, statusFilter, productFilter, industryFilter, quarterFilter, onlyMine],
     queryFn: async () => {
       // All filtering is server-side. Product, industry and quarter used to be
       // applied here, to the page already fetched — so `total` and the pager
@@ -56,6 +60,7 @@ const OpportunityListPage: React.FC = () => {
       if (productFilter) params['product'] = productFilter;
       if (industryFilter) params['industry'] = industryFilter;
       if (quarterFilter) params['time_frame'] = quarterFilter;
+      if (onlyMine && user) params['channel_manager_id'] = user.id;
       const res = await opportunitiesApi.list(params);
       return res.data;
     },
@@ -86,11 +91,13 @@ const OpportunityListPage: React.FC = () => {
       ),
     },
     { title: 'Customer', dataIndex: 'customer_name', key: 'customer' },
-    ...(isAdmin || isDistributor
+    ...(isAdmin || isDistributor || isSalesRep
       ? [{
           title: isDistributor ? 'Reseller' : 'Partner',
           dataIndex: 'company_name' as const,
           key: 'company',
+          // A sales rep may register a deal with no partner attached.
+          render: (v: string | null) => v ?? <Tag>Direct</Tag>,
         }]
       : []),
     // Reads are company-wide now, so a partner's list includes colleagues'
@@ -153,7 +160,7 @@ const OpportunityListPage: React.FC = () => {
       render: (s: string) => <Tag color={statusColors[s] ?? 'default'}>{s.replace(/_/g, ' ').toUpperCase()}</Tag>,
     },
     {
-      title: 'Actions', key: 'actions',
+      title: 'Actions', fixed: 'right' as const, key: 'actions',
       render: (_, record) => <Button type="link" icon={<EyeOutlined />} onClick={() => navigate(`/opportunities/${record.id}`)}>View</Button>,
     },
   ];
@@ -200,7 +207,18 @@ const OpportunityListPage: React.FC = () => {
           </Space>
         }
       />
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
+        {isChannelManager && (
+          <Select
+            style={{ width: 190 }}
+            value={onlyMine ? 'mine' : 'all'}
+            onChange={(v) => { setOnlyMine(v === 'mine'); setPage(1); }}
+            options={[
+              { value: 'all', label: 'All opportunities' },
+              { value: 'mine', label: 'My companies only' },
+            ]}
+          />
+        )}
         <Input.Search placeholder="Search..." allowClear onSearch={setSearch} style={{ width: 300 }} prefix={<SearchOutlined />} />
         <Select placeholder="Status" allowClear style={{ width: 180 }} onChange={setStatusFilter}
           options={[
@@ -239,7 +257,7 @@ const OpportunityListPage: React.FC = () => {
       </Space>
       {isLoading ? <TableSkeleton /> : (
         data && data.items.length > 0 ? (
-          <Table columns={columns} dataSource={data.items} rowKey="id"
+          <Table scroll={{ x: 'max-content' }} columns={columns} dataSource={data.items} rowKey="id"
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage, showTotal: (t) => `Total ${t}` }} />
         ) : (
           <EmptyState

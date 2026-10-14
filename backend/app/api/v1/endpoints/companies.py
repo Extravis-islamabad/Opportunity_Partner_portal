@@ -11,7 +11,7 @@ from app.core.deps import (
     get_current_user,
     assert_manages_company,
 )
-from app.core.exceptions import ForbiddenException
+from app.core.exceptions import ForbiddenException, NotFoundException
 from app.models.user import User
 from app.schemas.company import (
     CompanyCreateRequest,
@@ -28,12 +28,15 @@ router = APIRouter(prefix="/companies", tags=["Companies"])
 @router.post("", response_model=CompanyResponse, status_code=201)
 async def create_company(
     data: CompanyCreateRequest,
-    # Superadmin-only: the UI only offers company creation to superadmins
-    # (channel managers work within their assigned companies), so the API
-    # must enforce the same boundary.
-    admin: User = Depends(get_current_superadmin),
+    # Any admin may create a company. A channel manager who does is always
+    # one of its managers (the service adds them), so it lands in their scope.
+    admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
+    # A channel manager may only hang a new reseller off a distributor they
+    # already manage — the parent link decides who reads its pipeline.
+    if not admin.is_superadmin and data.parent_distributor_id is not None:
+        await assert_manages_company(db, admin, data.parent_distributor_id, action="add resellers to")
     return await company_service.create_company(db, data, admin)
 
 
@@ -121,13 +124,24 @@ async def get_tier_history(
     """Every tier change for a company, newest first, with its reason."""
     from app.models.user import UserRole
 
+    from app.models.company import Company
+
     if current_user.role == UserRole.PARTNER:
         if current_user.company_id != company_id:
             raise ForbiddenException(message="You can only see your own company")
+        # A customer company has no tier, so it has no tier history either.
+        if current_user.company is not None and not current_user.company.is_channel_partner:
+            raise ForbiddenException(message="Partner tier does not apply to customer companies")
     elif current_user.role == UserRole.ADMIN:
         await assert_manages_company(db, current_user, company_id, action="view")
     else:
         raise ForbiddenException(message="Partner tier does not apply to your role")
+
+    exists = (await db.execute(
+        select(Company.id).where(Company.id == company_id, Company.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if exists is None:
+        raise NotFoundException(code="COMPANY_NOT_FOUND", message="Company not found")
 
     return await tier_service.tier_history(db, company_id)
 
@@ -147,7 +161,9 @@ async def update_company(
     # Reassigning a company to a different channel manager is a superadmin
     # action. A channel manager editing their own company must not be able to
     # hand it to someone else — or take another one.
-    if not admin.is_superadmin and data.channel_manager_id is not None:
+    if not admin.is_superadmin and (
+        data.channel_manager_id is not None or data.channel_manager_ids is not None
+    ):
         raise ForbiddenException(
             message="Only superadmins can change a company's channel manager"
         )

@@ -61,6 +61,7 @@ import {
 } from '@/components/dashboard/BrandWidgets';
 import { PocStageFunnel, CityFunnelChart } from '@/components/dashboard/PocWidgets';
 import { companyTypeMeta } from '@/utils/companyType';
+import { useAppTheme } from '@/contexts/ThemeContext';
 import type {
   CompanyType,
   MonthlyOpportunityData,
@@ -79,19 +80,22 @@ import type {
   SalesRepBreakdown,
 } from '@/types';
 
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
   royal400: '#4961f1',
   royal300: '#6b7bfe',
   royal200: '#8c93f1',
-  royal100: '#b4b6f7',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal100: 'var(--brand-royal-100)',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   violet500: '#a064f3',
   violet400: '#b370fc',
   violet600: '#7a2280',
   violet700: '#5b1965',
-  violet100: '#f0e6ff',
+  violet100: 'var(--brand-violet-100)',
 };
 
 const tierColors: Record<string, string> = {
@@ -166,6 +170,10 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon, gradient, trend, 
 // Main dashboard
 // ---------------------------------------------------------------------------
 const AdminDashboard: React.FC = () => {
+  // Chart axes and legends follow the app theme; the default left them dark
+  // grey on the dark cards.
+  const { isDark } = useAppTheme();
+  const chartTheme = isDark ? 'classicDark' : 'classic';
   const navigate = useNavigate();
   const { user } = useAuth();
   const isSuperadmin = !!user?.is_superadmin;
@@ -429,15 +437,17 @@ const AdminDashboard: React.FC = () => {
 
   const industryBarConfig = {
     data: industryBarData,
-    xField: 'value',
-    yField: 'industry',
+    // Bar transposes for us: x is the category, y the value. These were the
+    // other way round, which drew a single slab labelled "0".
+    xField: 'industry',
+    yField: 'value',
     height: 280,
     style: { radiusTopRight: 6, radiusBottomRight: 6 },
     scale: { color: { range: [BRAND.royal500] } },
     colorField: 'industry',
     legend: false as const,
     axis: {
-      y: { title: false },
+      x: { title: false },
     },
   };
 
@@ -487,7 +497,7 @@ const AdminDashboard: React.FC = () => {
               borderRadius: 20,
               fontSize: 13,
               background: isSuperadmin ? BRAND.violet100 : BRAND.royal50,
-              color: isSuperadmin ? BRAND.violet700 : BRAND.royal500,
+              color: isSuperadmin ? 'var(--brand-violet-ink)' : BRAND.royal500,
               border: 'none',
               fontWeight: 600,
             }}
@@ -558,7 +568,7 @@ const AdminDashboard: React.FC = () => {
             title="Opportunities"
             value={stats.total_opportunities}
             icon={<FundProjectionScreenOutlined />}
-            gradient={`linear-gradient(135deg, ${BRAND.navy} 0%, ${BRAND.royal500} 100%)`}
+            gradient={`linear-gradient(135deg, ${BRAND.navyBg} 0%, ${BRAND.royal500} 100%)`}
             trend={opportunityTrend}
             onClick={() => navigate('/opportunities')}
           />
@@ -775,7 +785,7 @@ const AdminDashboard: React.FC = () => {
               </Card>
             </Col>
             <Col xs={24} sm={8}>
-              <Card variant="borderless" style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.navy}, ${BRAND.royal500})`, color: '#fff' }}>
+              <Card variant="borderless" style={{ borderRadius: 12, background: `linear-gradient(135deg, ${BRAND.navyBg}, ${BRAND.royal500})`, color: '#fff' }}>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>Total Worth</Typography.Text>
                 <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{formatChartUsd(Number(targetPlan.total_worth))}</div>
                 <Typography.Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11 }}>unweighted pipeline value</Typography.Text>
@@ -795,6 +805,7 @@ const AdminDashboard: React.FC = () => {
               <Card title="Pipeline by Product" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_product.length > 0 ? (
                   <Column
+                    theme={chartTheme}
                     data={targetPlan.by_product.map((p: ProductBreakdown) => ({
                       product: p.product,
                       Worth: Number(p.total_worth),
@@ -819,17 +830,20 @@ const AdminDashboard: React.FC = () => {
               <Card title="Pipeline by Industry" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_industry.length > 0 ? (
                   <Bar
+                    theme={chartTheme}
                     data={targetPlan.by_industry.map((i: OppIndustryBreakdown) => ({
                       industry: i.industry,
                       value: Number(i.total_worth),
                     }))}
-                    xField="value"
-                    yField="industry"
+                    xField="industry"
+                    yField="value"
                     height={260}
                     scale={{ color: { range: [BRAND.violet500] } }}
                     colorField="industry"
                     legend={false as const}
-                    axis={{ x: { labelFormatter: (v: number) => formatChartUsd(v) } }}
+                    // Only the value axis is money; on a transposed bar the
+                    // formatter also reached the category labels ("$NaN").
+                    axis={{ y: { labelFormatter: (v: number | string) => (Number.isFinite(Number(v)) ? formatChartUsd(Number(v)) : String(v)) } }}
                   />
                 ) : <Empty description="No industry data" />}
               </Card>
@@ -838,6 +852,7 @@ const AdminDashboard: React.FC = () => {
               <Card title="Pipeline by Quarter (2027)" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_quarter.length > 0 ? (
                   <Column
+                    theme={chartTheme}
                     data={targetPlan.by_quarter.flatMap((q: QuarterBreakdown) => [
                       { quarter: q.time_frame, type: 'Worth', value: Number(q.total_worth) },
                       { quarter: q.time_frame, type: 'Weighted', value: Number(q.weighted_pipeline) },
@@ -861,13 +876,14 @@ const AdminDashboard: React.FC = () => {
               <Card title="Pipeline Stage Funnel (6-bucket)" variant="borderless" style={{ borderRadius: 12 }}>
                 {targetPlan.by_stage.length > 0 ? (
                   <Bar
+                    theme={chartTheme}
                     data={targetPlan.by_stage.map((s: StageBreakdown) => ({
                       stage: `${Math.round(s.probability * 100)}% — ${s.stage_label}`,
                       count: s.opportunity_count,
                       worth: Number(s.total_worth),
                     }))}
-                    xField="count"
-                    yField="stage"
+                    xField="stage"
+                    yField="count"
                     height={300}
                     scale={{ color: { range: [BRAND.royal500] } }}
                     colorField="stage"
@@ -884,7 +900,7 @@ const AdminDashboard: React.FC = () => {
                       const max = Math.max(...targetPlan.by_sales_rep.map((x) => Number(x.weighted_pipeline)), 1);
                       const pct = Math.max(2, (Number(r.weighted_pipeline) / max) * 100);
                       return (
-                        <div key={r.sales_rep_id} style={{ padding: '12px 4px', borderBottom: idx === targetPlan.by_sales_rep.length - 1 ? 'none' : '1px solid #f0f0f0' }}>
+                        <div key={r.sales_rep_id} style={{ padding: '12px 4px', borderBottom: idx === targetPlan.by_sales_rep.length - 1 ? 'none' : '1px solid var(--brand-border)' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                             <Typography.Text strong>{r.sales_rep_name}</Typography.Text>
                             <Typography.Text strong>{formatChartUsd(Number(r.weighted_pipeline))}</Typography.Text>
@@ -1042,7 +1058,7 @@ const AdminDashboard: React.FC = () => {
             style={{ borderRadius: 12 }}
           >
             {regionColumnData.length > 0 ? (
-              <Column {...regionColumnConfig} />
+              <Column {...regionColumnConfig} theme={chartTheme} />
             ) : (
               <Empty description="No regional data" />
             )}
@@ -1125,7 +1141,7 @@ const AdminDashboard: React.FC = () => {
             style={{ borderRadius: 12 }}
           >
             {industryBarData.length > 0 ? (
-              <Bar {...industryBarConfig} />
+              <Bar {...industryBarConfig} theme={chartTheme} />
             ) : (
               <Empty description="No industry data" />
             )}
@@ -1281,7 +1297,7 @@ const AdminDashboard: React.FC = () => {
                         padding: '12px 8px',
                         borderRadius: 8,
                         cursor: 'pointer',
-                        borderBottom: idx === analytics.top_companies.length - 1 ? 'none' : '1px solid #f0f0f0',
+                        borderBottom: idx === analytics.top_companies.length - 1 ? 'none' : '1px solid var(--brand-border)',
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = BRAND.royal50)}
                       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -1353,7 +1369,7 @@ const AdminDashboard: React.FC = () => {
             }
             extra={
               topCompanyForRadar && (
-                <Tag color="purple" style={{ background: BRAND.violet100, color: BRAND.violet700, border: 'none' }}>
+                <Tag color="purple" style={{ background: BRAND.violet100, color: 'var(--brand-violet-ink)', border: 'none' }}>
                   <StarFilled style={{ marginRight: 4 }} />
                   {topCompanyForRadar.company_name}
                 </Tag>
@@ -1394,7 +1410,7 @@ const AdminDashboard: React.FC = () => {
                       display: 'flex',
                       gap: 12,
                       padding: '12px 20px',
-                      borderBottom: '1px solid #f5f5f5',
+                      borderBottom: '1px solid var(--brand-border)',
                     }}>
                       <Avatar size={36} style={{ background: BRAND.royal50, color: BRAND.royal500, fontWeight: 600, flexShrink: 0 }}>
                         {a.actor_name.split(' ').map((n) => n[0]).slice(0, 2).join('')}
@@ -1452,7 +1468,7 @@ const AdminDashboard: React.FC = () => {
                       padding: '12px 8px',
                       borderRadius: 8,
                       cursor: 'pointer',
-                      borderBottom: '1px solid #f5f5f5',
+                      borderBottom: '1px solid var(--brand-border)',
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = '#fef2f2')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}

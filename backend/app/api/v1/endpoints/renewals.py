@@ -23,7 +23,8 @@ class RenewalCreateRequest(BaseModel):
     """The two things a renewal genuinely re-decides. Everything else carries
     forward from the deployment being renewed."""
 
-    worth: Optional[float] = Field(None, gt=0)
+    # Same ceiling as Opportunity.worth (Numeric(15, 2)).
+    worth: Optional[float] = Field(None, gt=0, lt=1e13)
     closing_date: Optional[date] = None
 
 

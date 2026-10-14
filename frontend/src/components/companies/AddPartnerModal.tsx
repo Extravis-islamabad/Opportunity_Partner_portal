@@ -39,16 +39,16 @@ const AddPartnerModal: React.FC<AddPartnerModalProps> = ({ open, companyId, comp
       void queryClient.invalidateQueries({ queryKey: ['users'] });
       // Say where the activation link went. The account is unusable until
       // that mail is acted on, so silence here reads as "nothing happened".
-      void message.success(`Partner created — an activation email has been sent to ${created.email}`);
+      void message.success(`User created — an activation email has been sent to ${created.email}`);
       onClose();
     },
     onError: (err: AxiosError<ErrorResponse>) =>
-      void message.error(err.response?.data?.message || 'Failed to create partner'),
+      void message.error(err.response?.data?.message || 'Failed to create user'),
   });
 
   return (
     <Modal
-      title={`Add Partner — ${companyName}`}
+      title={`Add User — ${companyName}`}
       open={open}
       onCancel={() => { form.resetFields(); onClose(); }}
       onOk={() => form.submit()}

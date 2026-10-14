@@ -1,8 +1,9 @@
 """
 Commission & scorecard endpoints.
 
-Partners see their own company only. Admins see everything. Admins/channel
-managers can transition commission status. Sales reps have no commission
+Partners see their own company only. Superadmins see everything. A channel
+manager sees — and can transition the status of — only commissions and
+statements of companies they channel-manage (a company may have several). Sales reps have no commission
 concept and are denied at the router level — the handlers here scope with
 `if partner: ... else: <everything>`, so a rep must never reach them.
 
@@ -49,6 +50,18 @@ router = APIRouter(
 )
 
 
+async def _admin_scope(db: AsyncSession, user: User) -> Optional[list[int]]:
+    """Company ids a channel manager may see; None for a superadmin or a
+    partner (partners are scoped by their own company_id in the service).
+
+    The router guards above leave only partners and admins, so "not a
+    partner" means admin here.
+    """
+    if user.role != UserRole.ADMIN:
+        return None
+    return await get_admin_scope(db, user)
+
+
 # ---------------------------------------------------------------------------
 # Commissions
 # ---------------------------------------------------------------------------
@@ -57,14 +70,14 @@ router = APIRouter(
 async def list_commissions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
+    # Validated here rather than in the service: an unknown value used to reach
+    # the Postgres enum comparison and come back as a 500.
+    status: Optional[str] = Query(None, pattern="^(pending|approved|paid|void)$"),
     company_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CommissionListResponse:
-    scope = None
-    if current_user.role == UserRole.ADMIN and not current_user.is_superadmin:
-        scope = await get_admin_scope(db, current_user)
+    scope = await _admin_scope(db, current_user)
 
     items, total = await commission_service.list_commissions(
         db,
@@ -90,8 +103,13 @@ async def get_commission(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> CommissionRead:
+    # Was scoped for partners only, so any channel manager could open any
+    # company's commission by id.
     return await commission_service.get_commission(
-        db, commission_id=commission_id, current_user=current_user
+        db,
+        commission_id=commission_id,
+        current_user=current_user,
+        scope_company_ids=await _admin_scope(db, current_user),
     )
 
 
@@ -108,6 +126,9 @@ async def update_commission_status(
         new_status=payload.status,
         notes=payload.notes,
         actor=admin,
+        # No scope check at all used to happen here: any channel manager could
+        # approve, pay or void another manager's partner's commission.
+        scope_company_ids=await get_admin_scope(db, admin),
     )
 
 
@@ -121,8 +142,13 @@ async def list_statements(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[StatementPeriodSummary]:
+    # Only the partner branch was scoped; every channel manager listed every
+    # company's statement totals.
     return await commission_service.list_statements(
-        db, company_id=company_id, current_user=current_user
+        db,
+        company_id=company_id,
+        current_user=current_user,
+        scope_company_ids=await _admin_scope(db, current_user),
     )
 
 
@@ -137,6 +163,16 @@ async def download_statement_pdf(
         from app.core.exceptions import ForbiddenException
 
         raise ForbiddenException(message="You can only access your own statements")
+    # Same 403 the scorecard gives for a company outside the manager's book.
+    # Without it every channel manager could download every company's
+    # statement.
+    if current_user.role == UserRole.ADMIN:
+        await assert_manages_company(db, current_user, company_id, action="view")
+
+    # A made-up company id used to render a 200 "Company #99999" PDF with no
+    # rows. Checked after the scope check so a channel manager learns nothing
+    # about ids outside their book beyond the 403.
+    company_name = await commission_service.get_statement_company_name(db, company_id)
 
     try:
         year, month = map(int, period.split("-"))
@@ -159,7 +195,6 @@ async def download_statement_pdf(
 
     buf = BytesIO()
     doc = _make_pdf_doc(buf, f"Commission Statement — {period}")
-    company_name = rows[0].company.name if rows and rows[0].company else f"Company #{company_id}"
     elements = _pdf_header_elements(
         f"Commission Statement — {period}",
         subtitle=f"{company_name} · Total ${total:,.2f}",

@@ -55,8 +55,15 @@ services:
       # are reachable by service name, not localhost.
       - DATABASE_URL=postgresql+asyncpg://extravis:extravis_secret@db:5432/partner_portal
       - REDIS_URL=redis://redis:6379/0
+      # Trust X-Forwarded-For only from the docker bridge ranges (nginx and the
+      # host gateway) — see the note in backend/Dockerfile. Without it slowapi
+      # and the audit log see nginx's address for every user. Note that the
+      # 8001 host port also arrives via the bridge gateway, so in dev a client
+      # hitting :8001 directly could set its own address; prod binds the API
+      # to loopback only.
+      - FORWARDED_ALLOW_IPS=172.16.0.0/12,192.168.0.0/16,127.0.0.1
     command: >
-      sh -c "alembic upgrade head && python -m app.core.init_db && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+      sh -c "alembic upgrade head && python -m app.core.init_db && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --proxy-headers"
 
   frontend:
     build:

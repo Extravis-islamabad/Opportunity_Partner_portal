@@ -66,10 +66,19 @@ const CompanyListPage: React.FC = () => {
         tier ? <Tag color={tierColors[tier] ?? 'default'}>{tier.toUpperCase()}</Tag> : <span style={{ opacity: 0.45 }}>—</span>,
     },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={s === 'active' ? 'green' : 'red'}>{s.toUpperCase()}</Tag> },
-    { title: 'Channel Manager', dataIndex: 'channel_manager_name', key: 'cm' },
+    {
+      title: 'Channel Managers', key: 'cm',
+      render: (_, record) => {
+        const names = record.channel_managers?.length
+          ? record.channel_managers.map((m) => m.full_name)
+          : [record.channel_manager_name].filter(Boolean);
+        return names.length ? names.join(', ') : '—';
+      },
+    },
     { title: 'Partners', dataIndex: 'partner_count', key: 'partners' },
     {
-      title: 'Actions', key: 'actions', render: (_, record) => (
+      // Pinned so the actions stay on screen while wide rows scroll.
+      title: 'Actions', key: 'actions', fixed: 'right' as const, render: (_, record) => (
         <Space>
           <Button type="link" icon={<EyeOutlined />} onClick={() => navigate(`/companies/${record.id}`)}>View</Button>
           {isSuperadmin && (
@@ -104,11 +113,9 @@ const CompanyListPage: React.FC = () => {
               pdf={() => exportsApi.companiesPdf(exportParams)}
               xlsx={() => exportsApi.companiesXlsx(exportParams)}
             />
-            {isSuperadmin && (
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
-                Add Company
-              </Button>
-            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
+              Add Company
+            </Button>
           </Space>
         }
       />
@@ -135,6 +142,7 @@ const CompanyListPage: React.FC = () => {
             columns={columns}
             dataSource={data.items}
             rowKey="id"
+            scroll={{ x: 'max-content' }}
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage, showTotal: (t) => `Total ${t} companies` }}
           />
         ) : (
@@ -143,14 +151,12 @@ const CompanyListPage: React.FC = () => {
             description={
               isSuperadmin
                 ? 'Add a partner company to start tracking opportunities and deals.'
-                : 'You are not currently assigned as channel manager for any companies. Contact a superadmin to be assigned.'
+                : 'You are not channel manager for any companies yet. Add one, or ask a superadmin to assign you.'
             }
             action={
-              isSuperadmin ? (
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
-                  Add Company
-                </Button>
-              ) : null
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/companies/create')}>
+                Add Company
+              </Button>
             }
           />
         )

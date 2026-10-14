@@ -38,6 +38,27 @@ async def _license_status_refresher(logger) -> None:
         await asyncio.sleep(24 * 60 * 60)
 
 
+async def _every(name: str, job, logger, seconds: int) -> None:
+    """Run one job every `seconds`, each run in its own session and failure
+    boundary — the same shape as _daily, for jobs that are time-of-day
+    sensitive. Activity reminders are set to the minute; a daily sweep would
+    deliver a 10:00 reminder at whatever hour the server happened to boot."""
+    from app.core.database import async_session_factory
+
+    while True:
+        try:
+            async with async_session_factory() as session:
+                result = await job(session)
+                await session.commit()
+            if result:
+                logger.info(f"{name}_ran", **(result if isinstance(result, dict) else {"result": result}))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — a scheduled loop must survive
+            logger.warning(f"{name}_failed", error=str(exc))
+        await asyncio.sleep(seconds)
+
+
 async def _daily(name: str, job, logger) -> None:
     """Run one job at startup and every 24h thereafter.
 
@@ -77,6 +98,7 @@ async def lifespan(app: FastAPI):
     from app.services.renewal_service import sweep_renewals
     from app.services.review_sla_service import sweep_stale_reviews
     from app.services.tier_service import sweep_tier_reviews
+    from app.services.sales_activity_service import send_due_reminders
 
     # Held in a list, not bare create_task calls: asyncio keeps only a weak
     # reference to a running task, so one whose handle nobody holds can be
@@ -87,6 +109,7 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_daily("exclusivity_sweep", sweep_exclusivity, logger)),
         asyncio.create_task(_daily("tier_review_sweep", sweep_tier_reviews, logger)),
         asyncio.create_task(_daily("renewal_sweep", sweep_renewals, logger)),
+        asyncio.create_task(_every("activity_reminder_sweep", send_due_reminders, logger, 60)),
     ]
 
     yield

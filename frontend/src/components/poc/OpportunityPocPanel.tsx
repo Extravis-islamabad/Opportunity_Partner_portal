@@ -15,7 +15,7 @@
 import React, { useState } from 'react';
 import {
   Card, Button, Empty, Descriptions, Space, Modal, Form, DatePicker, Input,
-  InputNumber, message, Typography, Tag, Alert, Radio, Select,
+  InputNumber, message, Typography, Tag, Alert, Radio, Select, theme, Row, Col,
 } from 'antd';
 import { RocketOutlined, SafetyCertificateOutlined, WarningOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -25,6 +25,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PocStageTracker, PocStatusTag } from '@/components/dashboard/PocWidgets';
 import PocTeamPanel from '@/components/poc/PocTeamPanel';
 import PocActivityPanel from '@/components/poc/PocActivityPanel';
+import { lineSize } from '@/utils/sizing';
 import type { PocResponse, PocStageState, LicenseStatus } from '@/types';
 
 const { Text } = Typography;
@@ -38,12 +39,16 @@ const LICENSE_TAG: Record<LicenseStatus, { color: string; label: string }> = {
 
 interface Props {
   opportunityId: number;
+  /** False for an admin reading an opportunity outside their channel: they
+   *  can see the POC and licence but not change them. */
+  canManage?: boolean;
 }
 
-const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
+const OpportunityPocPanel: React.FC<Props> = ({ opportunityId, canManage = true }) => {
   const { user } = useAuth();
+  const { token } = theme.useToken();
   const queryClient = useQueryClient();
-  const canEdit = user?.role === 'admin' || user?.role === 'sales_rep';
+  const canEdit = canManage && (user?.role === 'admin' || user?.role === 'sales_rep');
 
   // The stage whose owner is being picked, or null when the modal is closed.
   const [ownerStage, setOwnerStage] = useState<PocStageState | null>(null);
@@ -223,7 +228,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
             />
 
             {poc.closed_at && (
-              <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid #f0f0f0' }}>
+              <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${token.colorBorderSecondary}` }}>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   Closed {dayjs(poc.closed_at).format('YYYY-MM-DD')}
                   {poc.closed_by_name ? ` by ${poc.closed_by_name}` : ''}
@@ -289,6 +294,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
         pocId={poc?.id ?? null}
         team={poc?.team ?? []}
         onChanged={invalidate}
+        editable={canManage}
       />
 
       {/* Who actually did what. Internal only — the API refuses partners, and
@@ -312,8 +318,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
                   po_number: license?.po_number,
                   po_received_date: license?.po_received_date ? dayjs(license.po_received_date) : null,
                   po_value: license?.po_value ? Number(license.po_value) : null,
-                  device_count: license?.device_count,
-                  node_count: license?.node_count,
+                  device_count: license ? lineSize(license) : null,
                   license_activated_at: license?.license_activated_at ? dayjs(license.license_activated_at) : null,
                   license_expires_at: license?.license_expires_at ? dayjs(license.license_expires_at) : null,
                   license_key: license?.license_key,
@@ -345,7 +350,12 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
             {license.status === 'expired' && (
               <Alert type="error" showIcon message="This licence has expired" style={{ marginBottom: 16, borderRadius: 8 }} />
             )}
-            <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
+            <Descriptions
+              bordered
+              column={{ xs: 1, sm: 1, md: 2, lg: 2, xl: 2, xxl: 3 }}
+              styles={{ label: { whiteSpace: 'nowrap', width: 1 }, content: { overflowWrap: 'break-word' } }}
+              size="small"
+            >
               <Descriptions.Item label="Status">
                 <Tag color={LICENSE_TAG[license.status].color} style={{ border: 'none', fontWeight: 600 }}>
                   {LICENSE_TAG[license.status].label}
@@ -356,8 +366,7 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
               <Descriptions.Item label="PO Value">
                 {license.po_value ? `$${Number(license.po_value).toLocaleString()}` : '—'}
               </Descriptions.Item>
-              <Descriptions.Item label="Devices">{license.device_count ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="Nodes">{license.node_count ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="Nodes / Devices">{lineSize(license) ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Licence Activated">{license.license_activated_at ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Licence Expires">
                 {license.license_expires_at ?? '—'}
@@ -509,8 +518,9 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
               po_number: v.po_number ?? null,
               po_received_date: v.po_received_date ? v.po_received_date.format('YYYY-MM-DD') : null,
               po_value: v.po_value ?? null,
+              // One figure: nodes and devices are the same thing.
               device_count: v.device_count ?? null,
-              node_count: v.node_count ?? null,
+              node_count: null,
               license_activated_at: v.license_activated_at ? v.license_activated_at.format('YYYY-MM-DD') : null,
               license_expires_at: v.license_expires_at ? v.license_expires_at.format('YYYY-MM-DD') : null,
               license_key: v.license_key ?? null,
@@ -518,33 +528,38 @@ const OpportunityPocPanel: React.FC<Props> = ({ opportunityId }) => {
             })
           }
         >
-          <Space style={{ display: 'flex' }} align="start">
-            <Form.Item name="po_number" label="PO number" style={{ flex: 1 }}>
-              <Input placeholder="PO-2027-0142" />
-            </Form.Item>
-            <Form.Item name="po_received_date" label="PO received" style={{ flex: 1 }}>
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="po_value" label="PO value" style={{ flex: 1 }}>
-              <InputNumber style={{ width: '100%' }} min={0} prefix="$" />
-            </Form.Item>
-          </Space>
-          <Space style={{ display: 'flex' }} align="start">
-            <Form.Item name="device_count" label="Devices" style={{ flex: 1 }}>
-              <InputNumber style={{ width: '100%' }} min={0} />
-            </Form.Item>
-            <Form.Item name="node_count" label="Nodes" style={{ flex: 1 }}>
-              <InputNumber style={{ width: '100%' }} min={0} />
-            </Form.Item>
-          </Space>
-          <Space style={{ display: 'flex' }} align="start">
-            <Form.Item name="license_activated_at" label="Licence activated" style={{ flex: 1 }}>
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="license_expires_at" label="Licence expires" style={{ flex: 1 }}>
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-          </Space>
+          <Row gutter={12}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="po_number" label="PO number">
+                <Input placeholder="PO-2027-0142" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="po_received_date" label="PO received">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="po_value" label="PO value">
+                <InputNumber style={{ width: '100%' }} min={0} prefix="$" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="device_count" label="Nodes / Devices">
+            <InputNumber style={{ width: '100%' }} min={0} />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col xs={24} sm={12}>
+              <Form.Item name="license_activated_at" label="Licence activated">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item name="license_expires_at" label="Licence expires">
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item name="license_key" label="Licence key">
             <Input />
           </Form.Item>

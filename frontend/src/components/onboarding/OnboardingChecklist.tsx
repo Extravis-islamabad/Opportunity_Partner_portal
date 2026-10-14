@@ -6,10 +6,13 @@ import { message } from 'antd';
 import { onboardingApi } from '@/api/endpoints';
 import type { OnboardingChecklist as OnboardingChecklistData } from '@/types';
 
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   green: '#10b981',
 };
 

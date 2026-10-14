@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 # ==================== Sales activity log ====================
 
-_TYPE_PATTERN = r"^(call|meeting|demo|email|site_visit|follow_up|training|other)$"
+_TYPE_PATTERN = r"^(call|meeting|demo|email|site_visit|follow_up|training|deployment|other)$"
 
 
 class ActivityCreateRequest(BaseModel):
@@ -16,8 +16,13 @@ class ActivityCreateRequest(BaseModel):
     # The POC this was work on, when it was POC work. Only accepted for a POC
     # the logger can actually work on — the service checks.
     poc_id: Optional[int] = None
+    partner_name: Optional[str] = Field(None, max_length=255)
     duration_minutes: Optional[int] = Field(None, ge=1, le=24 * 60)
     notes: Optional[str] = None
+    # Optional follow-up reminder. Must be in the future when set; the service
+    # checks, since "now" is not something a schema can know.
+    reminder_at: Optional[datetime] = None
+    reminder_note: Optional[str] = Field(None, max_length=2000)
 
 
 class ActivityUpdateRequest(BaseModel):
@@ -26,8 +31,11 @@ class ActivityUpdateRequest(BaseModel):
     customer_name: Optional[str] = Field(None, max_length=255)
     opportunity_id: Optional[int] = None
     poc_id: Optional[int] = None
+    partner_name: Optional[str] = Field(None, max_length=255)
     duration_minutes: Optional[int] = Field(None, ge=1, le=24 * 60)
     notes: Optional[str] = None
+    reminder_at: Optional[datetime] = None
+    reminder_note: Optional[str] = Field(None, max_length=2000)
 
 
 class ActivityResponse(BaseModel):
@@ -41,8 +49,12 @@ class ActivityResponse(BaseModel):
     opportunity_id: Optional[int] = None
     opportunity_name: Optional[str] = None
     poc_id: Optional[int] = None
+    partner_name: Optional[str] = None
     duration_minutes: Optional[int] = None
     notes: Optional[str] = None
+    reminder_at: Optional[datetime] = None
+    reminder_note: Optional[str] = None
+    reminder_sent_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -63,7 +75,7 @@ class ActivityDay(BaseModel):
 class ActivityMonthResponse(BaseModel):
     """A rep's activity month: every day that has entries, plus totals.
 
-    The frontend builds the Mon–Fri grid itself from the month; this response
+    The frontend builds the month grid itself; this response
     only carries days that actually contain activities.
     """
     user_id: int

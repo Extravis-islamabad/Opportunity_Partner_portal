@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.deps import get_channel_manager_ids
 from app.core.config import settings
 from app.core.exceptions import (
     BadRequestException,
@@ -129,8 +130,7 @@ async def _recipients(db: AsyncSession, deal: DealRegistration) -> set[int]:
     relationship. The manager is included because losing exclusivity on a
     customer is their problem too, and they are the one who can extend it."""
     people = {deal.registered_by}
-    if deal.company and deal.company.channel_manager_id:
-        people.add(deal.company.channel_manager_id)
+    people.update(await get_channel_manager_ids(db, deal.company_id))
     return people
 
 
@@ -240,10 +240,8 @@ async def request_extension(
 
     # The channel manager decides these; superadmins are told for a company
     # with nobody assigned, so a request cannot sit unseen.
-    deciders: set[int] = set()
-    if deal.company and deal.company.channel_manager_id:
-        deciders.add(deal.company.channel_manager_id)
-    else:
+    deciders: set[int] = await get_channel_manager_ids(db, deal.company_id)
+    if not deciders:
         deciders.update((await db.execute(
             select(User.id).where(
                 User.is_superadmin.is_(True),

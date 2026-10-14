@@ -11,6 +11,7 @@ from sqlalchemy import select, func, case, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.utils.search import LIKE_ESCAPE, contains
 from app.models.opportunity_product import primary_product
 from app.core.exceptions import (
     BadRequestException,
@@ -22,7 +23,7 @@ from app.models.customer_license import (
     LicenseStatus,
     EXPIRING_SOON_DAYS,
 )
-from app.models.opportunity import Opportunity
+from app.models.opportunity import Opportunity, OpportunityStatus
 from app.models.poc import Poc, PocStatus, POC_STAGE_KEYS, POC_STAGE_LABELS
 from app.models.poc_team import POC_TEAM_ROLE_LABELS, PocTeamMember
 from app.models.user import User, UserRole
@@ -404,7 +405,7 @@ async def list_pocs(
     if company_id:
         both(Opportunity.company_id == company_id)
     if search:
-        both(Opportunity.customer_name.ilike(f"%{search}%"))
+        both(Opportunity.customer_name.ilike(contains(search), escape=LIKE_ESCAPE))
     # Who may see which POC — channel-manager scope, own assignment, and POC
     # team membership, OR'd. See poc_access_clause for why an empty scope list
     # must still produce a term.
@@ -426,12 +427,30 @@ async def list_pocs(
 # Mutations
 # ---------------------------------------------------------------------------
 
+# A POC is technical work on a live deal. A draft has not been put forward,
+# and a rejected, removed or lost deal is over — starting one there leaves a
+# running POC (and, later, a licence in the renewal queue) on a dead record.
+_NO_POC_STATUSES = (
+    OpportunityStatus.DRAFT,
+    OpportunityStatus.REJECTED,
+    OpportunityStatus.REMOVED,
+    OpportunityStatus.LOST,
+)
+# A PO only lands on a deal Extravis has accepted.
+_LICENSABLE_STATUSES = (OpportunityStatus.APPROVED, OpportunityStatus.WON)
+
+
 async def start_poc(
     db: AsyncSession, opp_id: int, data: PocStartRequest, user: User
 ) -> PocResponse:
     """Start a POC — i.e. record the VM allocation. Creates the record if it
     doesn't exist yet."""
-    await get_opportunity_or_404(db, opp_id)
+    opp = await get_opportunity_or_404(db, opp_id)
+    if opp.status in _NO_POC_STATUSES:
+        raise ConflictException(
+            code="OPPORTUNITY_NOT_ACTIVE",
+            message=f"A POC cannot be started on a {opp.status.value.replace('_', ' ')} opportunity",
+        )
 
     existing = await get_poc_by_opportunity(db, opp_id)
     if existing and existing.vm_provisioning_completed_at is not None:
@@ -486,6 +505,13 @@ async def update_poc(
     # allocation by definition.
     if "vm_provisioning_completed_at" in payload:
         poc.start_date = poc.vm_provisioning_completed_at
+
+    # The same rule start_poc applies; editing could get round it.
+    if poc.target_end_date and poc.start_date and poc.target_end_date < poc.start_date:
+        raise BadRequestException(
+            code="INVALID_DATE_RANGE",
+            message="Target end date cannot be before the start date",
+        )
 
     _validate_stage_dates(poc)
     poc.status = derive_status(poc)
@@ -545,6 +571,11 @@ async def set_stage_owner(
     also why this is not admin-only: any POC editor can divide up the work.
     """
     poc = await get_poc_or_404(db, poc_id)
+    if poc.closed_at is not None:
+        raise ConflictException(
+            code="POC_CLOSED",
+            message="This POC is closed. Reopen it before changing stage owners.",
+        )
     if stage_key not in POC_STAGE_KEYS:
         raise BadRequestException(
             code="INVALID_STAGE",
@@ -705,7 +736,12 @@ async def upsert_license(
     """Create or update the licence record for an opportunity. Upsert rather
     than separate create/update because the UI is a single form that gets
     filled in progressively as the PO, activation, and expiry land."""
-    await get_opportunity_or_404(db, opp_id)
+    opp = await get_opportunity_or_404(db, opp_id)
+    if opp.status not in _LICENSABLE_STATUSES:
+        raise ConflictException(
+            code="OPPORTUNITY_NOT_APPROVED",
+            message="A PO can only be recorded once the opportunity is approved",
+        )
 
     lic = await get_license_by_opportunity(db, opp_id)
     created = lic is None
@@ -772,7 +808,7 @@ async def list_licenses(
         # column is stale for any licence whose dates have since passed.
         both(license_status_expr() == status)
     if search:
-        both(Opportunity.customer_name.ilike(f"%{search}%"))
+        both(Opportunity.customer_name.ilike(contains(search), escape=LIKE_ESCAPE))
     # Same three grounds as the POC list. A team member can edit the licence
     # for their POC's opportunity (pocs.upsert_license goes through
     # assert_can_work_on_poc), so the list has to show it to them — a list

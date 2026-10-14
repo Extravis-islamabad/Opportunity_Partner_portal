@@ -58,11 +58,17 @@ from app.models.poc import Poc, PocStatus, POC_STAGE_KEYS, POC_STAGE_LABELS
 from app.models.customer_license import CustomerLicense, LicenseStatus
 # Safe: neither imports dashboard_service, so no cycle.
 from app.services import company_service, poc_service, tier_service
+from app.core.exceptions import NotFoundException
 
 
 # Raw string values, for the aggregation queries that select the column
 # rather than loading a Company instance.
 _CHANNEL_TYPE_VALUES = frozenset(t.value for t in CHANNEL_COMPANY_TYPES)
+
+# How an opportunity with no partner company (a sales rep's direct deal) is
+# labelled wherever a company name or region would otherwise go. Matches the
+# wording the opportunity screens already use.
+_DIRECT_LABEL = "Direct (no partner)"
 
 
 async def get_admin_dashboard_stats(
@@ -141,7 +147,10 @@ async def get_admin_dashboard_stats(
             Opportunity.worth_usd.label("worth"),
             Opportunity.status,
         )
-        .join(Company, Opportunity.company_id == Company.id)
+        # Outer: a direct deal has no company, and an inner join dropped it
+        # from this list while overdue_count above still counted it — the
+        # card said "3 overdue" and listed two.
+        .outerjoin(Company, Opportunity.company_id == Company.id)
         .where(*overdue_filter)
         .order_by(Opportunity.closing_date.asc())
         .limit(10)
@@ -150,7 +159,7 @@ async def get_admin_dashboard_stats(
         OverdueOpportunityItem(
             id=row[0],
             name=row[1],
-            company_name=row[2],
+            company_name=row[2] or _DIRECT_LABEL,
             closing_date=str(row[3]),
             worth=row[4],
             status=row[5].value if hasattr(row[5], "value") else row[5],
@@ -232,7 +241,10 @@ async def get_company_performance(db: AsyncSession, company_id: int) -> CompanyP
     company_result = await db.execute(
         select(Company).where(Company.id == company_id, Company.deleted_at.is_(None))
     )
-    company = company_result.scalar_one()
+    company = company_result.scalar_one_or_none()
+    if company is None:
+        # scalar_one() raised NoResultFound here, which surfaced as a 500.
+        raise NotFoundException(code="COMPANY_NOT_FOUND", message="Company not found")
 
     submitted = await db.execute(
         select(func.count(Opportunity.id)).where(
@@ -436,14 +448,23 @@ async def get_partner_dashboard(db: AsyncSession, partner_user: User) -> Partner
 async def get_channel_manager_dashboard(
     db: AsyncSession, user_id: int
 ) -> ChannelManagerDashboardResponse:
-    # Get per-company breakdown using SQL aggregation
-    result = await db.execute(
+    # Per-company breakdown. Users and opportunities are aggregated in their
+    # own subqueries and joined on afterwards: outer-joining both onto Company
+    # in one query produces one row per (user, opportunity) pair, so every
+    # opportunity was counted once per partner user — a company with two
+    # users showed double its pending and approved opportunities.
+    partner_counts = (
         select(
-            Company.id,
-            Company.name,
-            Company.tier,
-            Company.company_type,
-            func.count(func.distinct(User.id)).label("partner_count"),
+            User.company_id.label("company_id"),
+            func.count(User.id).label("partner_count"),
+        )
+        .where(User.deleted_at.is_(None), User.role == UserRole.PARTNER)
+        .group_by(User.company_id)
+        .subquery()
+    )
+    opp_counts = (
+        select(
+            Opportunity.company_id.label("company_id"),
             func.sum(case(
                 (Opportunity.status.in_([OpportunityStatus.PENDING_REVIEW, OpportunityStatus.UNDER_REVIEW]), 1),
                 else_=0,
@@ -453,13 +474,30 @@ async def get_channel_manager_dashboard(
                 else_=0,
             )).label("approved_opps"),
         )
-        .outerjoin(User, (User.company_id == Company.id) & (User.deleted_at.is_(None)) & (User.role == UserRole.PARTNER))
-        .outerjoin(Opportunity, (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)))
+        # Direct deals (company_id NULL) belong to no manager's book.
+        .where(Opportunity.deleted_at.is_(None), Opportunity.company_id.is_not(None))
+        .group_by(Opportunity.company_id)
+        .subquery()
+    )
+    result = await db.execute(
+        select(
+            Company.id,
+            Company.name,
+            Company.tier,
+            Company.company_type,
+            func.coalesce(partner_counts.c.partner_count, 0).label("partner_count"),
+            func.coalesce(opp_counts.c.pending_opps, 0).label("pending_opps"),
+            func.coalesce(opp_counts.c.approved_opps, 0).label("approved_opps"),
+        )
+        .outerjoin(partner_counts, partner_counts.c.company_id == Company.id)
+        .outerjoin(opp_counts, opp_counts.c.company_id == Company.id)
         .where(
-            Company.channel_manager_id == user_id,
+            # managed_by, not channel_manager_id: a co-managed company is as
+            # much this manager's as one they are primary on.
+            Company.managed_by(user_id),
             Company.deleted_at.is_(None),
         )
-        .group_by(Company.id, Company.name, Company.tier, Company.company_type)
+        .order_by(Company.name)
     )
     rows = result.all()
 
@@ -578,9 +616,12 @@ async def get_admin_analytics(
     if is_scoped:
         company_filter.append(Company.id.in_(scope_company_ids))
     # ---- Region breakdown ---------------------------------------------------
+    # Region is optional on a company; those without one are grouped as
+    # "Unspecified" rather than failing the whole response.
+    region_label = func.coalesce(func.nullif(Company.region, ""), "Unspecified")
     region_rows = (await db.execute(
         select(
-            Company.region,
+            region_label,
             func.count(func.distinct(Company.id)).label("company_count"),
             func.count(Opportunity.id).label("opp_count"),
             func.coalesce(func.sum(Opportunity.worth_usd), 0).label("total_worth"),
@@ -600,7 +641,7 @@ async def get_admin_analytics(
             (Opportunity.company_id == Company.id) & (Opportunity.deleted_at.is_(None)),
         )
         .where(*company_filter)
-        .group_by(Company.region)
+        .group_by(region_label)
         .order_by(func.coalesce(func.sum(Opportunity.worth_usd), 0).desc())
     )).all()
     regions = [
@@ -613,6 +654,38 @@ async def get_admin_analytics(
         )
         for row in region_rows
     ]
+
+    # The breakdown above starts from Company, so direct deals (no partner
+    # company, hence no region) never appear in it and the regions summed to
+    # less than the pipeline headline. They get their own row rather than
+    # being folded into "Unspecified", which means "a company with no region
+    # set". Only for the unscoped view: a channel manager's scope is a list of
+    # companies, and a direct deal is in nobody's book.
+    if not is_scoped:
+        direct = (await db.execute(
+            select(
+                func.count(Opportunity.id),
+                func.coalesce(func.sum(Opportunity.worth_usd), 0),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (Opportunity.status.in_(ACCEPTED_STATUSES), Opportunity.worth_usd),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ),
+            ).where(Opportunity.deleted_at.is_(None), Opportunity.company_id.is_(None))
+        )).one()
+        if direct[0]:
+            regions.append(RegionBreakdown(
+                region=_DIRECT_LABEL,
+                company_count=0,
+                opportunity_count=direct[0],
+                total_worth=direct[1],
+                approved_worth=direct[2],
+            ))
+            regions.sort(key=lambda r: r.total_worth, reverse=True)
 
     # ---- Tier distribution --------------------------------------------------
     # Partner tier only applies to companies in the programme; counting
@@ -719,7 +792,7 @@ async def get_admin_analytics(
             company_type=row_type,
             # A customer can rank here on pipeline, but it has no tier.
             tier=row_tier if row_type in _CHANNEL_TYPE_VALUES else None,
-            region=row.region,
+            region=row.region or "Unspecified",
             opportunities_won=row.won or 0,
             approved_worth=row.approved_worth,
         ))
@@ -1288,7 +1361,9 @@ async def get_deployment_analytics(
         select(
             lic_status,
             func.count(CustomerLicense.id),
-            func.coalesce(func.sum(CustomerLicense.device_count), 0),
+            # Nodes and devices are one figure: device_count, falling back to
+            # node_count on a record that only ever had that filled in.
+            func.coalesce(func.sum(func.coalesce(CustomerLicense.device_count, CustomerLicense.node_count)), 0),
             func.coalesce(func.sum(CustomerLicense.node_count), 0),
         )
         .select_from(CustomerLicense)

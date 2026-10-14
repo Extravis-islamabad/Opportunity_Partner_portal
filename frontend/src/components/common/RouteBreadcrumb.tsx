@@ -3,13 +3,16 @@ import { Breadcrumb } from 'antd';
 import { Link, useLocation } from 'react-router-dom';
 import { HomeOutlined } from '@ant-design/icons';
 import { buildCrumbs } from '@/routes/routeConfig';
+import { useBreadcrumbOwnership } from '@/contexts/BreadcrumbContext';
 
 const RouteBreadcrumb: React.FC = () => {
   const location = useLocation();
   const crumbs = buildCrumbs(location.pathname);
+  const { pageOwnsCrumbs } = useBreadcrumbOwnership();
 
-  // On the dashboard there's nothing useful to show
-  if (crumbs.length === 0 || location.pathname === '/dashboard') return null;
+  // On the dashboard there's nothing useful to show, and a page with its own
+  // trail (PageHeader breadcrumbs) shows a better one.
+  if (crumbs.length === 0 || location.pathname === '/dashboard' || pageOwnsCrumbs > 0) return null;
 
   const items = [
     {

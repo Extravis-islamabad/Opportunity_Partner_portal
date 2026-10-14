@@ -47,14 +47,16 @@ interface Props {
   team: PocTeamMember[];
   /** Called after any change, so the parent can refetch the POC. */
   onChanged: () => void;
+  /** False for an admin viewing an opportunity outside their channel. */
+  editable?: boolean;
 }
 
-const PocTeamPanel: React.FC<Props> = ({ pocId, team, onChanged }) => {
+const PocTeamPanel: React.FC<Props> = ({ pocId, team, onChanged, editable = true }) => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   // Staffing a POC is a management decision and it hands out access, so it is
   // not self-service. Mirrors get_current_admin on the mutating routes.
-  const canManage = user?.role === 'admin';
+  const canManage = editable && user?.role === 'admin';
 
   const [addOpen, setAddOpen] = useState(false);
   const [form] = Form.useForm();

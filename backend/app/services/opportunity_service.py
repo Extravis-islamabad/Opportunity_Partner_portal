@@ -7,6 +7,7 @@ from sqlalchemy.orm import joinedload
 from typing import Optional
 import structlog
 
+from app.utils.search import LIKE_ESCAPE, contains
 from app.utils.file_tokens import signed_file_url
 from app.models.opportunity import (
     ACCEPTED_STATUSES,
@@ -237,6 +238,36 @@ def _build_opportunity_response(opp: Opportunity) -> OpportunityResponse:
     )
 
 
+# Columns that are NOT NULL. Every field on the update request is optional so
+# a client can send just what changed — but sending one of these as an
+# explicit null used to reach the database and come back as a 500 (or, for
+# currency, quietly re-label a deal as dollars).
+_REQUIRED_ON_UPDATE = (
+    "name", "customer_name", "region", "country", "city", "worth",
+    "closing_date", "requirements", "currency",
+)
+
+
+async def _validate_sales_rep(db: AsyncSession, sales_rep_id: Optional[int]) -> None:
+    """An assigned sales rep must be a live sales-rep account. Without this
+    any user id — an admin, another partner — could be named, and an id that
+    did not exist came back as a 500 from the foreign key."""
+    if sales_rep_id is None:
+        return
+    rep = (await db.execute(
+        select(User.id).where(
+            User.id == sales_rep_id,
+            User.role == UserRole.SALES_REP,
+            User.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if rep is None:
+        raise BadRequestException(
+            code="INVALID_SALES_REP",
+            message="The assigned sales rep must be an active sales rep account",
+        )
+
+
 async def create_opportunity(
     db: AsyncSession, data: OpportunityCreateRequest, creator: User
 ) -> OpportunityResponse:
@@ -244,30 +275,29 @@ async def create_opportunity(
     from app.services import duplicate_service
     from app.models.company import CompanyStatus
 
-    # Whose pipeline is this? A partner's own company; a sales rep names the
-    # partner company they are registering on behalf of. The rep becomes the
-    # assigned sales rep, so the opportunity shows up in their own list and
-    # they keep edit/submit rights via submitted_by.
+    # Whose pipeline is this? A partner's own company; a sales rep may name
+    # the partner company they are registering on behalf of, or none at all
+    # for a direct deal with no partner attached yet. Either way the rep
+    # becomes the assigned sales rep, so the opportunity shows up in their own
+    # list and they keep edit/submit rights via submitted_by.
     if creator.role == UserRole.SALES_REP:
-        if not data.company_id:
-            raise BadRequestException(
-                code="COMPANY_REQUIRED",
-                message="Select the partner company this opportunity is registered for",
+        company_id = None
+        if data.company_id:
+            company_result = await db.execute(
+                select(Company).where(Company.id == data.company_id)
             )
-        company_result = await db.execute(
-            select(Company).where(Company.id == data.company_id)
-        )
-        target_company = company_result.scalar_one_or_none()
-        if not target_company or target_company.status != CompanyStatus.ACTIVE:
-            raise BadRequestException(
-                code="COMPANY_INVALID",
-                message="Unknown or inactive company",
-            )
-        company_id = target_company.id
+            target_company = company_result.scalar_one_or_none()
+            if not target_company or target_company.status != CompanyStatus.ACTIVE:
+                raise BadRequestException(
+                    code="COMPANY_INVALID",
+                    message="Unknown or inactive company",
+                )
+            company_id = target_company.id
         sales_rep_id = creator.id
     else:
         company_id = creator.company_id
         sales_rep_id = data.sales_rep_id
+        await _validate_sales_rep(db, sales_rep_id)
 
     normalized = normalize_customer_name(data.customer_name)
     # Try to extract a domain from the customer name itself or the
@@ -289,7 +319,7 @@ async def create_opportunity(
         raise ConflictException(
             code="DUPLICATE_BLOCKED",
             message="Duplicate registration is blocked",
-            details=dup_report,
+            details=duplicate_service.redact_report_for(dup_report, creator),
         )
 
     opp = Opportunity(
@@ -340,12 +370,12 @@ async def create_opportunity(
 
         company_result = await db.execute(select(Company).where(Company.id == company_id))
         company = company_result.scalar_one_or_none()
-        company_name = company.name if company else "Unknown"
+        submitter_name = company.name if company else creator.full_name
 
         await notify_all_admins(
             db, "opportunity_submitted",
             "New Opportunity Submitted",
-            f"{company_name} has submitted an opportunity for approval: {opp.name}",
+            f"{submitter_name} has submitted an opportunity for approval: {opp.name}",
             "opportunity", opp.id,
         )
 
@@ -353,7 +383,7 @@ async def create_opportunity(
         "name": opp.name, "status": opp.status.value,
     })
 
-    await db.refresh(opp, ["submitted_by_user", "company", "documents"])
+    await db.refresh(opp, ["submitted_by_user", "company", "reviewer", "sales_rep", "documents"])
 
     # Fire-and-forget AI scoring for submitted opportunities
     if opp.status == OpportunityStatus.PENDING_REVIEW and settings.ai_is_configured:
@@ -464,17 +494,17 @@ async def get_opportunities(
         count_query = count_query.where(Opportunity.time_frame == time_frame)
     if search:
         sf = or_(
-            Opportunity.name.ilike(f"%{search}%"),
-            Opportunity.customer_name.ilike(f"%{search}%"),
+            Opportunity.name.ilike(contains(search), escape=LIKE_ESCAPE),
+            Opportunity.customer_name.ilike(contains(search), escape=LIKE_ESCAPE),
         )
         query = query.where(sf)
         count_query = count_query.where(sf)
     if channel_manager_id:
         query = query.join(Company, Opportunity.company_id == Company.id).where(
-            Company.channel_manager_id == channel_manager_id
+            Company.managed_by(channel_manager_id)
         )
         count_query = count_query.join(Company, Opportunity.company_id == Company.id).where(
-            Company.channel_manager_id == channel_manager_id
+            Company.managed_by(channel_manager_id)
         )
 
     query = query.order_by(Opportunity.created_at.desc())
@@ -546,6 +576,8 @@ async def update_opportunity(
         .options(
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
+            joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -570,6 +602,14 @@ async def update_opportunity(
         )
 
     update_data = data.model_dump(exclude_unset=True)
+    nulled = [k for k in _REQUIRED_ON_UPDATE if k in update_data and update_data[k] is None]
+    if nulled:
+        raise BadRequestException(
+            code="VALIDATION_ERROR",
+            message=f"{nulled[0].replace('_', ' ').capitalize()} cannot be empty",
+        )
+    if "sales_rep_id" in update_data:
+        await _validate_sales_rep(db, update_data["sales_rep_id"])
     # Product lines are rows, not a column: setattr would try to assign request
     # objects straight onto the relationship. Pulled out here and applied
     # below, and popped from update_data so the audit diff does not try to
@@ -622,7 +662,7 @@ async def update_opportunity(
             raise ConflictException(
                 code="DUPLICATE_BLOCKED",
                 message="This change would create a duplicate registration",
-                details=dup_report,
+                details=duplicate_service.redact_report_for(dup_report, partner_user),
             )
         opp.multi_partner_alert = (dup_report["severity"] == "warn")
 
@@ -631,6 +671,11 @@ async def update_opportunity(
         "before": before_state,
         "after": update_data,
     })
+
+    # The relationship was loaded before the id changed; reload it so the
+    # response names the new rep rather than the old one.
+    if "sales_rep_id" in update_data:
+        await db.refresh(opp, ["sales_rep"])
 
     return _build_opportunity_response(opp)
 
@@ -641,6 +686,8 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
         .options(
             joinedload(Opportunity.submitted_by_user),
             joinedload(Opportunity.company),
+            joinedload(Opportunity.reviewer),
+            joinedload(Opportunity.sales_rep),
             joinedload(Opportunity.documents),
         )
         .where(Opportunity.id == opp_id, Opportunity.deleted_at.is_(None))
@@ -679,7 +726,7 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
         raise ConflictException(
             code="DUPLICATE_BLOCKED",
             message="Submission blocked: another partner has exclusivity on this customer",
-            details=dup_report,
+            details=duplicate_service.redact_report_for(dup_report, partner_user),
         )
 
     opp.status = OpportunityStatus.PENDING_REVIEW
@@ -689,7 +736,7 @@ async def submit_opportunity(db: AsyncSession, opp_id: int, partner_user: User) 
 
     await _check_multi_partner_conflict(db, opp)
 
-    company_name = opp.company.name if opp.company else "Unknown"
+    company_name = opp.company.name if opp.company else partner_user.full_name
     await notify_all_admins(
         db, "opportunity_submitted",
         "New Opportunity Submitted",
@@ -862,14 +909,25 @@ async def add_internal_note(
         "after": {"internal_notes": data.internal_notes},
     })
 
-    await notify_user(
-        db, opp.submitted_by, "internal_note_added",
-        "Note Added to Opportunity",
-        f"An Admin has left a note on the opportunity: {opp.name}",
-        "opportunity", opp.id,
-    )
+    # Internal notes are hidden from partners, so telling a partner submitter
+    # "a note was added" only points at something they cannot open. The
+    # Extravis people on the deal can read it: its submitter when that is a
+    # sales rep, and its assigned rep.
+    recipients = {opp.sales_rep_id} if opp.sales_rep_id else set()
+    if opp.submitted_by_user and opp.submitted_by_user.role != UserRole.PARTNER:
+        recipients.add(opp.submitted_by)
+    recipients.discard(admin_user.id)
+    for user_id in recipients:
+        await notify_user(
+            db, user_id, "internal_note_added",
+            "Note Added to Opportunity",
+            f"An Admin has left a note on the opportunity: {opp.name}",
+            "opportunity", opp.id,
+        )
 
-    return _build_opportunity_response(opp)
+    resp = _build_opportunity_response(opp)
+    resp.viewer_can_review = True
+    return resp
 
 
 async def mark_under_review(db: AsyncSession, opp_id: int, admin_user: User) -> OpportunityResponse:
@@ -895,7 +953,14 @@ async def mark_under_review(db: AsyncSession, opp_id: int, admin_user: User) -> 
 
     opp.status = OpportunityStatus.UNDER_REVIEW
     opp.reviewed_by = admin_user.id
+    # Start the clock, exactly as the auto-claim on view does. Without it a
+    # manually claimed review had no age, so the SLA sweep never reminded or
+    # escalated it and it never appeared on the Stuck Reviews page.
+    opp.review_claimed_at = datetime.now(timezone.utc)
+    opp.review_reminded_at = None
+    opp.review_escalated_at = None
     await db.flush()
+    await db.refresh(opp, ["reviewer"])
 
     await write_audit_log(db, admin_user.id, "UPDATE", "opportunity", opp.id, {
         "before": before_state,
@@ -1011,11 +1076,19 @@ async def remove_opp_document(
 
     # Partners additionally may only remove documents while the opportunity is
     # still under consideration — an approved one is a record, not a draft.
+    # Drafts and rejected opportunities are the partner's to edit, so their
+    # documents are too; refusing those while allowing pending ones was
+    # backwards.
     if current_user.role == UserRole.PARTNER:
-        if opp.status not in (OpportunityStatus.PENDING_REVIEW, OpportunityStatus.UNDER_REVIEW):
+        if opp.status not in (
+            OpportunityStatus.DRAFT,
+            OpportunityStatus.PENDING_REVIEW,
+            OpportunityStatus.UNDER_REVIEW,
+            OpportunityStatus.REJECTED,
+        ):
             raise BadRequestException(
                 code="CANNOT_DELETE_DOCUMENT",
-                message="Documents can only be removed while the opportunity is pending or under review",
+                message="Documents can no longer be removed once the opportunity has been decided",
             )
 
     # Get the document
@@ -1073,7 +1146,8 @@ async def close_opportunity(
     # A win carries no reason, and clearing rather than ignoring means a deal
     # closed lost and later corrected cannot keep a stale one.
     opp.loss_reason = None if data.won else LossReason(data.loss_reason)
-    opp.loss_notes = data.loss_notes
+    # Notes explain a loss; a win carries none, whatever the client sent.
+    opp.loss_notes = None if data.won else data.loss_notes
     opp.closed_outcome_at = datetime.now(timezone.utc)
     opp.closed_outcome_by = admin_user.id
     await db.flush()

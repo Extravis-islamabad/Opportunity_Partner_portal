@@ -6,7 +6,7 @@ from typing import Optional
 
 from app.models.doc_request import DocRequest, DocRequestStatus, DocRequestUrgency
 from app.utils.file_tokens import signed_file_url
-from app.models.user import User
+from app.models.user import User, UserRole, UserStatus
 from app.models.company import Company
 from app.models.kb_document import KBDocument
 from app.schemas.doc_request import (
@@ -17,7 +17,29 @@ from app.schemas.doc_request import (
 )
 from app.core.exceptions import NotFoundException, BadRequestException
 from app.utils.audit import write_audit_log
-from app.services.notification_service import notify_all_admins, notify_user
+from app.core.deps import get_channel_manager_ids
+from app.services.notification_service import notify_user
+from app.schemas.knowledge_base import KB_REQUESTED_DOCUMENTS_CATEGORY, KB_TITLE_MAX_LENGTH
+
+
+async def _doc_request_recipients(db: AsyncSession, company_id: int) -> list[int]:
+    """Who hears about a new request: every channel manager of the requesting
+    company plus the superadmins — not every admin in the system, which told
+    each CM about every other CM's companies. One set, so a superadmin who
+    also manages the company is notified once."""
+    cm_ids = await get_channel_manager_ids(db, company_id)
+    audience = User.is_superadmin.is_(True)
+    if cm_ids:
+        audience = audience | User.id.in_(cm_ids)
+    result = await db.execute(
+        select(User.id).where(
+            User.role == UserRole.ADMIN,
+            User.status == UserStatus.ACTIVE,
+            User.deleted_at.is_(None),
+            audience,
+        )
+    )
+    return sorted({row[0] for row in result.all()})
 
 
 async def create_doc_request(
@@ -44,12 +66,13 @@ async def create_doc_request(
     company = company_result.scalar_one_or_none()
     company_name = company.name if company else "Unknown"
 
-    await notify_all_admins(
-        db, "document_requested",
-        "Document Request",
-        f"{company_name} has requested a document: {data.description}",
-        "doc_request", request.id,
-    )
+    for user_id in await _doc_request_recipients(db, partner_user.company_id):
+        await notify_user(
+            db, user_id, "document_requested",
+            "Document Request",
+            f"{company_name} has requested a document: {data.description}",
+            "doc_request", request.id,
+        )
 
     return DocRequestResponse(
         id=request.id,
@@ -210,10 +233,17 @@ async def fulfill_doc_request(
 
     if data.add_to_kb:
         request.add_to_kb = 1
+        # The request description is free text with no length cap; as a
+        # fallback title it must fit the String(500) column.
+        title = data.kb_title or request.description.strip()
+        if len(title) > KB_TITLE_MAX_LENGTH:
+            title = title[: KB_TITLE_MAX_LENGTH - 1].rstrip() + "…"
         kb_doc = KBDocument(
-            title=data.kb_title or request.description,
-            category=data.kb_category or "Requested Documents",
-            description=f"Fulfilled document request from company ID {request.company_id}",
+            title=title,
+            category=data.kb_category or KB_REQUESTED_DOCUMENTS_CATEGORY,
+            # The KB is global: naming (or numbering) the requesting company
+            # here told every partner who asked for what.
+            description="Added from a fulfilled document request.",
             file_name=file_info["file_name"],
             file_url=file_info["file_url"],
             file_size=file_info.get("file_size"),

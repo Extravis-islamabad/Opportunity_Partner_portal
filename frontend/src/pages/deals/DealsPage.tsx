@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Table, Button, Tag, Space, Alert, Modal, Form, Input, InputNumber, DatePicker,
-  message, Radio, Select, Drawer, Descriptions, Divider, Typography,
+  message, Radio, Select, Drawer, Descriptions, Divider, Typography, theme,
 } from 'antd';
 import { PlusOutlined, CheckOutlined, CloseOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -22,21 +22,24 @@ const yesNo = (v: boolean | null | undefined) => (v == null ? '—' : v ? 'Yes' 
 const orDash = (v: string | null | undefined) => v || '—';
 
 // The numbered section header the registration form and detail view share.
-const SectionTitle: React.FC<{ n: number; title: string; subtitle?: string }> = ({ n, title, subtitle }) => (
+const SectionTitle: React.FC<{ n: number; title: string; subtitle?: string }> = ({ n, title, subtitle }) => {
+  const { token } = theme.useToken();
+  return (
   <div style={{ marginBottom: 12 }}>
     <Space size={8}>
       <span style={{
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        width: 22, height: 22, borderRadius: 6, background: '#eef0ff', color: '#4a54c4',
+        width: 22, height: 22, borderRadius: 6, background: token.colorPrimaryBg, color: token.colorPrimaryText,
         fontWeight: 600, fontSize: 12,
       }}>{n}</span>
       <Typography.Text strong style={{ fontSize: 15 }}>{title}</Typography.Text>
     </Space>
     {subtitle && (
-      <div style={{ color: '#8c8c8c', fontSize: 13, marginTop: 2 }}>{subtitle}</div>
+      <div style={{ color: token.colorTextSecondary, fontSize: 13, marginTop: 2 }}>{subtitle}</div>
     )}
   </div>
-);
+  );
+};
 
 const DealsPage: React.FC = () => {
   const [page, setPage] = useState(1);
@@ -157,7 +160,7 @@ const DealsPage: React.FC = () => {
       },
     },
     ...(isAdmin ? [{
-      title: 'Actions' as const, key: 'actions' as const, render: (_: unknown, record: DealRegistrationResponse) => record.status === 'pending' ? (
+      title: 'Actions' as const, fixed: 'right' as const, key: 'actions' as const, render: (_: unknown, record: DealRegistrationResponse) => record.status === 'pending' ? (
         <Space>
           <Button type="link" icon={<CheckOutlined />} onClick={() => setApproveModal(record.id)}>Approve</Button>
           <Button type="link" danger icon={<CloseOutlined />} onClick={() => setRejectModal(record.id)}>Reject</Button>
@@ -165,7 +168,7 @@ const DealsPage: React.FC = () => {
       ) : null,
     }] : []),
     ...(isPartner ? [{
-      title: 'Actions' as const, key: 'partner-actions' as const,
+      title: 'Actions' as const, fixed: 'right' as const, key: 'partner-actions' as const,
       render: (_: unknown, record: DealRegistrationResponse) => {
         // Only while the window is live: an expired registration has to be
         // registered again, and the API refuses an extension on one.
@@ -202,7 +205,7 @@ const DealsPage: React.FC = () => {
       />
       {isLoading ? <TableSkeleton /> : (
         data && data.items.length > 0 ? (
-          <Table columns={columns} dataSource={data.items} rowKey="id"
+          <Table scroll={{ x: 'max-content' }} columns={columns} dataSource={data.items} rowKey="id"
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage }} />
         ) : (
           <EmptyState

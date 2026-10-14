@@ -1,9 +1,14 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+from app.schemas.user import normalise_email
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1)
+
+    # Somebody who types their address with a capital is the same person.
+    _email = field_validator("email")(normalise_email)
 
 
 class LoginResponse(BaseModel):
@@ -23,6 +28,8 @@ class RefreshResponse(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
+
+    _email = field_validator("email")(normalise_email)
 
 
 class ResetPasswordRequest(BaseModel):
@@ -74,3 +81,15 @@ class MfaLoginRequest(BaseModel):
 
 class MfaConfirmRequest(BaseModel):
     code: str = Field(..., min_length=6, max_length=10)
+
+
+class MfaDisableRequest(BaseModel):
+    """Turning your own second factor off needs the second factor.
+
+    A bearer token alone proves only that somebody holds a session — a stolen
+    token, or a laptop left unlocked — and turning MFA off is exactly what such
+    a person would do first. A current authenticator code or an unused
+    recovery code is required, so losing the phone is still recoverable.
+    """
+
+    code: str = Field(..., min_length=4, max_length=32)

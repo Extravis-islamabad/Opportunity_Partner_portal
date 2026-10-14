@@ -165,7 +165,7 @@ export const ROUTES: RouteDescriptor[] = [
     path: '/companies/create',
     label: 'New Company',
     section: 'Administration',
-    roles: ['superadmin'],
+    roles: ['admin'],
     keywords: ['create', 'add', 'company', 'partner company'],
   },
   {
@@ -278,9 +278,14 @@ export function buildCrumbs(pathname: string): Array<{ label: string; path: stri
     const route = findRoute(accumulated);
     if (route) {
       crumbs.push({ label: route.label, path: i === segments.length - 1 ? null : accumulated });
-    } else {
-      // Dynamic segment (an id, slug, etc) — show as-is, no link
+    } else if (/^\d+$/.test(segments[i] ?? '')) {
+      // A record id — show as-is, no link
       crumbs.push({ label: `#${segments[i]}`, path: null });
+    } else {
+      // A grouping segment with no page of its own (e.g. /admin, /edit):
+      // name it rather than rendering "#admin", and don't link it.
+      const seg = segments[i] ?? '';
+      crumbs.push({ label: seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' '), path: null });
     }
   }
   return crumbs;

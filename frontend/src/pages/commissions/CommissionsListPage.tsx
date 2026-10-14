@@ -110,7 +110,7 @@ const CommissionsListPage: React.FC = () => {
     ...(isAdmin
       ? [
           {
-            title: 'Actions' as const,
+            title: 'Actions' as const, fixed: 'right' as const,
             key: 'actions' as const,
             render: (_: unknown, record: CommissionRead) => {
               const canApprove = record.status === 'pending';
@@ -182,7 +182,7 @@ const CommissionsListPage: React.FC = () => {
       {isLoading ? (
         <TableSkeleton />
       ) : data && data.items.length > 0 ? (
-        <Table
+        <Table scroll={{ x: 'max-content' }}
           columns={columns}
           dataSource={data.items}
           rowKey="id"
@@ -202,7 +202,7 @@ const CommissionsListPage: React.FC = () => {
         styles={{ body: { paddingTop: 8 } }}
       >
         {statements && statements.length > 0 ? (
-          <Table
+          <Table scroll={{ x: 'max-content' }}
             rowKey={(s) => `${s.company_id}-${s.period_start}`}
             size="small"
             pagination={false}

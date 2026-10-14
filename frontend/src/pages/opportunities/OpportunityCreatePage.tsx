@@ -13,6 +13,7 @@ import {
   Space,
   Spin,
   Select,
+  theme,
 } from 'antd';
 import {
   WarningOutlined,
@@ -33,6 +34,11 @@ import dayjs from 'dayjs';
 import ProductLinesField from '@/components/opportunities/ProductLinesField';
 import type { CurrencyCode, ProductLine } from '@/types';
 
+// Who holds a matching deal. Non-admins are not told which other partner it is
+// (the API withholds it); an admin seeing no company is looking at a direct deal.
+const matchOwner = (m: { company_name?: string | null; own_company?: boolean; company_id?: number | null }): string =>
+  m.own_company ? 'your company' : m.company_name ?? (m.company_id === undefined ? 'another partner' : 'a direct deal (no partner)');
+
 // ---------------------------------------------------------------------------
 // Duplicate warning panel — renders the result of /opportunities/check-duplicate
 // ---------------------------------------------------------------------------
@@ -40,6 +46,7 @@ const DuplicatePanel: React.FC<{ result: DuplicateCheckResponse | null; checking
   result,
   checking,
 }) => {
+  const { token } = theme.useToken();
   if (checking) {
     return (
       <Alert
@@ -82,11 +89,11 @@ const DuplicatePanel: React.FC<{ result: DuplicateCheckResponse | null; checking
               {result.messages.map((m, i) => <li key={i}>{m}</li>)}
             </ul>
             {result.exclusivity_blocks.length > 0 && (
-              <div style={{ marginTop: 10, padding: '10px 14px', background: '#fff1f0', borderRadius: 6 }}>
+              <div style={{ marginTop: 10, padding: '10px 14px', background: token.colorErrorBg, border: `1px solid ${token.colorErrorBorder}`, borderRadius: 6 }}>
                 <Typography.Text strong style={{ color: '#cf1322' }}>Active deal exclusivity:</Typography.Text>
-                {result.exclusivity_blocks.map((b) => (
-                  <div key={b.deal_id} style={{ marginTop: 4, fontSize: 13 }}>
-                    {b.company_name} — exclusive on "{b.customer_name}" through {b.exclusivity_end}
+                {result.exclusivity_blocks.map((b, i) => (
+                  <div key={i} style={{ marginTop: 4, fontSize: 13 }}>
+                    {b.company_name ?? 'Another partner'} — exclusive on "{b.customer_name}" through {b.exclusivity_end}
                   </div>
                 ))}
               </div>
@@ -112,30 +119,30 @@ const DuplicatePanel: React.FC<{ result: DuplicateCheckResponse | null; checking
             You can still proceed, but this opportunity will be flagged for admin review.
           </p>
           <Space direction="vertical" size={6} style={{ width: '100%' }}>
-            {result.exact_matches.map((m) => (
-              <div key={`e-${m.id}`} style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
+            {result.exact_matches.map((m, i) => (
+              <div key={`e-${i}`} style={{ padding: '8px 12px', background: token.colorWarningBg, borderRadius: 6, border: `1px solid ${token.colorWarningBorder}` }}>
                 <Tag color="orange" style={{ fontSize: 10 }}>EXACT</Tag>
                 <Typography.Text strong> {m.customer_name}</Typography.Text>
-                <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
-                  by {m.company_name} • {m.status.replace(/_/g, ' ')} • {m.country}
+                <span style={{ fontSize: 12, color: token.colorTextSecondary, marginLeft: 8 }}>
+                  by {matchOwner(m)} • {m.status.replace(/_/g, ' ')} • {m.country}
                 </span>
               </div>
             ))}
-            {result.fuzzy_matches.map((m) => (
-              <div key={`f-${m.id}`} style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
+            {result.fuzzy_matches.map((m, i) => (
+              <div key={`f-${i}`} style={{ padding: '8px 12px', background: token.colorWarningBg, borderRadius: 6, border: `1px solid ${token.colorWarningBorder}` }}>
                 <Tag color="purple" style={{ fontSize: 10 }}>SIMILAR {Math.round((m.similarity ?? 0) * 100)}%</Tag>
                 <Typography.Text strong> {m.customer_name}</Typography.Text>
-                <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
-                  by {m.company_name} • {m.status.replace(/_/g, ' ')} • {m.country}
+                <span style={{ fontSize: 12, color: token.colorTextSecondary, marginLeft: 8 }}>
+                  by {matchOwner(m)} • {m.status.replace(/_/g, ' ')} • {m.country}
                 </span>
               </div>
             ))}
-            {result.domain_matches.map((m) => (
-              <div key={`d-${m.id}`} style={{ padding: '8px 12px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
+            {result.domain_matches.map((m, i) => (
+              <div key={`d-${i}`} style={{ padding: '8px 12px', background: token.colorWarningBg, borderRadius: 6, border: `1px solid ${token.colorWarningBorder}` }}>
                 <Tag color="blue" style={{ fontSize: 10 }}><RobotOutlined /> SAME DOMAIN</Tag>
                 <Typography.Text strong> {m.customer_name}</Typography.Text>
-                <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
-                  by {m.company_name}
+                <span style={{ fontSize: 12, color: token.colorTextSecondary, marginLeft: 8 }}>
+                  by {matchOwner(m)}
                 </span>
               </div>
             ))}
@@ -171,8 +178,8 @@ const OpportunityCreatePage: React.FC = () => {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
 
-  // A sales rep has no company of their own — they register on behalf of a
-  // partner company, chosen from the picker below.
+  // A sales rep has no company of their own — they may register on behalf of
+  // a partner company chosen below, or leave it empty for a direct deal.
   const { user } = useAuth();
   const isSalesRep = user?.role === 'sales_rep';
   const { data: companyOptions } = useQuery({
@@ -297,14 +304,16 @@ const OpportunityCreatePage: React.FC = () => {
           {isSalesRep && (
             <Form.Item
               name="company_id"
-              label="On Behalf of Partner Company"
+              label="On Behalf of Partner Company (optional)"
               tooltip="The opportunity is registered in this company's pipeline; you stay assigned as its sales rep."
-              rules={[{ required: true, message: 'Select the partner company' }]}
+              extra="Leave empty for a direct deal with no partner attached yet."
             >
               <Select
                 showSearch
+                allowClear
                 optionFilterProp="label"
-                placeholder="Select partner company"
+                placeholder="No partner — direct deal"
+                notFoundContent="No matching company"
                 options={(companyOptions ?? []).map((c) => ({
                   value: c.id,
                   label: `${c.name} (${c.company_type})`,

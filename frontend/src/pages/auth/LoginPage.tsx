@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Form, Input, Button, Typography, Alert, Checkbox } from 'antd';
 import {
   MailOutlined,
@@ -46,6 +46,24 @@ const LoginPage: React.FC = () => {
   const location = useLocation();
 
   const from = (location.state as Record<string, string>)?.from || '/dashboard';
+  // Set by components/common/IdleTimeout just before it signs the user out.
+  // Read once and cleared, so a later visit to /login doesn't repeat it.
+  // Cleared in an effect, not the initializer: StrictMode runs initializers
+  // twice, and the second run would find the flag already gone.
+  const [signedOutForIdle] = useState(() => {
+    try {
+      return sessionStorage.getItem('signed_out_reason') === 'idle';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem('signed_out_reason');
+    } catch {
+      // nothing to clear
+    }
+  }, []);
 
   const onFinish = async (values: { email: string; password: string }) => {
     setLoading(true);
@@ -144,6 +162,15 @@ const LoginPage: React.FC = () => {
                 : 'Enter your credentials to access the partner portal'}
             </Text>
           </div>
+
+          {signedOutForIdle && !error && (
+            <Alert
+              message="You were signed out after a period of inactivity. Sign in again to continue."
+              type="info"
+              showIcon
+              style={{ marginBottom: 20 }}
+            />
+          )}
 
           {error && (
             <Alert

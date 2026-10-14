@@ -6,6 +6,7 @@ import { usersApi, authApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
 import TwoFactorCard from '@/components/profile/TwoFactorCard';
 import { AxiosError } from 'axios';
+import { companyTypeLabel } from '@/utils/companyType';
 import type { ErrorResponse } from '@/types';
 
 const ProfilePage: React.FC = () => {
@@ -23,7 +24,16 @@ const ProfilePage: React.FC = () => {
 
   const passwordMut = useMutation({
     mutationFn: (data: { current: string; newPass: string }) => authApi.changePassword(data.current, data.newPass),
-    onSuccess: () => { passwordForm.resetFields(); void message.success('Password changed'); },
+    onSuccess: (res) => {
+      // Changing the password signs out every session, this one included; the
+      // response carries this session's replacement token (the new refresh
+      // cookie is set by the same response). Without storing it the next
+      // request would bounce to the login screen.
+      const fresh = (res.data as { access_token?: string }).access_token;
+      if (fresh) localStorage.setItem('access_token', fresh);
+      passwordForm.resetFields();
+      void message.success('Password changed. Any other sessions have been signed out.');
+    },
     onError: (err: AxiosError<ErrorResponse>) => setPasswordError(err.response?.data?.message || 'Failed'),
   });
 
@@ -38,7 +48,14 @@ const ProfilePage: React.FC = () => {
             <Descriptions column={1} size="small" bordered>
               <Descriptions.Item label="Name">{user.full_name}</Descriptions.Item>
               <Descriptions.Item label="Email">{user.email}</Descriptions.Item>
-              <Descriptions.Item label="Role"><Tag color={user.role === 'admin' ? 'blue' : 'green'}>{user.role.toUpperCase()}</Tag></Descriptions.Item>
+              <Descriptions.Item label="Role">
+                {/* A distributor's (or customer's) staff have role "partner";
+                    name them by their company type, as the Users list does. */}
+                <Tag color={user.role === 'admin' ? 'blue' : 'green'}>
+                  {(user.role === 'partner' && user.company_type ? companyTypeLabel(user.company_type) : user.role.replace(/_/g, ' ')).toUpperCase()}
+                </Tag>
+                {user.is_superadmin && <Tag color="purple">SUPERADMIN</Tag>}
+              </Descriptions.Item>
               {user.company_name && <Descriptions.Item label="Company">{user.company_name}</Descriptions.Item>}
             </Descriptions>
           </Card>

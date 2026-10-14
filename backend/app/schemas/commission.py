@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CommissionRead(BaseModel):
@@ -39,8 +39,11 @@ class CommissionListResponse(BaseModel):
 
 
 class CommissionStatusUpdate(BaseModel):
-    status: str  # "approved" | "paid" | "void"
-    notes: Optional[str] = None
+    # Only the targets the state machine can ever reach — nothing transitions
+    # *to* pending. Anything else is a 422 here; the legality of the move from
+    # the current status is still checked in the service (VALID_TRANSITIONS).
+    status: str = Field(pattern="^(approved|paid|void)$")
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 class StatementPeriodSummary(BaseModel):

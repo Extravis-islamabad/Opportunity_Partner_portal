@@ -84,6 +84,21 @@ async def notify_all_admins(
     return notifications
 
 
+# Entity types whose page is not simply /<type>s/<id>.
+_ENTITY_PATHS = {
+    "activity": "/activities",
+    "doc_request": "/doc-requests",
+    "enrollment": "/lms",
+}
+
+
+def _action_url(entity_type: Optional[str], entity_id: Optional[int]) -> Optional[str]:
+    if not entity_type or not entity_id:
+        return None
+    path = _ENTITY_PATHS.get(entity_type, f"/{entity_type}s/{entity_id}")
+    return f"{settings.FRONTEND_URL}{path}"
+
+
 async def notify_user(
     db: AsyncSession,
     user_id: int,
@@ -110,7 +125,7 @@ async def notify_user(
                     "name": user.full_name,
                     "title": title,
                     "message": message,
-                    "action_url": f"{settings.FRONTEND_URL}/{entity_type}s/{entity_id}" if entity_type and entity_id else None,
+                    "action_url": _action_url(entity_type, entity_id),
                 },
             )
 
@@ -126,18 +141,19 @@ async def notify_channel_manager(
     entity_type: Optional[str] = None,
     entity_id: Optional[int] = None,
 ) -> Optional[Notification]:
-    from app.models.company import Company
-    result = await db.execute(
-        select(Company).where(Company.id == company_id, Company.deleted_at.is_(None))
-    )
-    company = result.scalar_one_or_none()
-    if not company:
-        return None
+    """Notify every channel manager of the company. Returns the primary
+    manager's notification (or the first one sent), for callers that only
+    ever expected one."""
+    from app.core.deps import get_channel_manager_ids
 
-    return await notify_user(
-        db, company.channel_manager_id, notification_type, title, message,
-        entity_type, entity_id,
-    )
+    first: Optional[Notification] = None
+    for user_id in sorted(await get_channel_manager_ids(db, company_id)):
+        notif = await notify_user(
+            db, user_id, notification_type, title, message,
+            entity_type, entity_id,
+        )
+        first = first or notif
+    return first
 
 
 async def get_user_notifications(
@@ -172,6 +188,15 @@ async def get_unread_count(db: AsyncSession, user_id: int) -> int:
             Notification.user_id == user_id,
             Notification.read == False,
         )
+    )
+    return result.scalar() or 0
+
+
+async def get_total_count(db: AsyncSession, user_id: int) -> int:
+    """Every notification this user has, read or not — the other half of the
+    /notifications/count answer, which used to be a hard-coded 0."""
+    result = await db.execute(
+        select(func.count(Notification.id)).where(Notification.user_id == user_id)
     )
     return result.scalar() or 0
 

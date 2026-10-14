@@ -9,6 +9,7 @@ from app.core.deps import (
     get_current_admin,
     get_current_partner,
     get_admin_scope,
+    assert_manages_company,
     get_partner_pipeline_scope,
     get_channel_partner,
     get_poc_editor,
@@ -16,6 +17,7 @@ from app.core.deps import (
     deny_sales_rep,
 )
 from app.models.user import User, UserRole
+from app.models.deal_registration import DealStatus
 from app.schemas.dashboard import (
     PocSummaryResponse,
     DeploymentAnalyticsResponse,
@@ -162,7 +164,12 @@ async def company_performance(
             raise ForbiddenException(
                 message="You can only view your own company's performance"
             )
-    if current_user.role == UserRole.SALES_REP:
+    elif current_user.role == UserRole.ADMIN:
+        # Same rule as the company detail page this card sits on: a channel
+        # manager reads only the companies they manage. Unscoped, the card
+        # handed any manager another book's pipeline and win/loss figures.
+        await assert_manages_company(db, current_user, company_id, action="view")
+    else:
         raise ForbiddenException(message="Sales reps do not have access to company performance")
     return await dashboard_service.get_company_performance(db, company_id)
 
@@ -208,7 +215,9 @@ async def create_deal(
 async def list_deals(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
+    # The enum, not a bare str: an unknown value used to reach Postgres as an
+    # invalid enum literal and come back as a 500. FastAPI now answers 422.
+    status: Optional[DealStatus] = None,
     company_id: Optional[int] = None,
     # deny_sales_rep: this handler predates the sales-rep role and branches
     # `if partner … else show-all`; a rep would land in the else and read the
@@ -237,7 +246,8 @@ async def list_deals(
         scope = await get_admin_scope(db, current_user)
 
     items, total = await deal_service.get_deal_registrations(
-        db, page, page_size, company_id, status, registered_by, scope_company_ids=scope
+        db, page, page_size, company_id, status.value if status else None,
+        registered_by, scope_company_ids=scope
     )
     return {
         "items": [item.model_dump(mode="json") for item in items],

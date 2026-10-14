@@ -6,18 +6,30 @@ from datetime import datetime
 COMPANY_TYPE_PATTERN = "^(customer|distributor|partner)$"
 
 
+class ChannelManagerBrief(BaseModel):
+    id: int
+    full_name: str
+
+
 class CompanyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     country: str = Field(..., min_length=1, max_length=100)
-    region: str = Field(..., min_length=1, max_length=100)
-    city: str = Field(..., min_length=1, max_length=100)
+    # Optional: not every country splits into regions worth recording.
+    region: Optional[str] = Field(None, max_length=100)
+    city: Optional[str] = Field(None, max_length=100)
     industry: str = Field(..., min_length=1, max_length=255)
     contact_email: EmailStr
     # The person behind contact_email. Creating the company provisions a
     # portal account for them and mails an activation link, so this is the
     # name that greets them — falls back to the company name when omitted.
     contact_name: Optional[str] = Field(None, max_length=255)
-    channel_manager_id: int
+    # Every admin who looks after this company. The first is the primary
+    # manager (companies.channel_manager_id). `channel_manager_id` alone is
+    # still accepted from older clients; at least one of the two is required.
+    # A non-superadmin creator who leaves themselves off is added — otherwise
+    # they would create a company they could not then see.
+    channel_manager_ids: Optional[List[int]] = Field(None, max_length=20)
+    channel_manager_id: Optional[int] = None
     # Required, with no default: classifying the company is a decision the
     # creator has to make, and it governs what that company's users can reach.
     company_type: str = Field(..., pattern=COMPANY_TYPE_PATTERN)
@@ -30,10 +42,13 @@ class CompanyCreateRequest(BaseModel):
 class CompanyUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     country: Optional[str] = Field(None, min_length=1, max_length=100)
-    region: Optional[str] = Field(None, min_length=1, max_length=100)
-    city: Optional[str] = Field(None, min_length=1, max_length=100)
+    region: Optional[str] = Field(None, max_length=100)
+    city: Optional[str] = Field(None, max_length=100)
     industry: Optional[str] = Field(None, min_length=1, max_length=255)
     contact_email: Optional[EmailStr] = None
+    # Superadmin-only, like channel_manager_id. Replaces the whole set; the
+    # first id becomes the primary manager.
+    channel_manager_ids: Optional[List[int]] = Field(None, min_length=1, max_length=20)
     channel_manager_id: Optional[int] = None
     # Superadmin-only — enforced in the endpoint, same as channel_manager_id.
     company_type: Optional[str] = Field(None, pattern=COMPANY_TYPE_PATTERN)
@@ -47,8 +62,8 @@ class CompanyResponse(BaseModel):
     id: int
     name: str
     country: str
-    region: str
-    city: str
+    region: Optional[str] = None
+    city: Optional[str] = None
     industry: str
     contact_email: str
     status: str
@@ -58,6 +73,8 @@ class CompanyResponse(BaseModel):
     tier: Optional[str] = None
     channel_manager_id: int
     channel_manager_name: Optional[str] = None
+    # Every channel manager, primary first.
+    channel_managers: List[ChannelManagerBrief] = []
     # Set only on a partner company that resells through a distributor. Null
     # means the company reports directly to Extravis.
     parent_distributor_id: Optional[int] = None

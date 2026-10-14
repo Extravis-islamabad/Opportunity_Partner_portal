@@ -9,19 +9,22 @@
 import React from 'react';
 import { Typography, Tag, Tooltip } from 'antd';
 
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
   royal400: '#4961f1',
   royal300: '#6b7bfe',
   royal200: '#8c93f1',
-  royal100: '#b4b6f7',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal100: 'var(--brand-royal-100)',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   violet500: '#a064f3',
   violet400: '#b370fc',
   violet600: '#7a2280',
   violet700: '#5b1965',
-  violet100: '#f0e6ff',
+  violet100: 'var(--brand-violet-100)',
 };
 
 const formatNum = (n: number): string => {
@@ -213,7 +216,7 @@ export const BrandDonut: React.FC<BrandDonutProps> = ({
                   display: 'inline-block',
                 }}
               />
-              <Typography.Text style={{ fontSize: 12, color: '#374151' }}>
+              <Typography.Text style={{ fontSize: 12, color: 'var(--brand-ink-secondary)' }}>
                 {s.label}
               </Typography.Text>
               <Typography.Text strong style={{ fontSize: 12, color: BRAND.navy }}>
@@ -555,8 +558,8 @@ export const AchievementBadge: React.FC<AchievementBadgeProps> = ({ icon, title,
       borderRadius: 12,
       background: unlocked
         ? `linear-gradient(135deg, ${BRAND.royal50} 0%, ${BRAND.violet100} 100%)`
-        : '#f5f5f5',
-      border: `1px solid ${unlocked ? BRAND.royal100 : '#e5e7eb'}`,
+        : 'var(--brand-surface-muted)',
+      border: `1px solid ${unlocked ? BRAND.royal100 : 'var(--brand-border)'}`,
       opacity: unlocked ? 1 : 0.6,
       textAlign: 'center',
       transition: 'transform 0.2s',
@@ -583,7 +586,7 @@ export const AchievementBadge: React.FC<AchievementBadgeProps> = ({ icon, title,
     <div style={{ fontSize: 12, fontWeight: 700, color: BRAND.navy, marginBottom: 2 }}>{title}</div>
     <div style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.4 }}>{description}</div>
     {unlocked && (
-      <Tag color="purple" style={{ marginTop: 8, fontSize: 9, padding: '0 6px', background: BRAND.violet100, color: BRAND.violet700, border: 'none' }}>
+      <Tag color="purple" style={{ marginTop: 8, fontSize: 9, padding: '0 6px', background: BRAND.violet100, color: 'var(--brand-violet-ink)', border: 'none' }}>
         UNLOCKED
       </Tag>
     )}
@@ -729,7 +732,7 @@ export const BrandStackedBars: React.FC<BrandStackedBarsProps> = ({
           {seriesNames.map((s) => (
             <div key={s.name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 12, height: 12, borderRadius: 3, background: s.color, display: 'inline-block' }} />
-              <Typography.Text style={{ fontSize: 12, color: '#374151' }}>{s.name}</Typography.Text>
+              <Typography.Text style={{ fontSize: 12, color: 'var(--brand-ink-secondary)' }}>{s.name}</Typography.Text>
             </div>
           ))}
         </div>
@@ -897,7 +900,7 @@ export const BrandSparkCards: React.FC<BrandSparkCardsProps> = ({ data }) => {
             style={{
               padding: 14,
               borderRadius: 10,
-              background: '#ffffff',
+              background: 'var(--brand-surface)',
               border: `1px solid ${BRAND.royal50}`,
               boxShadow: '0 2px 8px rgba(28, 28, 58, 0.04)',
             }}
@@ -981,7 +984,7 @@ export const BrandRingGrid: React.FC<BrandRingGridProps> = ({ data, size = 96 })
                 </Typography.Text>
               </div>
             </div>
-            <Typography.Text style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>
+            <Typography.Text style={{ fontSize: 12, color: 'var(--brand-ink-secondary)', fontWeight: 500 }}>
               {d.label}
             </Typography.Text>
           </div>
@@ -1099,7 +1102,7 @@ export const BrandDeltaCard: React.FC<BrandDeltaCardProps> = ({
       style={{
         padding: 18,
         borderRadius: 12,
-        background: '#ffffff',
+        background: 'var(--brand-surface)',
         border: `1px solid ${BRAND.royal50}`,
         boxShadow: '0 4px 12px rgba(28, 28, 58, 0.04)',
       }}

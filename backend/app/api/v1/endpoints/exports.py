@@ -14,6 +14,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.utils.search import LIKE_ESCAPE, contains
 from app.core.database import get_db
 from app.core.deps import (
     get_admin_scope,
@@ -102,13 +103,8 @@ async def _fetch_opportunities(
     elif current_user.role == UserRole.SALES_REP:
         query = query.where(Opportunity.sales_rep_id == current_user.id)
     else:
-        # Channel-manager admins are scoped to the companies they manage.
-        # `scope is None` means superadmin (global); an empty list means the
-        # admin manages nothing and must export nothing — hence the explicit
-        # `is not None` rather than a truthiness test.
-        scope = await get_admin_scope(db, current_user)
-        if scope is not None:
-            query = query.where(Opportunity.company_id.in_(scope))
+        # Every admin reads every opportunity (see the list endpoint), so the
+        # export covers the same set the screen shows.
         if company_id:
             query = query.where(Opportunity.company_id == company_id)
 
@@ -134,8 +130,8 @@ async def _fetch_opportunities(
     if search:
         query = query.where(
             or_(
-                Opportunity.name.ilike(f"%{search}%"),
-                Opportunity.customer_name.ilike(f"%{search}%"),
+                Opportunity.name.ilike(contains(search), escape=LIKE_ESCAPE),
+                Opportunity.customer_name.ilike(contains(search), escape=LIKE_ESCAPE),
             )
         )
 
@@ -230,7 +226,7 @@ async def _fetch_companies(
     if region:
         query = query.where(Company.region == region)
     if search:
-        query = query.where(Company.name.ilike(f"%{search}%"))
+        query = query.where(Company.name.ilike(contains(search), escape=LIKE_ESCAPE))
     if status:
         query = query.where(Company.status == status)
     if company_type:
@@ -399,6 +395,24 @@ async def export_companies_xlsx(
 
 # ------------------------------ POCs -----------------------------------------
 
+def _team_opportunity_ids(user_id: int):
+    """Opportunities whose POC this person is currently staffed on. The POC and
+    licence lists include these for reps and channel managers (pocs._list_scope),
+    so the exports must too, or a download disagrees with the screen."""
+    from app.models.poc import Poc
+    from app.models.poc_team import PocTeamMember
+
+    return (
+        select(Poc.opportunity_id)
+        .join(PocTeamMember, PocTeamMember.poc_id == Poc.id)
+        .where(
+            PocTeamMember.user_id == user_id,
+            PocTeamMember.removed_at.is_(None),
+            Poc.deleted_at.is_(None),
+        )
+    )
+
+
 async def _fetch_pocs(
     db: AsyncSession,
     *,
@@ -428,18 +442,24 @@ async def _fetch_pocs(
             )
         )
     elif current_user.role == UserRole.SALES_REP:
-        query = query.where(Opportunity.sales_rep_id == current_user.id)
+        query = query.where(or_(
+            Opportunity.sales_rep_id == current_user.id,
+            Opportunity.id.in_(_team_opportunity_ids(current_user.id)),
+        ))
     else:
         scope = await get_admin_scope(db, current_user)
         if scope is not None:
-            query = query.where(Opportunity.company_id.in_(scope))
+            query = query.where(or_(
+                Opportunity.company_id.in_(scope),
+                Opportunity.id.in_(_team_opportunity_ids(current_user.id)),
+            ))
 
     if status:
         query = query.where(Poc.status == status)
     if country:
         query = query.where(Opportunity.country == country)
     if search:
-        query = query.where(Opportunity.customer_name.ilike(f"%{search}%"))
+        query = query.where(Opportunity.customer_name.ilike(contains(search), escape=LIKE_ESCAPE))
 
     query = query.order_by(Poc.start_date.desc().nullslast()).limit(EXPORT_ROW_CAP)
     result = await db.execute(query)
@@ -515,14 +535,20 @@ async def _fetch_licenses(
             )
         )
     elif current_user.role == UserRole.SALES_REP:
-        query = query.where(Opportunity.sales_rep_id == current_user.id)
+        query = query.where(or_(
+            Opportunity.sales_rep_id == current_user.id,
+            Opportunity.id.in_(_team_opportunity_ids(current_user.id)),
+        ))
     else:
         scope = await get_admin_scope(db, current_user)
         if scope is not None:
-            query = query.where(Opportunity.company_id.in_(scope))
+            query = query.where(or_(
+                Opportunity.company_id.in_(scope),
+                Opportunity.id.in_(_team_opportunity_ids(current_user.id)),
+            ))
 
     if search:
-        query = query.where(Opportunity.customer_name.ilike(f"%{search}%"))
+        query = query.where(Opportunity.customer_name.ilike(contains(search), escape=LIKE_ESCAPE))
     if status:
         query = query.where(poc_service.license_status_expr() == status)
 

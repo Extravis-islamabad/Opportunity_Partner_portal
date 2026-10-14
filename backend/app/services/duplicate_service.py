@@ -54,6 +54,68 @@ def _opp_summary(o: Opportunity, *, similarity: Optional[float] = None) -> dict:
     }
 
 
+def redact_report_for(report: dict, viewer) -> dict:
+    """The duplicate report as a non-admin may see it.
+
+    Admins review duplicates across the whole channel and get everything.
+    Anyone else — a partner registering a deal, a sales rep — needs to know
+    *that* the customer is already registered and how seriously (block or
+    warn, and when an exclusivity window ends), but not another partner's
+    deal name, value, or even which partner holds it: that is their
+    competitor's pipeline. Matches from the viewer's own company keep their
+    details, since those are theirs to see anyway.
+    """
+    from app.models.user import UserRole
+
+    if getattr(viewer, "role", None) == UserRole.ADMIN:
+        return report
+    own = getattr(viewer, "company_id", None)
+
+    def _match(m: dict) -> dict:
+        if own is not None and m.get("company_id") == own:
+            return {**m, "own_company": True}
+        return {
+            "customer_name": m.get("customer_name"),
+            "country": m.get("country"),
+            "city": m.get("city"),
+            "status": m.get("status"),
+            "similarity": m.get("similarity"),
+            "own_company": False,
+        }
+
+    def _lock(b: dict) -> dict:
+        if own is not None and b.get("company_id") == own:
+            return {**b, "own_company": True}
+        return {
+            k: v for k, v in b.items()
+            if k not in ("deal_id", "ownership_id", "company_id", "company_name")
+        } | {"own_company": False}
+
+    # The human-readable messages name the other company too.
+    hidden = {
+        item.get("company_name")
+        for key in ("exact_matches", "fuzzy_matches", "domain_matches",
+                    "exclusivity_blocks", "ownership_blocks")
+        for item in report.get(key, [])
+        if item.get("company_name") and not (own is not None and item.get("company_id") == own)
+    }
+    messages = []
+    for msg in report.get("messages", []):
+        for name in sorted(hidden, key=len, reverse=True):
+            msg = msg.replace(name, "another partner")
+        messages.append(msg.replace("⚠ another", "⚠ Another").replace("⛔ another", "⛔ Another"))
+
+    return {
+        **report,
+        "messages": messages,
+        "exact_matches": [_match(m) for m in report.get("exact_matches", [])],
+        "fuzzy_matches": [_match(m) for m in report.get("fuzzy_matches", [])],
+        "domain_matches": [_match(m) for m in report.get("domain_matches", [])],
+        "exclusivity_blocks": [_lock(b) for b in report.get("exclusivity_blocks", [])],
+        "ownership_blocks": [_lock(b) for b in report.get("ownership_blocks", [])],
+    }
+
+
 # ---------------------------------------------------------------------------
 # find_duplicates — main entrypoint
 # ---------------------------------------------------------------------------

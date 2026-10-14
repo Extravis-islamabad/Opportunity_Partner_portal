@@ -29,6 +29,7 @@ class ActivityType(str, enum.Enum):
     SITE_VISIT = "site_visit"
     FOLLOW_UP = "follow_up"
     TRAINING = "training"
+    DEPLOYMENT = "deployment"
     OTHER = "other"
 
 
@@ -40,6 +41,7 @@ ACTIVITY_TYPE_LABELS: dict[str, str] = {
     ActivityType.SITE_VISIT.value: "Site Visit",
     ActivityType.FOLLOW_UP.value: "Follow-up",
     ActivityType.TRAINING.value: "Training",
+    ActivityType.DEPLOYMENT.value: "Deployment",
     ActivityType.OTHER.value: "Other",
 }
 
@@ -90,8 +92,22 @@ class SalesActivity(Base):
         index=True,
     )
 
+    # The partner the work was for, alongside the client above. Free text for
+    # the same reason customer_name is.
+    partner_name = Column(String(255), nullable=True)
+
+    # No longer asked for — the form shows the partner name in its place — but
+    # kept so the minutes already logged still count in the monthly totals.
     duration_minutes = Column(Integer, nullable=True)
     notes = Column(Text, nullable=True)
+
+    # A follow-up the rep wants to be nudged about. The reminder sweep
+    # (sales_activity_service.send_due_reminders) notifies the rep once
+    # reminder_at has passed and stamps reminder_sent_at so it never fires
+    # twice. Moving reminder_at clears reminder_sent_at again.
+    reminder_at = Column(DateTime(timezone=True), nullable=True)
+    reminder_note = Column(Text, nullable=True)
+    reminder_sent_at = Column(DateTime(timezone=True), nullable=True)
 
     # server_default mirrors migration 012 so the ORM and a fresh DB agree.
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=func.now(), nullable=False)

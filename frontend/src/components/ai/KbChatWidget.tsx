@@ -130,7 +130,7 @@ const KbChatWidget: React.FC = () => {
                     padding: '8px 12px',
                     borderRadius: 8,
                     background: turn.role === 'user'
-                      ? (isDark ? '#1f2937' : '#e7e7f1')
+                      ? (isDark ? '#1f2937' : 'var(--brand-royal-50)')
                       : (isDark ? '#2d3748' : '#f5f5f5'),
                   }}
                 >

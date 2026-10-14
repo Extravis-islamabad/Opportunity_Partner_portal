@@ -14,8 +14,10 @@ class ProductLineRequest(BaseModel):
     that belong to no product line.
     """
     product: str = Field(..., max_length=50)
-    device_count: Optional[int] = Field(None, ge=0)
-    node_count: Optional[int] = Field(None, ge=0)
+    # Bounded: the columns are 32-bit integers, and a count past this is a
+    # typo, not a deployment.
+    device_count: Optional[int] = Field(None, ge=0, le=10_000_000)
+    node_count: Optional[int] = Field(None, ge=0, le=10_000_000)
     value: Optional[Decimal] = Field(None, ge=0, max_digits=15, decimal_places=2)
     notes: Optional[str] = Field(None, max_length=2000)
 
@@ -47,9 +49,9 @@ class OpportunityCreateRequest(BaseModel):
     stage_probability: Optional[Decimal] = Field(None, ge=0, le=1, max_digits=3, decimal_places=2)
     time_frame: Optional[str] = Field(None, max_length=20)
     sales_rep_id: Optional[int] = None
-    # Only read when a sales rep is creating on behalf of a partner company —
-    # the rep has no company of their own, so the form must say whose pipeline
-    # this is. Ignored for partner creators, whose company is their own.
+    # Only read when a sales rep is creating on behalf of a partner company.
+    # Optional: left empty, the deal is registered with no partner attached.
+    # Ignored for partner creators, whose company is their own.
     company_id: Optional[int] = None
 
 
@@ -151,7 +153,8 @@ class OpportunityResponse(BaseModel):
     internal_notes: Optional[str] = None
     submitted_by: int
     submitted_by_name: Optional[str] = None
-    company_id: int
+    # Null on a direct deal registered without a partner company.
+    company_id: Optional[int] = None
     company_name: Optional[str] = None
     reviewed_by: Optional[int] = None
     reviewer_name: Optional[str] = None
@@ -176,6 +179,10 @@ class OpportunityResponse(BaseModel):
     # Duplicate detection (populated synchronously on create/update/submit)
     customer_name_normalized: Optional[str] = None
     customer_domain: Optional[str] = None
+    # Whether the admin reading this may approve / reject / annotate it. Every
+    # admin can read every opportunity; acting on one is for its channel
+    # managers and superadmins. Always false for non-admins.
+    viewer_can_review: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -196,7 +203,7 @@ class OpportunityListResponse(BaseModel):
     multi_partner_alert: bool
     submitted_by_name: Optional[str] = None
     company_name: Optional[str] = None
-    company_id: int
+    company_id: Optional[int] = None
     industry: Optional[str] = None
     # Names only — the list has no room for sizing, and the summary keeps the
     # column that was there before honest when a deal spans two products.

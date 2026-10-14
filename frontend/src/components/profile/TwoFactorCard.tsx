@@ -17,6 +17,10 @@ import type { ErrorResponse, MfaSetupResponse } from '@/types';
 
 const { Paragraph, Text } = Typography;
 
+// Turning MFA off needs a current code (or a recovery code): a session token
+// alone is exactly what somebody who should not be here would have.
+const disableWithCode = (code: string) => mfaApi.disable(code);
+
 const failureMessage = (err: unknown, fallback: string) =>
   (err as AxiosError<ErrorResponse>).response?.data?.message || fallback;
 
@@ -55,7 +59,10 @@ const TwoFactorCard: React.FC = () => {
   const [setup, setSetup] = useState<MfaSetupResponse | null>(null);
   const [codes, setCodes] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [disableError, setDisableError] = useState<string | null>(null);
   const [confirmForm] = Form.useForm();
+  const [disableForm] = Form.useForm();
 
   const status = useQuery({
     queryKey: ['mfa-status'],
@@ -98,16 +105,25 @@ const TwoFactorCard: React.FC = () => {
     onError: (err) => setError(failureMessage(err, 'Could not issue new codes')),
   });
 
+  const closeDisable = () => {
+    setDisableOpen(false);
+    setDisableError(null);
+    disableForm.resetFields();
+  };
+
   const disableMut = useMutation({
-    mutationFn: () => mfaApi.disable(),
+    mutationFn: (code: string) => disableWithCode(code.trim()),
     onSuccess: () => {
       setError(null);
       setSetup(null);
       setCodes(null);
+      closeDisable();
       void invalidate();
       void message.success('Two-factor authentication turned off');
     },
-    onError: (err) => setError(failureMessage(err, 'Could not turn it off')),
+    // Shown inside the dialog, next to the code that was refused, so the
+    // person can simply try the next code.
+    onError: (err) => setDisableError(failureMessage(err, 'Could not turn it off')),
   });
 
   const enabled = status.data?.enabled ?? false;
@@ -229,24 +245,48 @@ const TwoFactorCard: React.FC = () => {
             >
               New recovery codes
             </Button>
-            <Button
-              danger
-              loading={disableMut.isPending}
-              onClick={() =>
-                Modal.confirm({
-                  title: 'Turn off two-factor authentication?',
-                  content: 'Your password alone will sign you in again.',
-                  okText: 'Turn it off',
-                  okButtonProps: { danger: true },
-                  onOk: () => disableMut.mutateAsync(),
-                })
-              }
-            >
+            <Button danger onClick={() => setDisableOpen(true)}>
               Turn off
             </Button>
           </Space>
         </>
       )}
+
+      <Modal
+        open={disableOpen}
+        title="Turn off two-factor authentication?"
+        okText="Turn it off"
+        okButtonProps={{ danger: true }}
+        confirmLoading={disableMut.isPending}
+        onOk={() => disableForm.submit()}
+        onCancel={closeDisable}
+      >
+        <Paragraph type="secondary">
+          Your password alone will sign you in again. To confirm it is you, enter the
+          current code from your authenticator app, or one of your recovery codes.
+        </Paragraph>
+        {disableError && (
+          <Alert message={disableError} type="error" showIcon style={{ marginBottom: 16 }} />
+        )}
+        <Form
+          form={disableForm}
+          layout="vertical"
+          onFinish={(v: { code: string }) => disableMut.mutate(v.code)}
+        >
+          <Form.Item
+            name="code"
+            label="Authenticator or recovery code"
+            rules={[{ required: true, message: 'Enter a code' }]}
+          >
+            <Input
+              autoFocus
+              autoComplete="one-time-code"
+              placeholder="123456"
+              style={{ width: 200, letterSpacing: 2 }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         open={codes !== null}

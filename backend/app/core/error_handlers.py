@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
+from sqlalchemy.exc import DataError, IntegrityError
 import structlog
 
 from app.core.exceptions import AppException
@@ -48,6 +49,36 @@ def register_error_handlers(app: FastAPI) -> None:
             content={
                 "code": "BAD_REQUEST",
                 "message": str(exc),
+                "details": {},
+            },
+        )
+
+    # Bad input that only the database caught: an unknown enum value in a
+    # filter, a number past the column's range. These are the caller's mistake,
+    # not ours, so they get a 400 rather than a 500. Registered for the specific
+    # classes on purpose: the catch-all below runs in Starlette's outermost
+    # middleware, which re-raises after replying and so drops the upstream
+    # connection — nginx then answered the *next* request with a 502.
+    @app.exception_handler(DataError)
+    async def data_error_handler(request: Request, exc: DataError) -> JSONResponse:
+        logger.warning("db_data_error", error=str(exc.orig), path=request.url.path)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "code": "INVALID_VALUE",
+                "message": "One of the values sent is not valid — it is out of range or not an accepted option.",
+                "details": {},
+            },
+        )
+
+    @app.exception_handler(IntegrityError)
+    async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+        logger.warning("db_integrity_error", error=str(exc.orig), path=request.url.path)
+        return JSONResponse(
+            status_code=409,
+            content={
+                "code": "CONFLICT",
+                "message": "This change conflicts with existing data or leaves out a required value.",
                 "details": {},
             },
         )

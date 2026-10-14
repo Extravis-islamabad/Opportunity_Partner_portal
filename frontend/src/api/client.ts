@@ -46,9 +46,26 @@ const skipsRefresh = (url?: string): boolean => {
   return NO_REFRESH_PATHS.some((p) => path.startsWith(p));
 };
 
+/**
+ * A 422 says only "Request validation failed", and every page shows
+ * response.data.message — so users were told something was wrong but never
+ * what. Fold the first field error into the message, once, here.
+ */
+function explainValidationError(error: AxiosError<ErrorResponse>): void {
+  const data = error.response?.data as
+    | (ErrorResponse & { details?: { errors?: Array<{ field?: string; message?: string }> } })
+    | undefined;
+  const first = data?.code === 'VALIDATION_ERROR' ? data.details?.errors?.[0] : undefined;
+  if (!data || !first?.message) return;
+  const field = (first.field ?? '').split(' -> ').pop()?.replace(/_/g, ' ');
+  const reason = first.message.replace(/^Value error, /, '');
+  data.message = field ? `${field.charAt(0).toUpperCase()}${field.slice(1)}: ${reason}` : reason;
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ErrorResponse>) => {
+    if (error.response?.status === 422) explainValidationError(error);
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     if (

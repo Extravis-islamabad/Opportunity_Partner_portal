@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
-import { Table, Button, Tag, Space, Select, Skeleton, Alert, Empty, Modal, Form, Input, Upload, message } from 'antd';
+import React, { useMemo, useState } from 'react';
+import { Table, Button, Tag, Space, Select, Skeleton, Alert, Empty, Modal, Form, Input, Upload, Checkbox, Typography, message } from 'antd';
 import { PlusOutlined, UploadOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { docRequestsApi } from '@/api/endpoints';
+import { docRequestsApi, knowledgeBaseApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import type { DocRequestResponse } from '@/types';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { KB_CATEGORIES } from '@/utils/kbCategories';
 
 const urgencyColors: Record<string, string> = { low: 'blue', medium: 'orange', high: 'red' };
 const statusColors: Record<string, string> = { pending: 'orange', fulfilled: 'green', declined: 'red' };
@@ -25,6 +26,7 @@ const DocRequestPage: React.FC = () => {
   const [fulfillModal, setFulfillModal] = useState<number | null>(null);
   const [fulfillFile, setFulfillFile] = useState<File | null>(null);
   const [addToKb, setAddToKb] = useState(false);
+  const [kbCategory, setKbCategory] = useState<string>('Extravis');
   const [declineModal, setDeclineModal] = useState<number | null>(null);
   const [declineReason, setDeclineReason] = useState('');
 
@@ -38,14 +40,36 @@ const DocRequestPage: React.FC = () => {
     },
   });
 
+  // Same list the KB page offers: canonical categories plus those in use,
+  // which is exactly what the server accepts for kb_category.
+  const { data: kbCategories } = useQuery({
+    queryKey: ['kb-categories'],
+    queryFn: async () => { const res = await knowledgeBaseApi.getCategories(); return res.data; },
+    enabled: isAdmin,
+  });
+  const kbCategoryOptions = useMemo(() => {
+    const names = new Set<string>(KB_CATEGORIES);
+    kbCategories?.forEach((c) => names.add(c.name));
+    return [...names].map((value) => ({ value, label: value }));
+  }, [kbCategories]);
+
   const createMut = useMutation({
     mutationFn: (values: { description: string; reason: string; urgency: string }) => docRequestsApi.create(values),
     onSuccess: () => { setCreateModal(false); createForm.resetFields(); void queryClient.invalidateQueries({ queryKey: ['doc-requests'] }); void message.success('Request submitted'); },
   });
 
   const fulfillMut = useMutation({
-    mutationFn: ({ id, file }: { id: number; file: File }) => docRequestsApi.fulfill(id, file, addToKb),
-    onSuccess: () => { setFulfillModal(null); setFulfillFile(null); void queryClient.invalidateQueries({ queryKey: ['doc-requests'] }); void message.success('Request fulfilled'); },
+    mutationFn: ({ id, file }: { id: number; file: File }) =>
+      docRequestsApi.fulfill(id, file, addToKb, undefined, addToKb ? kbCategory : undefined),
+    onSuccess: () => {
+      setFulfillModal(null); setFulfillFile(null); setAddToKb(false);
+      void queryClient.invalidateQueries({ queryKey: ['doc-requests'] });
+      void queryClient.invalidateQueries({ queryKey: ['kb-documents'] });
+      void queryClient.invalidateQueries({ queryKey: ['kb-categories'] });
+      void message.success('Request fulfilled');
+    },
+    onError: (err: { response?: { data?: { message?: string } } }) =>
+      void message.error(err.response?.data?.message ?? 'Could not fulfil the request'),
   });
 
   const declineMut = useMutation({
@@ -61,7 +85,7 @@ const DocRequestPage: React.FC = () => {
     { title: 'Status', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={statusColors[s] ?? 'default'}>{s.toUpperCase()}</Tag> },
     { title: 'Date', dataIndex: 'created_at', key: 'date', render: (d: string) => dayjs(d).format('MMM D, YYYY') },
     ...(isAdmin ? [{
-      title: 'Actions' as const, key: 'actions' as const, render: (_: unknown, record: DocRequestResponse) => record.status === 'pending' ? (
+      title: 'Actions' as const, fixed: 'right' as const, key: 'actions' as const, render: (_: unknown, record: DocRequestResponse) => record.status === 'pending' ? (
         <Space>
           <Button type="link" icon={<CheckOutlined />} onClick={() => setFulfillModal(record.id)}>Fulfill</Button>
           <Button type="link" danger icon={<CloseOutlined />} onClick={() => setDeclineModal(record.id)}>Decline</Button>
@@ -69,7 +93,16 @@ const DocRequestPage: React.FC = () => {
       ) : record.fulfilled_file_url ? (
         <a href={record.fulfilled_file_url} target="_blank" rel="noopener noreferrer">Download</a>
       ) : null,
-    }] : []),
+    }] : [{
+      // The requester is who the document was for: they need the download
+      // link (and the reason, when it was declined) far more than the admin.
+      title: 'Document' as const, key: 'document' as const, render: (_: unknown, record: DocRequestResponse) =>
+        record.fulfilled_file_url ? (
+          <a href={record.fulfilled_file_url} target="_blank" rel="noopener noreferrer">Download</a>
+        ) : record.status === 'declined' && record.decline_reason ? (
+          <Typography.Text type="secondary">{record.decline_reason}</Typography.Text>
+        ) : <Typography.Text type="secondary">—</Typography.Text>,
+    }]),
   ];
 
   if (error) return <Alert type="error" message="Failed to load requests" showIcon />;
@@ -86,7 +119,7 @@ const DocRequestPage: React.FC = () => {
 
       {isLoading ? <Skeleton active /> : (
         data && data.items.length > 0 ? (
-          <Table columns={columns} dataSource={data.items} rowKey="id"
+          <Table scroll={{ x: 'max-content' }} columns={columns} dataSource={data.items} rowKey="id"
             pagination={{ current: page, total: data.total, pageSize: 20, onChange: setPage }} />
         ) : <Empty description="No document requests" />
       )}
@@ -109,8 +142,14 @@ const DocRequestPage: React.FC = () => {
           <Button icon={<UploadOutlined />}>Select File</Button>
         </Upload>
         <div style={{ marginTop: 16 }}>
-          <label><input type="checkbox" checked={addToKb} onChange={(e) => setAddToKb(e.target.checked)} /> Also add to Knowledge Base</label>
+          <Checkbox checked={addToKb} onChange={(e) => setAddToKb(e.target.checked)}>Also add to Knowledge Base</Checkbox>
         </div>
+        {addToKb && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 4 }}>Knowledge Base category</div>
+            <Select style={{ width: '100%' }} value={kbCategory} onChange={setKbCategory} options={kbCategoryOptions} />
+          </div>
+        )}
       </Modal>
 
       <Modal title="Decline Request" open={declineModal !== null} onCancel={() => { setDeclineModal(null); setDeclineReason(''); }}

@@ -20,6 +20,7 @@ user's completed courses.
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.deps import get_channel_manager_ids
 from app.models.company import PartnerTier
 
 # Ascending. Index in this list is the comparison used for "is this a
@@ -388,8 +389,7 @@ async def _notify_company(db, company, kind: str, title: str, message: str) -> N
             User.deleted_at.is_(None),
         )
     )).scalars().all())
-    if company.channel_manager_id:
-        recipients.add(company.channel_manager_id)
+    recipients.update(await get_channel_manager_ids(db, company.id))
 
     for user_id in recipients:
         await notify_user(db, user_id, kind, title, message, "company", company.id)

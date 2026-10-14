@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
@@ -183,10 +183,23 @@ class ChannelManagerDashboardResponse(BaseModel):
     companies: List[ChannelManagerCompanyBreakdown]
 
 
+def _non_blank(value: str) -> str:
+    """Strip, and refuse what is left empty. A bare `str` accepted "" and
+    "   ", which made a registration for nobody — and an exclusivity window
+    over a customer with no name."""
+    value = value.strip()
+    if not value:
+        raise ValueError("must not be blank")
+    return value
+
+
 class DealRegistrationCreateRequest(BaseModel):
-    customer_name: str
+    customer_name: str = Field(..., max_length=200)
     deal_description: str
-    estimated_value: Decimal
+    # Positive, and shaped to fit Numeric(15, 2). Unbounded, a negative value
+    # flowed straight into a negative commission, and 1e20 overflowed the
+    # column and came back as a 500.
+    estimated_value: Decimal = Field(..., gt=0, max_digits=15, decimal_places=2)
     # Absent means USD — what every value in the system was implicitly before
     # multi-currency existed.
     currency: Optional[str] = Field(None, pattern="^(USD|SAR|AED|PKR)$")
@@ -214,6 +227,8 @@ class DealRegistrationCreateRequest(BaseModel):
     # Product names off the shared catalogue; unknown names are dropped
     # server-side rather than rejected.
     products: Optional[List[str]] = None
+
+    _strip_required = field_validator("customer_name", "deal_description")(_non_blank)
 
 
 class DealRegistrationResponse(BaseModel):
@@ -265,11 +280,21 @@ class DealRegistrationResponse(BaseModel):
 
 
 class DealApproveRequest(BaseModel):
-    exclusivity_days: int = 90
+    """Approving grants the partner exclusivity over the customer.
+
+    Bounded both ways: zero or negative days would write an exclusivity_end
+    before exclusivity_start, and an unbounded figure overflowed the date type
+    (a 500) long before it meant anything. Ten years is far beyond any real
+    window, so the cap only ever catches typos.
+    """
+    exclusivity_days: int = Field(90, ge=1, le=3650)
 
 
 class DealRejectRequest(BaseModel):
+    # The partner is shown this as the reason; an empty one tells them nothing.
     rejection_reason: str
+
+    _strip_required = field_validator("rejection_reason")(_non_blank)
 
 
 class ExtensionRequestCreate(BaseModel):

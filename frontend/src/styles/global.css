@@ -232,10 +232,11 @@ html[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
   line-height: 1.5;
 }
 
+/* In normal flow below the feature list. It was absolutely positioned, but
+   relative to .login-brand-inner rather than the panel, so it landed on top
+   of the last feature ("Certified Training"). */
 .login-brand-footer {
-  position: absolute;
-  bottom: 32px;
-  left: 56px;
+  margin-top: 40px;
   color: rgba(255, 255, 255, 0.5);
   font-size: 12px;
 }
@@ -332,4 +333,43 @@ html[data-theme='dark'] .login-form-card .ant-typography-secondary {
 }
 html[data-theme='dark'] .login-help {
   border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Brand tints used inline by the dashboards, LMS and review pages. Light mode
+   keeps the original palette; dark mode swaps the pale tints for translucent
+   ones and the navy text for a light ink, which would otherwise be navy on
+   near-black. */
+:root,
+html[data-theme='light'] {
+  --brand-navy: #1c1c3a;
+  --brand-royal-50: #e7e7f1;
+  --brand-royal-100: #b4b6f7;
+  --brand-violet-100: #f0e6ff;
+  --brand-surface: #ffffff;
+  --brand-surface-muted: #f5f5f5;
+  --brand-border: #f0f0f0;
+  --brand-ink-secondary: #374151;
+  --brand-violet-ink: #5b1965;
+}
+html[data-theme='dark'] {
+  --brand-navy: #e6e7f5;
+  --brand-royal-50: rgba(55, 80, 237, 0.16);
+  --brand-royal-100: rgba(108, 123, 254, 0.45);
+  --brand-violet-100: rgba(160, 100, 243, 0.18);
+  --brand-surface: #141414;
+  --brand-surface-muted: rgba(255, 255, 255, 0.04);
+  --brand-border: #303030;
+  --brand-ink-secondary: rgba(255, 255, 255, 0.75);
+  --brand-violet-ink: #d3b8fb;
+}
+
+/* Wide tables scroll inside their own box instead of pushing the whole page
+   sideways (which cut off the last columns — Status, Actions — on the
+   opportunity and user lists). min-width: 0 lets the content column shrink
+   below its widest child inside the flex layout. */
+.ant-layout-content {
+  min-width: 0;
+}
+.ant-table-wrapper .ant-table-content {
+  overflow-x: auto;
 }

@@ -40,7 +40,8 @@ async def get_notification_count(
     db: AsyncSession = Depends(get_db),
 ):
     unread = await notification_service.get_unread_count(db, current_user.id)
-    return NotificationCountResponse(unread_count=unread, total_count=0)
+    total = await notification_service.get_total_count(db, current_user.id)
+    return NotificationCountResponse(unread_count=unread, total_count=total)
 
 
 @router.post("/mark-read", response_model=MessageResponse, status_code=200)

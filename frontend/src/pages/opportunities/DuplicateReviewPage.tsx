@@ -23,14 +23,17 @@ import { duplicatesApi } from '@/api/endpoints';
 import PageHeader from '@/components/common/PageHeader';
 import type { DuplicateReviewItem, DuplicateOppSummary } from '@/api/endpoints';
 
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
-  royal100: '#b4b6f7',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal100: 'var(--brand-royal-100)',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   violet500: '#a064f3',
   violet600: '#7a2280',
-  violet100: '#f0e6ff',
+  violet100: 'var(--brand-violet-100)',
 };
 
 const formatUsd = (v: string | null): string => {
@@ -60,7 +63,6 @@ const OppCard: React.FC<{ opp: DuplicateOppSummary; label: string; color: string
       style={{
         borderRadius: 12,
         border: `2px solid ${color}`,
-        background: '#ffffff',
       }}
       styles={{ body: { padding: 18 } }}
     >
@@ -78,10 +80,10 @@ const OppCard: React.FC<{ opp: DuplicateOppSummary; label: string; color: string
       </div>
       <Space size={[8, 4]} wrap>
         <Tag style={{ background: BRAND.royal50, color: BRAND.royal500, border: 'none' }}>
-          {opp.company_name ?? 'Unknown company'}
+          {opp.company_name ?? 'Direct — no partner'}
         </Tag>
         <Tag>{opp.country}{opp.city ? ` • ${opp.city}` : ''}</Tag>
-        <Tag color="blue">{formatUsd(opp.worth)}</Tag>
+        <Tag color="blue">{formatUsd(opp.worth ?? null)}</Tag>
         {opp.similarity !== null && opp.similarity !== undefined && (
           <Tag color="purple">similarity {Math.round(opp.similarity * 100)}%</Tag>
         )}
@@ -114,7 +116,7 @@ const DuplicateReviewPage: React.FC = () => {
               padding: '6px 14px',
               borderRadius: 20,
               background: BRAND.violet100,
-              color: BRAND.violet600,
+              color: 'var(--brand-violet-ink)',
               border: 'none',
               fontWeight: 600,
             }}
@@ -178,11 +180,13 @@ const DuplicateReviewPage: React.FC = () => {
                     ) : (
                       <Card
                         variant="borderless"
-                        style={{ borderRadius: 12, border: `2px dashed ${BRAND.violet500}`, background: '#ffffff' }}
+                        style={{ borderRadius: 12, border: `2px dashed ${BRAND.violet500}` }}
                         styles={{ body: { padding: 30, textAlign: 'center' } }}
                       >
                         <Typography.Text type="secondary">
-                          AI flagged this opportunity but the matched record is no longer available.
+                          {item.flagged_by === 'ai'
+                            ? 'The AI flagged this opportunity, but the record it matched is no longer available.'
+                            : 'Flagged as similar to another partner\u2019s opportunity for this customer. No exact match is on file — search the pipeline for the customer name before approving.'}
                         </Typography.Text>
                       </Card>
                     )}

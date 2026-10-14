@@ -161,7 +161,9 @@ class Opportunity(Base):
     ai_duplicate_of_id = Column(Integer, ForeignKey("opportunities.id"), nullable=True)
 
     submitted_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    # Null for a direct deal a sales rep registered with no partner attached
+    # ("on behalf of" is optional). Partners always set their own company.
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True, index=True)
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     submitted_at = Column(DateTime(timezone=True), nullable=True)

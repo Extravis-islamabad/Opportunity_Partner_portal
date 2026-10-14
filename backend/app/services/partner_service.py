@@ -46,7 +46,9 @@ async def _provision_pending_user(
     activation_token = generate_token()
     user = User(
         full_name=full_name,
-        email=email,
+        # Lower-cased here as well as in the request schemas: a company's
+        # contact address reaches this without passing through them.
+        email=email.strip().lower(),
         # Placeholder only. The account is unusable until the activation link
         # is followed and a real password is set.
         password_hash=hash_password(activation_token[:16]),
@@ -90,10 +92,7 @@ async def invite_company_contact(
     company, and a User belongs to exactly one), so that case returns
     "existing_user" and leaves the existing account alone.
     """
-    clash = await db.execute(
-        select(User).where(User.email == company.contact_email, User.deleted_at.is_(None))
-    )
-    if clash.scalar_one_or_none():
+    if await _email_taken(db, company.contact_email):
         return None, "existing_user"
 
     user, outcome = await _provision_pending_user(
@@ -107,14 +106,39 @@ async def invite_company_contact(
     return user, outcome
 
 
+async def _email_taken(db: AsyncSession, email: str) -> bool:
+    """Whether a live account already uses this address, ignoring case.
+
+    Case-insensitive on purpose: MARCUS.CHEN@x and marcus.chen@x are one
+    mailbox, and comparing them exactly is how a second account got created
+    for somebody who already had one. func.lower on the column as well, for
+    rows stored before addresses were normalised.
+    """
+    found = await db.execute(
+        select(User.id).where(
+            func.lower(User.email) == (email or "").strip().lower(),
+            User.deleted_at.is_(None),
+        ).limit(1)
+    )
+    return found.scalar_one_or_none() is not None
+
+
 async def create_partner_account(
     db: AsyncSession, data: UserCreateRequest, admin_user: User
 ) -> UserResponse:
-    existing = await db.execute(
-        select(User).where(User.email == data.email, User.deleted_at.is_(None))
-    )
-    if existing.scalar_one_or_none():
+    if await _email_taken(db, data.email):
         raise ConflictException(code="EMAIL_EXISTS", message="A user with this email already exists")
+
+    if data.role != "partner" and data.company_id is not None:
+        # Admins and sales reps are Extravis staff and belong to no company.
+        # Letting one be created "at" a company did real harm: scoping treats
+        # anyone with that company_id as managed by its channel manager, so a
+        # channel manager could then edit or deactivate an admin. And a
+        # non-existent id went straight to the foreign key as a 500.
+        raise BadRequestException(
+            code="COMPANY_NOT_ALLOWED",
+            message="Admin and sales rep accounts cannot belong to a company",
+        )
 
     if data.role == "partner":
         if not data.company_id:
@@ -135,9 +159,9 @@ async def create_partner_account(
         full_name=data.full_name,
         email=data.email,
         role=UserRole(data.role),
-        # Not company.id: only a partner is resolved to a Company above, and an
-        # admin or sales rep created against one keeps whatever was asked for.
-        company_id=data.company_id,
+        # Only a partner has a company, and it was resolved (and so proved to
+        # exist) above.
+        company_id=company.id if company else None,
         company_name=company_name,
         job_title=data.job_title,
         phone=data.phone,
@@ -145,7 +169,7 @@ async def create_partner_account(
     user.department = data.department
 
     await write_audit_log(db, admin_user.id, "CREATE", "user", user.id, {
-        "email": data.email, "role": data.role, "company_id": data.company_id,
+        "email": user.email, "role": data.role, "company_id": user.company_id,
     })
 
     return UserResponse(
@@ -159,6 +183,7 @@ async def create_partner_account(
         department=user.department,
         company_id=user.company_id,
         company_name=company_name,
+        company_type=company.company_type.value if company else None,
         is_superadmin=user.is_superadmin,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
@@ -188,10 +213,7 @@ async def create_team_member(
             code="NO_COMPANY", message="Your account is not associated with a company"
         )
 
-    existing = await db.execute(
-        select(User).where(User.email == data.email, User.deleted_at.is_(None))
-    )
-    if existing.scalar_one_or_none():
+    if await _email_taken(db, data.email):
         raise ConflictException(code="EMAIL_EXISTS", message="A user with this email already exists")
 
     company = partner_user.company
@@ -200,7 +222,7 @@ async def create_team_member(
     temp_password = generate_temp_password()
     user = User(
         full_name=data.full_name,
-        email=data.email,
+        email=data.email.strip().lower(),
         password_hash=hash_password(temp_password),
         role=UserRole.PARTNER,
         status=UserStatus.ACTIVE,
@@ -243,6 +265,7 @@ async def create_team_member(
         department=user.department,
         company_id=user.company_id,
         company_name=company_name,
+        company_type=company.company_type.value if company else None,
         is_superadmin=user.is_superadmin,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
@@ -291,7 +314,14 @@ async def get_partners(
         count_query = count_query.where(User.status == status)
 
     if search:
-        search_filter = User.full_name.ilike(f"%{search}%") | User.email.ilike(f"%{search}%")
+        # Escape LIKE's own wildcards so a search for "50%" or "a_b" means
+        # those characters, not "anything".
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        search_filter = (
+            User.full_name.ilike(pattern, escape="\\")
+            | User.email.ilike(pattern, escape="\\")
+        )
         query = query.where(search_filter)
         count_query = count_query.where(search_filter)
 
@@ -317,6 +347,7 @@ async def get_partners(
             "department": u.department,
             "company_id": u.company_id,
             "company_name": u.company.name if u.company else None,
+            "company_type": u.company.company_type.value if u.company else None,
             "is_superadmin": u.is_superadmin,
             "last_login_at": u.last_login_at,
             "created_at": u.created_at,
@@ -352,6 +383,7 @@ def serialize_user(user: User) -> UserResponse:
         department=user.department,
         company_id=user.company_id,
         company_name=user.company.name if user.company else None,
+        company_type=user.company.company_type.value if user.company else None,
         is_superadmin=user.is_superadmin,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
@@ -362,54 +394,38 @@ def serialize_user(user: User) -> UserResponse:
 async def update_partner(
     db: AsyncSession, user_id: int, data: AdminUserUpdateRequest, admin_user: User
 ) -> UserResponse:
-    result = await db.execute(
-        select(User)
-        .options(joinedload(User.company))
-        .where(User.id == user_id, User.deleted_at.is_(None))
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise NotFoundException(code="USER_NOT_FOUND", message="User not found")
+    user = await load_user_or_404(db, user_id)
 
+    # Only what was actually sent. Building the request with explicit Nones
+    # (as the self-service route used to) wiped phone and department whenever
+    # somebody saved their job title.
     update_data = data.model_dump(exclude_unset=True)
-    if "status" in update_data:
-        update_data["status"] = UserStatus(update_data["status"])
+
+    # Status is not a column write. Flipping it here used to skip everything
+    # the deactivate endpoint enforces — the handover check that stops live
+    # work being stranded on a dead login, and the suspension email — so it
+    # goes through the same functions. An explicit null means "no change".
+    new_status = update_data.pop("status", None)
 
     for key, value in update_data.items():
         setattr(user, key, value)
-
     await db.flush()
-    await write_audit_log(db, admin_user.id, "UPDATE", "user", user.id, {
-        k: v.value if hasattr(v, 'value') else v for k, v in update_data.items()
-    })
+    if update_data:
+        await write_audit_log(db, admin_user.id, "UPDATE", "user", user.id, update_data)
 
-    return UserResponse(
-        id=user.id,
-        full_name=user.full_name,
-        email=user.email,
-        role=user.role.value,
-        status=user.status.value,
-        job_title=user.job_title,
-        phone=user.phone,
-        department=user.department,
-        company_id=user.company_id,
-        company_name=user.company.name if user.company else None,
-        is_superadmin=user.is_superadmin,
-        last_login_at=user.last_login_at,
-        created_at=user.created_at,
-        updated_at=user.updated_at,
-    )
+    if new_status is not None and new_status != user.status.value:
+        if new_status == UserStatus.INACTIVE.value:
+            await deactivate_partner(db, user.id, admin_user)
+        else:
+            await reactivate_partner(db, user.id, admin_user)
+
+    return serialize_user(user)
 
 
 async def deactivate_partner(db: AsyncSession, user_id: int, admin_user: User) -> None:
-    result = await db.execute(
-        select(User)
-        .options(joinedload(User.company))
-        .where(User.id == user_id, User.deleted_at.is_(None))
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise NotFoundException(code="USER_NOT_FOUND", message="User not found")
+    user = await load_user_or_404(db, user_id)
+    if user.status == UserStatus.INACTIVE:
+        return
 
     # Everything this account still holds has to belong to somebody who can
     # act on it first. Without this the work stays assigned to a login nobody
@@ -436,16 +452,34 @@ async def deactivate_partner(db: AsyncSession, user_id: int, admin_user: User) -
 
 
 async def reactivate_partner(db: AsyncSession, user_id: int, admin_user: User) -> None:
-    result = await db.execute(
-        select(User).where(User.id == user_id, User.deleted_at.is_(None))
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise NotFoundException(code="USER_NOT_FOUND", message="User not found")
+    user = await load_user_or_404(db, user_id)
 
+    if user.status == UserStatus.PENDING_ACTIVATION:
+        # Never activated, so there is nothing to re-activate. Marking it
+        # active left an account with a placeholder password nobody knows,
+        # and the activation link (which only accepts pending accounts) dead —
+        # the invite was broken for good.
+        raise ConflictException(
+            code="ACCOUNT_NOT_ACTIVATED",
+            message=(
+                "This account has not been activated yet. The person needs to "
+                "follow the link in their invitation email to set a password."
+            ),
+        )
+    if user.status == UserStatus.ACTIVE:
+        return
+
+    previous = user.status.value
     user.status = UserStatus.ACTIVE
+    # Reactivating a locked account is an admin unlock: clear the lock so the
+    # next login is not refused by a window that is still running.
+    user.failed_login_attempts = 0
+    user.locked_until = None
     await db.flush()
-    await write_audit_log(db, admin_user.id, "UPDATE", "user", user.id, {"status": "active"})
+    await write_audit_log(
+        db, admin_user.id, "UPDATE", "user", user.id,
+        {"status": "active", "previous_status": previous},
+    )
 
 
 async def get_admins_list(db: AsyncSession) -> list[dict]:

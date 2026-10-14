@@ -25,6 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.core.deps import get_channel_manager_ids
 from app.core.config import settings
 from app.core.exceptions import (
     ConflictException,
@@ -107,12 +108,12 @@ async def assert_can_renew(db: AsyncSession, user: User, lic: CustomerLicense) -
             )
         return
     if user.role == UserRole.ADMIN:
-        if user.is_superadmin:
-            return
-        from app.core.deps import get_admin_scope
+        # The same rule as acting on the opportunity itself: superadmins, the
+        # company's channel managers, and — for a direct deal with no partner
+        # company — any admin.
+        from app.core.deps import can_review_opportunity
 
-        scope = await get_admin_scope(db, user)
-        if scope is not None and opp.company_id not in scope:
+        if not await can_review_opportunity(db, user, opp):
             raise ForbiddenException(
                 message="This licence is not for a company you manage"
             )
@@ -161,8 +162,7 @@ async def _notify(db: AsyncSession, lic: CustomerLicense, days_left: int) -> Non
         recipients.add(opp.submitted_by)
     if opp.sales_rep_id:
         recipients.add(opp.sales_rep_id)
-    if opp.company and opp.company.channel_manager_id:
-        recipients.add(opp.company.channel_manager_id)
+    recipients.update(await get_channel_manager_ids(db, opp.company_id))
 
     for user_id in recipients:
         await notify_user(
@@ -278,27 +278,31 @@ async def create_renewal(
 
     # The deal registration is what earns commission here. Creating it with the
     # renewal is the difference between a renewal that pays the partner and one
-    # that quietly does not.
-    deal = DealRegistration(
-        company_id=source.company_id,
-        registered_by=source.submitted_by,
-        opportunity_id=renewal.id,
-        customer_name=source.customer_name,
-        deal_description=f"Licence renewal for {source.customer_name}",
-        estimated_value=renewal.worth,
-        expected_close_date=renewal.closing_date,
-        status=DealStatus.PENDING,
-    )
-    await currency_service.stamp(db, deal, renewal.currency)
-    db.add(deal)
-    await db.flush()
+    # that quietly does not. A direct deal (no partner company) has nobody to
+    # pay commission to — and a deal registration cannot exist without a
+    # company — so it renews as an opportunity alone.
+    deal = None
+    if source.company_id is not None:
+        deal = DealRegistration(
+            company_id=source.company_id,
+            registered_by=source.submitted_by,
+            opportunity_id=renewal.id,
+            customer_name=source.customer_name,
+            deal_description=f"Licence renewal for {source.customer_name}",
+            estimated_value=renewal.worth,
+            expected_close_date=renewal.closing_date,
+            status=DealStatus.PENDING,
+        )
+        await currency_service.stamp(db, deal, renewal.currency)
+        db.add(deal)
+        await db.flush()
 
     await write_audit_log(
         db, actor.id, "CREATE", "opportunity", renewal.id,
         {
             "renewal_of_license_id": lic.id,
             "source_opportunity_id": source.id,
-            "deal_registration_id": deal.id,
+            "deal_registration_id": deal.id if deal else None,
         },
     )
 
@@ -312,8 +316,12 @@ async def create_renewal(
             "A renewal has been raised",
             f"{actor.full_name} raised the renewal for {source.customer_name}. "
             f"It is a draft — check the value and closing date, then submit it "
-            f"for review. A deal registration was created alongside it so the "
-            f"renewal earns commission once approved.",
+            f"for review."
+            + (
+                " A deal registration was created alongside it so the renewal "
+                "earns commission once approved."
+                if deal else ""
+            ),
             "opportunity", renewal.id,
         )
 

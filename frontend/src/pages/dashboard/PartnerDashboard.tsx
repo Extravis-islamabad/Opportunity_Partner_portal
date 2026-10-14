@@ -54,21 +54,25 @@ import {
   formatChartUsd,
 } from '@/components/dashboard/BrandWidgets';
 import type { MonthlyOpportunityData } from '@/types';
+import { useAppTheme } from '@/contexts/ThemeContext';
 import { isChannelCompanyType } from '@/utils/companyType';
 
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
   royal400: '#4961f1',
   royal300: '#6b7bfe',
   royal200: '#8c93f1',
-  royal100: '#b4b6f7',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal100: 'var(--brand-royal-100)',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   violet500: '#a064f3',
   violet400: '#b370fc',
   violet600: '#7a2280',
   violet700: '#5b1965',
-  violet100: '#f0e6ff',
+  violet100: 'var(--brand-violet-100)',
 };
 
 const tierColors: Record<string, string> = {
@@ -128,6 +132,7 @@ const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon, gradient, hint, o
 // Main dashboard
 // ---------------------------------------------------------------------------
 const PartnerDashboard: React.FC = () => {
+  const { isDark } = useAppTheme();
   const { user } = useAuth();
   const navigate = useNavigate();
   // A customer company has no tier and no deal registration, so the tier
@@ -340,7 +345,7 @@ const PartnerDashboard: React.FC = () => {
               borderRadius: 20,
               fontWeight: 600,
               background: stats.company_tier === 'platinum' ? BRAND.royal50 : BRAND.violet100,
-              color: stats.company_tier === 'platinum' ? BRAND.royal500 : BRAND.violet700,
+              color: stats.company_tier === 'platinum' ? BRAND.royal500 : 'var(--brand-violet-ink)',
               border: 'none',
             }}>
               <StarFilled style={{ marginRight: 6 }} />
@@ -391,7 +396,7 @@ const PartnerDashboard: React.FC = () => {
             title="Pipeline Worth"
             value={formatChartUsd(Number(stats.my_total_worth))}
             icon={<DollarOutlined />}
-            gradient={`linear-gradient(135deg, ${BRAND.navy} 0%, ${BRAND.royal500} 100%)`}
+            gradient={`linear-gradient(135deg, ${BRAND.navyBg} 0%, ${BRAND.royal500} 100%)`}
             hint="across all stages"
           />
         </Col>
@@ -507,7 +512,7 @@ const PartnerDashboard: React.FC = () => {
             variant="borderless"
             style={{ borderRadius: 12 }}
           >
-            <Column {...columnConfig} />
+            <Column {...columnConfig} theme={isDark ? 'classicDark' : 'classic'} />
           </Card>
         </Col>
       </Row>

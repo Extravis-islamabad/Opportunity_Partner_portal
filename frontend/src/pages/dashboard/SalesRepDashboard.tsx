@@ -192,7 +192,7 @@ const SalesRepDashboard: React.FC = () => {
         <Col xs={12} lg={8}>
           <Card variant="borderless" style={{ borderRadius: 12 }}>
             <Statistic
-              title="Devices Deployed"
+              title="Nodes / Devices Deployed"
               value={deployment?.total_devices ?? 0}
               prefix={<DeploymentUnitOutlined />}
               valueStyle={{ color: '#a064f3' }}

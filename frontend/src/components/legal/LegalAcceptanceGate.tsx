@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Typography, Checkbox, Space, Alert, Tag, message } from 'antd';
+import { Modal, Typography, Checkbox, Space, Alert, Tag, message, theme } from 'antd';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { legalApi } from '@/api/endpoints';
 
@@ -15,6 +15,7 @@ import { legalApi } from '@/api/endpoints';
  * is accepted deliberately rather than by one tick covering both.
  */
 const LegalAcceptanceGate: React.FC = () => {
+  const { token } = theme.useToken();
   const queryClient = useQueryClient();
   const [agreed, setAgreed] = useState(false);
 
@@ -71,7 +72,7 @@ const LegalAcceptanceGate: React.FC = () => {
             maxHeight: 360,
             overflowY: 'auto',
             padding: 12,
-            background: '#fafafa',
+            background: token.colorFillQuaternary,
             borderRadius: 6,
             whiteSpace: 'pre-wrap',
           }}

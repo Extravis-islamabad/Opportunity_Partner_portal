@@ -88,6 +88,9 @@ async def _retrieve_kb_docs(db: AsyncSession, question: str, limit: int = 5) -> 
         select(KBDocument)
         .where(
             KBDocument.deleted_at.is_(None),
+            # Superseded versions are kept for history only; the assistant
+            # must answer from the current one.
+            KBDocument.is_archived == 0,
             or_(*conditions),
         )
         .limit(limit)

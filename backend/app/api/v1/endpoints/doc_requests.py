@@ -9,7 +9,9 @@ from app.core.deps import (
     get_current_admin,
     get_current_partner,
     assert_can_access_doc_request,
+    get_admin_scope,
 )
+from app.models.doc_request import DocRequestStatus
 from app.models.user import User, UserRole
 from app.schemas.doc_request import (
     DocRequestCreateRequest,
@@ -18,8 +20,8 @@ from app.schemas.doc_request import (
     DocRequestResponse,
 )
 from app.schemas.common import MessageResponse
-from app.services import doc_request_service
-from app.utils.file_upload import save_upload
+from app.services import doc_request_service, kb_service
+from app.utils.file_upload import save_upload, delete_upload
 
 router = APIRouter(prefix="/doc-requests", tags=["Document Requests"])
 
@@ -37,7 +39,9 @@ async def create_doc_request(
 async def list_doc_requests(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
+    # Typed as the enum so an unknown value is a 422, not a Postgres enum
+    # cast error surfacing as a 500.
+    status: Optional[DocRequestStatus] = None,
     company_id: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -57,9 +61,16 @@ async def list_doc_requests(
         # so deny rather than fall through to the unfiltered admin view.
         from app.core.exceptions import ForbiddenException
         raise ForbiddenException(message="Sales reps do not have access to document requests")
+    else:
+        # Admins: a channel manager sees only the companies they manage (the
+        # same rule assert_can_access_doc_request applies to a single record);
+        # None means superadmin, who sees every company. Previously this fell
+        # through unscoped and handed every CM all companies' requests,
+        # requester emails and live signed file URLs.
+        scope_company_ids = await get_admin_scope(db, current_user)
 
     items, total = await doc_request_service.get_doc_requests(
-        db, page, page_size, status, company_id, requested_by,
+        db, page, page_size, status.value if status else None, company_id, requested_by,
         scope_company_ids=scope_company_ids,
     )
     return {
@@ -93,8 +104,10 @@ async def get_doc_request(
 async def fulfill_doc_request(
     request_id: int,
     add_to_kb: bool = Query(False),
-    kb_title: Optional[str] = Query(None),
-    kb_category: Optional[str] = Query(None),
+    # Bounded to the kb_documents columns so an over-long value is a 422
+    # rather than a failed INSERT (500) after the file is already on disk.
+    kb_title: Optional[str] = Query(None, max_length=500),
+    kb_category: Optional[str] = Query(None, max_length=100),
     file: UploadFile = File(...),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -106,13 +119,22 @@ async def fulfill_doc_request(
     r = await doc_request_service.load_doc_request_or_404(db, request_id)
     await assert_can_access_doc_request(db, admin, r)
 
-    file_info = await save_upload(file, subdirectory="doc-requests")
     data = DocRequestFulfillRequest(
         add_to_kb=add_to_kb,
-        kb_title=kb_title,
-        kb_category=kb_category,
+        kb_title=kb_title or None,
+        kb_category=kb_category or None,
     )
-    return await doc_request_service.fulfill_doc_request(db, request_id, file_info, data, admin)
+    # The KB category is checked against the same allowlist as a direct KB
+    # upload, and before the file is written, so a bad one leaves no orphan.
+    if data.add_to_kb and data.kb_category:
+        data.kb_category = await kb_service.validate_category(db, data.kb_category)
+
+    file_info = await save_upload(file, subdirectory="doc-requests")
+    try:
+        return await doc_request_service.fulfill_doc_request(db, request_id, file_info, data, admin)
+    except Exception:
+        delete_upload(file_info["file_url"])
+        raise
 
 
 @router.post("/{request_id}/decline", response_model=DocRequestResponse, status_code=200)

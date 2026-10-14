@@ -91,7 +91,9 @@ export const authApi = {
   activate: (token: string, password: string) =>
     apiClient.post<MessageResponse>('/auth/activate', { token, password }),
   changePassword: (current_password: string, new_password: string) =>
-    apiClient.post<MessageResponse>('/auth/change-password', { current_password, new_password }),
+    // Returns a fresh access token: changing the password signs out every
+    // other session, this one included, so the caller swaps tokens.
+    apiClient.post<MessageResponse & { access_token?: string }>('/auth/change-password', { current_password, new_password }),
   getMe: () =>
     apiClient.get<UserBasic>('/auth/me'),
 };
@@ -109,8 +111,9 @@ export const mfaApi = {
   // The codes come back exactly once — they are stored hashed.
   regenerateRecoveryCodes: () =>
     apiClient.post<{ recovery_codes: string[] }>('/mfa/recovery-codes'),
-  disable: () =>
-    apiClient.delete<MessageResponse>('/mfa'),
+  /** Turning 2FA off needs a current authenticator or recovery code. */
+  disable: (code: string) =>
+    apiClient.delete<MessageResponse>('/mfa', { data: { code } }),
   // Superadmin only: the escape hatch for a lost phone and lost codes.
   resetForUser: (userId: number) =>
     apiClient.delete<MessageResponse>(`/mfa/users/${userId}`),
@@ -324,7 +327,7 @@ export const lmsApi = {
   // Submit quiz answers; backend scores and (if passing) marks completion +
   // auto-issues the certificate.
   submitAssessment: (enrollmentId: number, answers: Record<string, number>) =>
-    apiClient.post<{ score: number; passed: boolean; passing_score: number; attempt_count: number }>(
+    apiClient.post<{ score: number; passed: boolean; passing_score: number; attempt_count: number; course_completed?: boolean; best_score?: number }>(
       `/lms/enrollments/${enrollmentId}/submit-assessment`,
       { answers },
     ),
@@ -457,19 +460,23 @@ export interface DuplicateCheckRequest {
   exclude_opportunity_id?: number;
 }
 
+/** A matching opportunity. For non-admins the API withholds other partners'
+ *  details (id, name, company, worth), so those are optional here. */
 export interface DuplicateOppSummary {
-  id: number;
-  name: string;
+  id?: number;
+  name?: string;
   customer_name: string;
   country: string;
   city: string | null;
-  company_id: number;
-  company_name: string | null;
+  company_id?: number | null;
+  company_name?: string | null;
   status: string;
-  worth: string | null;
-  submitted_at: string | null;
-  created_at: string | null;
+  worth?: string | null;
+  submitted_at?: string | null;
+  created_at?: string | null;
   similarity?: number | null;
+  /** True when the match belongs to the viewer's own company. */
+  own_company?: boolean;
 }
 
 export interface DuplicateCheckResponse {
@@ -478,17 +485,17 @@ export interface DuplicateCheckResponse {
   exact_matches: DuplicateOppSummary[];
   fuzzy_matches: DuplicateOppSummary[];
   exclusivity_blocks: Array<{
-    deal_id: number;
-    company_id: number;
-    company_name: string | null;
+    deal_id?: number;
+    company_id?: number;
+    company_name?: string | null;
     customer_name: string;
     exclusivity_start: string;
     exclusivity_end: string;
   }>;
   ownership_blocks: Array<{
-    ownership_id: number;
-    company_id: number;
-    company_name: string | null;
+    ownership_id?: number;
+    company_id?: number;
+    company_name?: string | null;
     valid_from: string;
     valid_until: string | null;
   }>;
@@ -670,4 +677,6 @@ export const activitiesApi = {
     apiClient.put<ActivityResponse>(`/activities/${id}`, data),
   remove: (id: number) =>
     apiClient.delete<MessageResponse>(`/activities/${id}`),
+  /** The caller's own reminders that have not fired yet, soonest first. */
+  reminders: () => apiClient.get<ActivityResponse[]>('/activities/reminders'),
 };

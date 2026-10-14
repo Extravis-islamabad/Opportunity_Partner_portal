@@ -99,10 +99,11 @@ const PocActivityPanel: React.FC<Props> = ({ pocId }) => {
       render: (label: string) => <Tag color="#3750ed" style={{ border: 'none' }}>{label}</Tag>,
     },
     {
-      title: 'Duration',
-      dataIndex: 'duration_minutes',
-      key: 'duration_minutes',
-      render: (mins: number | null) => (mins ? formatMinutes(mins) : '—'),
+      // Reps record the partner now rather than a duration.
+      title: 'Partner',
+      dataIndex: 'partner_name',
+      key: 'partner_name',
+      render: (v: string | null) => v ?? '—',
     },
     {
       title: 'Logged against',

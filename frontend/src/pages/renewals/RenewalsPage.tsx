@@ -10,6 +10,7 @@ import { renewalsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
 import type { UpcomingRenewal } from '@/types';
+import { lineSize } from '@/utils/sizing';
 import dayjs from 'dayjs';
 
 /**
@@ -66,10 +67,9 @@ const RenewalsPage: React.FC = () => {
     ...(isAdmin ? [{ title: 'Partner', dataIndex: 'company_name' as const, render: (v: string | null) => v ?? '—' }] : []),
     { title: 'Product', dataIndex: 'product', render: (v: string | null) => v ?? '—' },
     {
-      title: 'Devices / Nodes',
+      title: 'Nodes / Devices',
       key: 'scale',
-      render: (_: unknown, row: UpcomingRenewal) =>
-        `${row.device_count ?? 0} / ${row.node_count ?? 0}`,
+      render: (_: unknown, row: UpcomingRenewal) => lineSize(row) ?? '—',
     },
     {
       title: 'Licence Value',

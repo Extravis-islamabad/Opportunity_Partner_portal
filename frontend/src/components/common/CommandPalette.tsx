@@ -89,7 +89,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
         body: { padding: 0 },
       }}
     >
-      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--ant-color-border-secondary, #f0f0f0)' }}>
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--brand-border)' }}>
         <Input
           autoFocus
           size="large"
@@ -119,7 +119,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
                   style={{
                     cursor: 'pointer',
                     padding: '12px 16px',
-                    background: isActive ? 'var(--ant-color-primary-bg, #e7e7f1)' : 'transparent',
+                    background: isActive ? 'var(--brand-royal-50)' : 'transparent',
                     borderLeft: isActive ? '3px solid var(--ant-color-primary, #3750ed)' : '3px solid transparent',
                   }}
                 >
@@ -147,7 +147,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose }) => {
       <div
         style={{
           padding: '8px 16px',
-          borderTop: '1px solid var(--ant-color-border-secondary, #f0f0f0)',
+          borderTop: '1px solid var(--brand-border)',
           display: 'flex',
           justifyContent: 'space-between',
         }}

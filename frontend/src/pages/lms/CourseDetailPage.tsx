@@ -18,6 +18,7 @@ import {
   InputNumber,
   Radio,
   Result,
+  theme,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -33,23 +34,44 @@ import {
   DeleteOutlined,
   TrophyOutlined,
   DownloadOutlined,
+  SettingOutlined,
+  MinusCircleOutlined,
 } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { lmsApi } from '@/api/endpoints';
 import { useAuth } from '@/contexts/AuthContext';
 import PageHeader from '@/components/common/PageHeader';
-import type { CourseModule, CourseModuleType, EnrollmentResponse, QuizQuestion } from '@/types';
+import type { CourseModule, CourseModuleType, CourseResponse, EnrollmentResponse, QuizQuestion } from '@/types';
 
+// The API returns the quiz and pass mark on the course (with the answer key
+// stripped for non-admins); the shared CourseResponse type predates that.
+type CourseWithQuiz = Omit<CourseResponse, 'assessment_json' | 'passing_score'> & {
+  assessment_json?: QuizQuestion[] | null;
+  passing_score?: number | null;
+};
+
+// submit-assessment also reports whether the course is now complete — passing
+// the quiz with lessons still unread doesn't finish it.
+type AssessmentResult = {
+  score: number;
+  passed: boolean;
+  passing_score: number;
+  course_completed?: boolean;
+};
+
+// Tints and the navy text colour are CSS variables (styles/global.css) so
+// they follow the light/dark theme; navyBg stays navy for dark banners.
 const BRAND = {
+  navyBg: '#1c1c3a',
   royal500: '#3750ed',
   royal400: '#4961f1',
-  royal100: '#b4b6f7',
-  royal50: '#e7e7f1',
-  navy: '#1c1c3a',
+  royal100: 'var(--brand-royal-100)',
+  royal50: 'var(--brand-royal-50)',
+  navy: 'var(--brand-navy)',
   violet500: '#a064f3',
   violet600: '#7a2280',
-  violet100: '#f0e6ff',
+  violet100: 'var(--brand-violet-100)',
 };
 
 const moduleIcon = (type: CourseModuleType): React.ReactNode => {
@@ -128,16 +150,21 @@ interface QuizTakerProps {
 
 const QuizTaker: React.FC<QuizTakerProps> = ({ questions, enrollmentId, onPass }) => {
   const [answers, setAnswers] = useState<Record<string, number>>({});
-  const [result, setResult] = useState<{ score: number; passed: boolean; passing_score: number } | null>(null);
+  const [result, setResult] = useState<AssessmentResult | null>(null);
   const queryClient = useQueryClient();
 
   const submitMut = useMutation({
     mutationFn: () => lmsApi.submitAssessment(enrollmentId, answers),
     onSuccess: (res) => {
-      setResult(res.data);
+      const data: AssessmentResult = res.data;
+      setResult(data);
       void queryClient.invalidateQueries({ queryKey: ['my-enrollments'] });
-      if (res.data.passed) {
-        void message.success(`Passed with ${res.data.score}%! Certificate issued.`);
+      if (data.passed) {
+        void message.success(
+          data.course_completed
+            ? `Passed with ${data.score}%! Certificate issued.`
+            : `Passed with ${data.score}%! Finish the remaining lessons to complete the course.`,
+        );
         setTimeout(() => onPass(), 1500);
       } else {
         void message.warning(`Scored ${res.data.score}% — passing score is ${res.data.passing_score}%`);
@@ -155,7 +182,9 @@ const QuizTaker: React.FC<QuizTakerProps> = ({ questions, enrollmentId, onPass }
         icon={result.passed ? <CheckCircleFilled style={{ color: '#10b981' }} /> : undefined}
         title={result.passed ? `Passed with ${result.score}%` : `Scored ${result.score}%`}
         subTitle={result.passed
-          ? 'Your certificate has been issued. Refreshing course state…'
+          ? result.course_completed
+            ? 'Course complete — your certificate is ready to download above.'
+            : 'Quiz passed. Mark the remaining lessons complete to finish the course.'
           : `You need ${result.passing_score}% to pass. Try again whenever you are ready.`}
         extra={
           !result.passed && (
@@ -305,9 +334,354 @@ const ModuleEditorModal: React.FC<ModuleEditorProps> = ({ open, initial, onCance
 };
 
 // ---------------------------------------------------------------------------
+// Course settings modal (admin only) — title, status, pass mark
+// ---------------------------------------------------------------------------
+interface CourseSettingsProps {
+  open: boolean;
+  course: CourseWithQuiz;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (values: Record<string, unknown>) => void;
+}
+
+const CourseSettingsModal: React.FC<CourseSettingsProps> = ({ open, course, saving, onCancel, onSave }) => {
+  const [form] = Form.useForm();
+  useEffect(() => {
+    if (open) {
+      form.setFieldsValue({
+        title: course.title,
+        description: course.description ?? '',
+        duration_hours: course.duration_hours ?? undefined,
+        status: course.status,
+        passing_score: course.passing_score ?? 70,
+      });
+    }
+  }, [open, course, form]);
+
+  return (
+    <Modal
+      title="Course settings"
+      open={open}
+      onCancel={onCancel}
+      onOk={() => form.submit()}
+      confirmLoading={saving}
+      destroyOnHidden
+    >
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={(v) => onSave({
+          ...v,
+          // An emptied number box comes back undefined; send null so the
+          // duration is actually cleared rather than silently kept.
+          duration_hours: v.duration_hours ?? null,
+        })}
+      >
+        <Form.Item name="title" label="Title" rules={[{ required: true, whitespace: true }]}>
+          <Input />
+        </Form.Item>
+        <Form.Item name="description" label="Description">
+          <Input.TextArea rows={3} />
+        </Form.Item>
+        <Space wrap>
+          <Form.Item name="duration_hours" label="Duration (hours)">
+            <InputNumber min={1} max={200} />
+          </Form.Item>
+          <Form.Item name="passing_score" label="Quiz pass mark (%)" rules={[{ required: true }]}>
+            <InputNumber min={1} max={100} />
+          </Form.Item>
+        </Space>
+        <Form.Item name="status" label="Status" rules={[{ required: true }]}>
+          <Select
+            options={[
+              { value: 'draft', label: 'Draft (hidden from partners)' },
+              { value: 'published', label: 'Published (visible to partners)' },
+            ]}
+          />
+        </Form.Item>
+      </Form>
+    </Modal>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Quiz editor modal (admin only)
+//
+// Writes course.assessment_json in the shape the backend scorer expects:
+// { id, question, options[], correct_answer (index into options), points }.
+// ---------------------------------------------------------------------------
+interface QuizEditorProps {
+  open: boolean;
+  questions: QuizQuestion[];
+  passingScore: number;
+  hasQuizLesson: boolean;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (assessment: QuizQuestion[], passingScore: number) => void;
+}
+
+interface QuizFormQuestion {
+  id?: number;
+  question: string;
+  options: string[];
+  correct_answer?: number;
+  points?: number;
+}
+
+const QuizEditorModal: React.FC<QuizEditorProps> = ({
+  open, questions, passingScore, hasQuizLesson, saving, onCancel, onSave,
+}) => {
+  const { token } = theme.useToken();
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (open) {
+      form.setFieldsValue({
+        passing_score: passingScore,
+        questions: questions.map((q) => ({
+          id: q.id,
+          question: q.question,
+          options: q.options,
+          correct_answer: q.correct_answer ?? q.correct,
+          points: q.points ?? 1,
+        })),
+      });
+    }
+  }, [open, questions, passingScore, form]);
+
+  const handleFinish = (values: { passing_score: number; questions?: QuizFormQuestion[] }) => {
+    const rows = values.questions ?? [];
+    // Keep existing ids so answers already submitted stay keyed to the same
+    // question; new rows get the next free number.
+    let nextId = rows.reduce((max, q) => Math.max(max, q.id ?? 0), 0);
+    const assessment: QuizQuestion[] = rows.map((q) => ({
+      id: q.id ?? ++nextId,
+      question: q.question.trim(),
+      options: q.options.map((o) => o.trim()),
+      correct_answer: q.correct_answer,
+      points: q.points ?? 1,
+    }));
+    onSave(assessment, values.passing_score);
+  };
+
+  return (
+    <Modal
+      title="Edit quiz"
+      open={open}
+      onCancel={onCancel}
+      onOk={() => form.submit()}
+      confirmLoading={saving}
+      width={720}
+      destroyOnHidden
+    >
+      {!hasQuizLesson && (
+        <Alert
+          type="warning"
+          showIcon
+          message="This course has no Quiz lesson"
+          description="Partners take the quiz from a lesson of type Quiz. Add one with “Add lesson”, otherwise nobody can reach these questions."
+          style={{ marginBottom: 16 }}
+        />
+      )}
+      <Form form={form} layout="vertical" onFinish={handleFinish}>
+        <Form.Item
+          name="passing_score"
+          label="Pass mark (%)"
+          rules={[{ required: true, message: 'Set a pass mark' }]}
+        >
+          <InputNumber min={1} max={100} />
+        </Form.Item>
+
+        <Form.List name="questions">
+          {(fields, { add, remove }) => (
+            <>
+              {fields.map((field, qIdx) => (
+                <Card
+                  key={field.key}
+                  size="small"
+                  style={{
+                    marginBottom: 12,
+                    borderRadius: 10,
+                    background: token.colorFillQuaternary,
+                    borderColor: token.colorBorderSecondary,
+                  }}
+                  title={<Typography.Text strong>Question {qIdx + 1}</Typography.Text>}
+                  extra={(
+                    <Button
+                      type="text"
+                      danger
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      onClick={() => remove(field.name)}
+                    />
+                  )}
+                >
+                  <Form.Item name={[field.name, 'id']} hidden>
+                    <InputNumber />
+                  </Form.Item>
+                  <Form.Item
+                    name={[field.name, 'question']}
+                    label="Question"
+                    rules={[{ required: true, whitespace: true, message: 'Enter the question' }]}
+                  >
+                    <Input.TextArea autoSize={{ minRows: 1, maxRows: 4 }} />
+                  </Form.Item>
+
+                  <Form.List
+                    name={[field.name, 'options']}
+                    rules={[{
+                      validator: async (_, opts?: string[]) => {
+                        if (!opts || opts.length < 2) throw new Error('At least two options');
+                      },
+                    }]}
+                  >
+                    {(optFields, { add: addOpt, remove: removeOpt }, { errors }) => (
+                      <>
+                        {optFields.map((opt, oIdx) => (
+                          <Space key={opt.key} align="baseline" style={{ display: 'flex' }}>
+                            <Typography.Text type="secondary" style={{ width: 20 }}>
+                              {String.fromCharCode(65 + oIdx)}.
+                            </Typography.Text>
+                            <Form.Item
+                              name={opt.name}
+                              rules={[{ required: true, whitespace: true, message: 'Enter the option' }]}
+                              style={{ marginBottom: 8, flex: 1, minWidth: 320 }}
+                            >
+                              <Input />
+                            </Form.Item>
+                            {optFields.length > 2 && (
+                              <MinusCircleOutlined
+                                style={{ color: token.colorTextSecondary }}
+                                onClick={() => {
+                                  // Removing an option shifts the indices after
+                                  // it, so the stored answer has to follow.
+                                  const path = ['questions', field.name, 'correct_answer'];
+                                  const answer = form.getFieldValue(path) as number | undefined;
+                                  if (answer === oIdx) form.setFieldValue(path, undefined);
+                                  else if (answer !== undefined && answer > oIdx) form.setFieldValue(path, answer - 1);
+                                  removeOpt(opt.name);
+                                }}
+                              />
+                            )}
+                          </Space>
+                        ))}
+                        {optFields.length < 10 && (
+                          <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={() => addOpt('')}>
+                            Add option
+                          </Button>
+                        )}
+                        <Form.ErrorList errors={errors} />
+                      </>
+                    )}
+                  </Form.List>
+
+                  <Space wrap style={{ marginTop: 12 }}>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prev, curr) =>
+                        prev.questions?.[field.name]?.options !== curr.questions?.[field.name]?.options}
+                    >
+                      {({ getFieldValue }) => {
+                        const opts: string[] = getFieldValue(['questions', field.name, 'options']) ?? [];
+                        return (
+                          <Form.Item
+                            name={[field.name, 'correct_answer']}
+                            label="Correct answer"
+                            rules={[{ required: true, message: 'Pick the correct option' }]}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Select
+                              style={{ minWidth: 220 }}
+                              placeholder="Select…"
+                              options={opts.map((o, i) => ({
+                                value: i,
+                                label: `${String.fromCharCode(65 + i)}. ${o || '(empty)'}`,
+                              }))}
+                            />
+                          </Form.Item>
+                        );
+                      }}
+                    </Form.Item>
+                    <Form.Item name={[field.name, 'points']} label="Points" style={{ marginBottom: 0 }}>
+                      <InputNumber min={1} max={100} />
+                    </Form.Item>
+                  </Space>
+                </Card>
+              ))}
+              <Button
+                type="dashed"
+                block
+                icon={<PlusOutlined />}
+                onClick={() => add({ question: '', options: ['', ''], points: 1 })}
+              >
+                Add question
+              </Button>
+            </>
+          )}
+        </Form.List>
+      </Form>
+    </Modal>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Quiz preview (admin only) — what partners will see, plus the answer key
+// ---------------------------------------------------------------------------
+const QuizPreview: React.FC<{ questions: QuizQuestion[]; passingScore: number; onEdit: () => void }> = ({
+  questions, passingScore, onEdit,
+}) => {
+  const { token } = theme.useToken();
+  if (questions.length === 0) {
+    return (
+      <Empty description="No quiz questions configured for this course yet">
+        <Button type="primary" icon={<PlusOutlined />} onClick={onEdit}>Add questions</Button>
+      </Empty>
+    );
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <Typography.Text type="secondary">
+          {questions.length} {questions.length === 1 ? 'question' : 'questions'} · pass mark {passingScore}%
+        </Typography.Text>
+        <Button icon={<EditOutlined />} onClick={onEdit}>Edit quiz</Button>
+      </div>
+      {questions.map((q, idx) => {
+        const answer = q.correct_answer ?? q.correct;
+        return (
+          <Card key={q.id} size="small" style={{ marginBottom: 10, borderRadius: 10 }}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+              {idx + 1}. {q.question}
+              {(q.points ?? 1) !== 1 && (
+                <Typography.Text type="secondary" style={{ fontWeight: 400 }}> ({q.points} pts)</Typography.Text>
+              )}
+            </Typography.Text>
+            {q.options.map((opt, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  color: i === answer ? token.colorSuccessText : token.colorText,
+                  background: i === answer ? token.colorSuccessBg : 'transparent',
+                }}
+              >
+                {i === answer ? <CheckCircleFilled style={{ marginRight: 6 }} /> : null}
+                {String.fromCharCode(65 + i)}. {opt}
+              </div>
+            ))}
+          </Card>
+        );
+      })}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 const CourseDetailPage: React.FC = () => {
+  const { token } = theme.useToken();
   const { id } = useParams<{ id: string }>();
   const courseId = Number(id);
   const { user } = useAuth();
@@ -316,7 +690,8 @@ const CourseDetailPage: React.FC = () => {
 
   const { data: course, isLoading } = useQuery({
     queryKey: ['lms-course', courseId],
-    queryFn: async () => (await lmsApi.getCourse(courseId)).data,
+    // The API returns the quiz in the shape this page defines (QuizQuestion).
+    queryFn: async (): Promise<CourseWithQuiz> => (await lmsApi.getCourse(courseId)).data as CourseWithQuiz,
     enabled: !!courseId,
   });
 
@@ -335,6 +710,8 @@ const CourseDetailPage: React.FC = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<CourseModule | undefined>();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [quizEditorOpen, setQuizEditorOpen] = useState(false);
 
   const sortedModules: CourseModule[] = useMemo(() => {
     if (!course?.modules_json) return [];
@@ -348,15 +725,12 @@ const CourseDetailPage: React.FC = () => {
     return new Set(Object.keys(map).filter((k) => map[k]));
   }, [enrollment]);
 
-  // Quiz questions live on course.assessment_json. Hoisted above early returns
-  // so the hook order stays stable across renders (React Rules of Hooks).
-  const quizQuestions: QuizQuestion[] = useMemo(() => {
-    const raw = (course as unknown as { assessment_json?: QuizQuestion[] })?.assessment_json ?? [];
-    return raw.map((q) => ({
-      ...q,
-      correct_answer: q.correct_answer ?? q.correct,
-    }));
-  }, [course]);
+  // Quiz questions live on course.assessment_json. For partners the API has
+  // already removed the answer key; admins get it for the preview/editor.
+  // Hoisted above early returns so the hook order stays stable across renders
+  // (React Rules of Hooks).
+  const quizQuestions: QuizQuestion[] = useMemo(() => course?.assessment_json ?? [], [course]);
+  const passingScore = course?.passing_score ?? 70;
 
   const completionPct = sortedModules.length > 0
     ? Math.round((completedSet.size / sortedModules.length) * 100)
@@ -375,9 +749,14 @@ const CourseDetailPage: React.FC = () => {
 
   // Admin: persist module list back to the course
   const saveCourseMut = useMutation({
-    mutationFn: (modules: CourseModule[]) =>
-      lmsApi.updateCourse(courseId, { modules_json: modules }),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: ['lms-course', courseId] }); void message.success('Course updated'); },
+    mutationFn: (changes: Record<string, unknown>) => lmsApi.updateCourse(courseId, changes),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['lms-course', courseId] });
+      void queryClient.invalidateQueries({ queryKey: ['lms-courses'] });
+      setSettingsOpen(false);
+      setQuizEditorOpen(false);
+      void message.success('Course updated');
+    },
     onError: () => void message.error('Failed to save course'),
   });
 
@@ -387,7 +766,7 @@ const CourseDetailPage: React.FC = () => {
       ? sortedModules.map((x) => (x.id === m.id ? m : x))
       : [...sortedModules, m];
     next.forEach((x, i) => { x.order = i; });
-    saveCourseMut.mutate(next);
+    saveCourseMut.mutate({ modules_json: next });
     setEditorOpen(false);
     setEditing(undefined);
   };
@@ -400,7 +779,7 @@ const CourseDetailPage: React.FC = () => {
       onOk: () => {
         const next = sortedModules.filter((x) => x.id !== mid);
         next.forEach((x, i) => { x.order = i; });
-        saveCourseMut.mutate(next);
+        saveCourseMut.mutate({ modules_json: next });
       },
     });
   };
@@ -441,12 +820,21 @@ const CourseDetailPage: React.FC = () => {
         extra={
           <Space>
             {isAdmin && (
-              <Button
-                icon={<PlusOutlined />}
-                onClick={() => { setEditing(undefined); setEditorOpen(true); }}
-              >
-                Add lesson
-              </Button>
+              <>
+                {course.status === 'draft' && <Tag>DRAFT</Tag>}
+                <Button icon={<SettingOutlined />} onClick={() => setSettingsOpen(true)}>
+                  Course settings
+                </Button>
+                <Button icon={<QuestionCircleOutlined />} onClick={() => setQuizEditorOpen(true)}>
+                  Quiz ({quizQuestions.length})
+                </Button>
+                <Button
+                  icon={<PlusOutlined />}
+                  onClick={() => { setEditing(undefined); setEditorOpen(true); }}
+                >
+                  Add lesson
+                </Button>
+              </>
             )}
             {!isAdmin && !enrollment && (
               <Button type="primary" icon={<PlayCircleOutlined />} loading={enrollMut.isPending} onClick={() => enrollMut.mutate()}>
@@ -473,7 +861,7 @@ const CourseDetailPage: React.FC = () => {
           type="info"
           showIcon={false}
           message={course.description}
-          style={{ marginBottom: 16, borderRadius: 10, background: BRAND.royal50, border: `1px solid ${BRAND.royal100}` }}
+          style={{ marginBottom: 16, borderRadius: 10, background: token.colorPrimaryBg, border: `1px solid ${token.colorPrimaryBorder}` }}
         />
       )}
 
@@ -502,10 +890,10 @@ const CourseDetailPage: React.FC = () => {
         <Layout.Sider
           width={300}
           style={{
-            background: '#ffffff',
+            background: token.colorBgContainer,
             borderRadius: 12,
             padding: 12,
-            border: `1px solid ${BRAND.royal50}`,
+            border: `1px solid ${token.colorBorderSecondary}`,
             marginRight: 16,
           }}
           breakpoint="lg"
@@ -532,11 +920,11 @@ const CourseDetailPage: React.FC = () => {
                     borderRadius: 8,
                     cursor: 'pointer',
                     marginBottom: 4,
-                    background: isActive ? BRAND.royal50 : 'transparent',
+                    background: isActive ? token.colorPrimaryBg : 'transparent',
                     borderLeft: isActive ? `3px solid ${BRAND.royal500}` : '3px solid transparent',
                     transition: 'background 0.15s',
                   }}
-                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#fafafa'; }}
+                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = token.colorFillTertiary; }}
                   onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
                 >
                   <span style={{ fontSize: 18, color: isDone ? '#10b981' : isActive ? BRAND.royal500 : '#9ca3af', flexShrink: 0 }}>
@@ -574,13 +962,13 @@ const CourseDetailPage: React.FC = () => {
         </Layout.Sider>
 
         {/* Content viewer */}
-        <Layout.Content style={{ background: '#ffffff', borderRadius: 12, padding: 24, border: `1px solid ${BRAND.royal50}` }}>
+        <Layout.Content style={{ background: token.colorBgContainer, borderRadius: 12, padding: 24, border: `1px solid ${token.colorBorderSecondary}` }}>
           {!activeModule ? (
             <Empty description="Select a lesson from the sidebar" />
           ) : (
             <>
               <div style={{ marginBottom: 16 }}>
-                <Tag color="purple" style={{ background: BRAND.violet100, color: BRAND.violet600, border: 'none' }}>
+                <Tag color="purple" style={{ background: BRAND.violet100, color: 'var(--brand-violet-ink)', border: 'none' }}>
                   Lesson {activeIndex + 1} of {sortedModules.length}
                 </Tag>
                 <Typography.Title level={3} style={{ margin: '8px 0 4px', color: BRAND.navy }}>
@@ -601,7 +989,13 @@ const CourseDetailPage: React.FC = () => {
                     style={{ width: '100%', height: 600, border: 'none', borderRadius: 12 }}
                   />
                 ) : activeModule.type === 'quiz' ? (
-                  enrollment ? (
+                  isAdmin ? (
+                    <QuizPreview
+                      questions={quizQuestions}
+                      passingScore={passingScore}
+                      onEdit={() => setQuizEditorOpen(true)}
+                    />
+                  ) : enrollment ? (
                     quizQuestions.length > 0 ? (
                       <QuizTaker
                         questions={quizQuestions}
@@ -627,11 +1021,11 @@ const CourseDetailPage: React.FC = () => {
                   <div style={{
                     marginTop: 16,
                     padding: '14px 18px',
-                    background: BRAND.royal50,
+                    background: token.colorPrimaryBg,
                     borderRadius: 10,
                     borderLeft: `4px solid ${BRAND.royal500}`,
                     whiteSpace: 'pre-wrap',
-                    color: '#374151',
+                    color: token.colorText,
                     fontSize: 14,
                     lineHeight: 1.6,
                   }}>
@@ -646,7 +1040,7 @@ const CourseDetailPage: React.FC = () => {
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 paddingTop: 18,
-                borderTop: `1px solid ${BRAND.royal50}`,
+                borderTop: `1px solid ${token.colorBorderSecondary}`,
               }}>
                 <Button
                   icon={<ArrowLeftOutlined />}
@@ -688,6 +1082,28 @@ const CourseDetailPage: React.FC = () => {
         onCancel={() => { setEditorOpen(false); setEditing(undefined); }}
         onSave={handleSaveModule}
       />
+
+      {isAdmin && (
+        <>
+          <CourseSettingsModal
+            open={settingsOpen}
+            course={course}
+            saving={saveCourseMut.isPending}
+            onCancel={() => setSettingsOpen(false)}
+            onSave={(values) => saveCourseMut.mutate(values)}
+          />
+          <QuizEditorModal
+            open={quizEditorOpen}
+            questions={quizQuestions}
+            passingScore={passingScore}
+            hasQuizLesson={sortedModules.some((m) => m.type === 'quiz')}
+            saving={saveCourseMut.isPending}
+            onCancel={() => setQuizEditorOpen(false)}
+            onSave={(assessment, score) =>
+              saveCourseMut.mutate({ assessment_json: assessment, passing_score: score })}
+          />
+        </>
+      )}
     </>
   );
 };
